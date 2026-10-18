@@ -11,7 +11,7 @@ class WorkerStartTests(unittest.TestCase):
     def launch(self, skill='work', root='Farm-Contract'):
         message = dispatch_message(item={'id': 'job', 'skill': skill, 'stage': 'contract-acceptance'},
             issue={'identifier': 'FARM-1579', 'url': 'https://example.test/issue'},
-            skill_path=ROOT/'skills'/skill/'SKILL.md', worktrees={
+            skill_path=ROOT/'skills'/'legacy'/skill/'SKILL.md', worktrees={
                 'Farm-Contract': '/owned/space 中文/Contract', 'Farm-Client': '/read-only/Client'},
             db_path='/private/db', runtime='codex', guidance='', budget={'lease_seconds': 2700, 'renew_minutes': 5},
             repo_root=ROOT, root_repository=root, write_repositories=[root] if root else [])
@@ -24,7 +24,7 @@ class WorkerStartTests(unittest.TestCase):
                 authority, payload = self.launch(skill)
                 reads = payload['startup']['read_together']
                 self.assertEqual(reads, [str(Path('/owned/space 中文/Contract')/'AGENTS.md'),
-                    str(ROOT/'skills'/skill/'SKILL.md'), str(ROOT/'references/worker-start.md')])
+                    str(ROOT/'skills'/'legacy'/skill/'SKILL.md'), str(ROOT/'references/legacy/worker-start.md')])
                 self.assertNotIn('/read-only/Client', json.dumps(reads))
                 self.assertEqual(payload['stage']['write_repositories'], ['Farm-Contract'])
                 self.assertIn('Fetch the live issue before acting', authority)
@@ -41,10 +41,10 @@ class WorkerStartTests(unittest.TestCase):
         self.assertNotIn('startup.read_together', authority)
 
     def test_guides_keep_failed_checks_and_frozen_consumer_evidence_separate(self):
-        startup=(ROOT/'references/worker-start.md').read_text(encoding='utf-8')
+        startup=(ROOT/'references/legacy/worker-start.md').read_text(encoding='utf-8')
         self.assertIn('compare its returned fingerprint with `context.fingerprint`', startup)
         self.assertIn('reload `issue-context --view resume` and revalidate', startup)
-        guide=(ROOT/'references/closeout-reuse.md').read_text(encoding='utf-8')
+        guide=(ROOT/'references/legacy/closeout-reuse.md').read_text(encoding='utf-8')
         for clause in ('before editing or running the Contract gates', 'Run all required Contract gates',
                        'actual required input changes do', 'Never disable hooks',
                        'does not\nrequire consumer generation'):

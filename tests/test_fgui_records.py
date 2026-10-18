@@ -22,7 +22,7 @@ class UiRecordTests(unittest.TestCase):
         self.root = Path(self.tmp.name).resolve()
         self.ledger = Ledger(self.root / "ledger.sqlite3"); self.addCleanup(self.ledger.close)
         self.ledger.observe_issue(issue()); self.ledger.ensure_session("ui-record", ISSUE, delegation=True)
-        self.item = self.ledger.create_work_item(issue_id=ISSUE, session_id="ui-record", skill="fgui")["id"]
+        self.item = self.ledger.create_work_item(issue_id=ISSUE, session_id="ui-record", skill="fgui", execution_contract='staged-v1')["id"]
         self.token = self.ledger.claim(self.item, worker_id="fixture")["token"]
         stage = self.root / "stage"; stage.mkdir()
         (stage / "One_fui.bytes").write_bytes(package_bytes())
@@ -63,7 +63,7 @@ class UiRecordTests(unittest.TestCase):
     def test_other_issue_and_worker_plan_cannot_create_export_proof(self):
         self.save(); self.ledger.observe_issue(issue(id=OTHER))
         self.ledger.ensure_session("foreign-record", OTHER, delegation=True)
-        foreign = self.ledger.create_work_item(issue_id=OTHER, session_id="foreign-record", skill="fgui")["id"]
+        foreign = self.ledger.create_work_item(issue_id=OTHER, session_id="foreign-record", skill="fgui", execution_contract='staged-v1')["id"]
         self.ledger.connection.execute("UPDATE work_items SET checkpoint=? WHERE id=?",
                                        (json.dumps({"plan": {"ui": {"receipt_id": self.identity}}}), foreign))
         with self.assertRaisesRegex(LedgerError, "exactly one"):

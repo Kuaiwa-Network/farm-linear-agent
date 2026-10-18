@@ -13,10 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def instructions(skill):
-    text = (ROOT / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+    folder = ROOT / 'skills' / 'legacy' / skill
+    text = (folder / "SKILL.md").read_text(encoding="utf-8")
     if skill == 'feature':
         assert '../work/code-stages.md' in text
-        text += (ROOT / 'skills/work/code-stages.md').read_text(encoding='utf-8')
+        text += (ROOT / 'skills/legacy/work/code-stages.md').read_text(encoding='utf-8')
     return " ".join(text.split())
 
 
@@ -24,7 +25,7 @@ class WorkflowJudgmentTests(unittest.TestCase):
     def launched_authority(self, skill):
         message = dispatch_message(
             item={"id": "item", "skill": skill}, issue={"identifier": "FARM-1", "url": "u"},
-            skill_path=ROOT / "skills" / skill / "SKILL.md", worktrees={}, db_path="/db",
+            skill_path=ROOT / "skills" / "legacy" / skill / "SKILL.md", worktrees={}, db_path="/db",
             runtime="codex", guidance="", budget={"lease_seconds": 1, "renew_minutes": 1})
         return message.split("\n\n", 1)[0]
 
@@ -95,7 +96,7 @@ class WorkflowJudgmentTests(unittest.TestCase):
         self.assertNotIn("always ask once", text)
         self.assertNotIn("Only after human confirmation", text)
         self.assertIn("The legacy code capability's E gate becomes this verified task join", instructions("work"))
-        templates = (ROOT / "references" / "comment-templates.md").read_text(encoding="utf-8")
+        templates = (ROOT / "references" / "legacy" / "comment-templates.md").read_text(encoding="utf-8")
         notice = templates.split("## feature UI needed", 1)[1].split("\n## ", 1)[0]
         self.assertIn("证据齐全时直接继续，不发确认通知", notice)
         self.assertIn("实际缺口", notice)

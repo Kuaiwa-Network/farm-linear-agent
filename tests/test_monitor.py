@@ -137,7 +137,7 @@ class PageTests(unittest.TestCase):
         self.assert_labelled("STATE", DISPLAY_STATES)
 
     def test_every_skill_has_a_label(self):
-        self.assert_labelled("SKILL", load_skills(Path(__file__).resolve().parents[1] / "skills"))
+        self.assert_labelled("SKILL", load_skills(Path(__file__).resolve().parents[1] / "skills", replay_legacy=True))
 
     def test_feature_reads_as_its_bot_label(self):
         """Phase B, Task 12: a feature job is labelled with the Bot label its card carries, Code (D18)."""
@@ -239,30 +239,32 @@ class PageTests(unittest.TestCase):
         self.assertIn("可用物理内存 2.00 GiB，需 8.00 GiB", rendered[6])
         self.assertIn("超过总预算 8.00 GiB", rendered[6])
 
-    def test_general_work_enables_presentation_tasks_without_standalone_profiles(self):
+    def test_general_work_describes_one_owner_with_optional_native_subagents(self):
         for enabled in (["chat", "work"], ["chat", "fix", "feature", "work"]):
             with self.subTest(enabled=enabled):
                 rows = self.capacity_rows({"enabled_skills": enabled, "max_workers": 4,
                                            "workers_used": 4, "unity_slots": 2, "server_slots": 3})
                 self.assertEqual(rows["工作流"]["pills"], [["任务 已启用", "pill info"], ["对话 已启用", "pill info"]])
                 self.assertIn("不按 Bot 标签分流", rows["工作流"]["text"])
-                self.assertEqual(rows["任务能力"]["pills"], [["UI 可委派", "pill info"], ["场景表现 可委派", "pill info"]])
+                self.assertEqual(rows["任务能力"]["pills"], [["主 worker 负责全程", "pill info"]])
                 self.assertIn("工具和审批", rows["任务能力"]["text"])
-                self.assertIn(["UI 未启用", "pill neutral"], rows["旧版独立配置"]["pills"])
-                self.assertIn("续接已有旧版工作", rows["旧版独立配置"]["text"])
+                self.assertIn("可自主使用原生 subagent", rows["任务能力"]["text"])
+                self.assertIn("负责整合与交付", rows["任务能力"]["text"])
+                if "fix" in enabled:
+                    self.assertIn("维护暂停时显式接续", rows["需迁移的旧配置"]["text"])
+                else:
+                    self.assertNotIn("需迁移的旧配置", rows)
                 self.assertIn("4/4 · 已满载", rows["worker 占用"]["text"])
                 self.assertIn("3 个槽位", rows["服务测试容量"]["text"])
 
-    def test_standalone_ui_and_scene_do_not_enable_general_presentation_tasks(self):
+    def test_retired_profiles_are_not_advertised_as_available(self):
         rows = self.capacity_rows({"enabled_skills": ["chat", "fix", "feature", "fgui", "scene", "future_skill"],
                                    "max_workers": 4, "workers_used": None, "unity_slots": 2})
-        self.assertEqual(rows["任务能力"]["pills"], [["UI 未启用", "pill neutral"], ["场景表现 未启用", "pill neutral"]])
-        self.assertIn("启用任务工作流", rows["任务能力"]["text"])
-        self.assertIn("按 Bot 标签选择旧版工作流", rows["工作流"]["text"])
-        self.assertEqual(rows["旧版独立配置"]["pills"],
-                         [["修改 已启用", "pill info"], ["Code 已启用", "pill info"], ["UI 已启用", "pill info"]])
-        self.assertEqual(rows["其他独立配置"]["pills"],
-                         [["场景表现 已启用", "pill info"], ["future_skill 已启用", "pill info"]])
+        self.assertEqual(rows["任务能力"]["pills"], [["任务未启用", "pill neutral"]])
+        self.assertIn("启用 work", rows["任务能力"]["text"])
+        self.assertIn("不能执行新的业务任务", rows["工作流"]["text"])
+        self.assertIn("拒绝启动这些旧配置", rows["需迁移的旧配置"]["text"])
+        self.assertIn("future_skill", rows["需迁移的旧配置"]["text"])
         self.assertIn("?/4 · 状态未知", rows["worker 占用"]["text"])
         self.assertNotIn("服务测试容量", rows)
 
@@ -820,6 +822,7 @@ class MonitorServerTests(unittest.TestCase):
         with patch("agent.monitor.build_status", side_effect=recording):
             self.request(path="/api/status")
         skills = load_skills(Path(__file__).resolve().parents[1] / "skills")
+        self.assertEqual(set(skills), {"chat", "work"})
         self.assertEqual(calls, [{name: skill.budget["renew_minutes"] * 60 for name, skill in skills.items()}])
 
     def test_unresponsive_stays_anchored_to_the_first_observed_failure(self):

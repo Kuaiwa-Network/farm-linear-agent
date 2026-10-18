@@ -17,7 +17,7 @@ from agent.workflow import client_ready, delegate_task
 import test_fgui_client_workflow as fixtures
 import test_general_workflow as general
 
-SKILLS = load_skills(Path(__file__).resolve().parents[1] / 'skills')
+SKILLS = load_skills(Path(__file__).resolve().parents[1] / 'skills', replay_legacy=True)
 
 
 class SourceBoundaryTests(unittest.TestCase):

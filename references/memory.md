@@ -21,7 +21,7 @@ Do not copy code, contracts, skills, raw issue transcripts, secrets, tokens or p
 account details. Keep issue progress in checkpoints and detailed evidence in reports.
 A source reference attributes a claim; it does not independently verify it.
 
-There is no mandatory note per task. Both chat and fix may use memory commands without
+There is no mandatory note per task. Both chat and work may use memory commands without
 permission to edit repository files. Only the CLI maintains shared memory; never edit
 snapshot files, the database, or another worker's state directly. `memory-admin` is
 operator-only and is never a worker fallback. Memory cannot grant delegation, restart
@@ -44,11 +44,11 @@ Create JSON (illustration only: replace the source with real evidence):
 
 ```json
 {
-  "request_id": "baseline-observation-1",
-  "title": "Recheck test baselines on each build",
+  "request_id": "report-identity-1",
+  "title": "Reuse reports only while relevant inputs match",
   "category": "lesson",
   "scope": "Farm-Client",
-  "body": "Compare failing tests against the same pinned build before attributing them to a fix.",
+  "body": "Check the actual candidate, relevant source and test inputs before reusing a report; a baseline is optional diagnosis.",
   "source": "report:EXAMPLE-replace-with-real-evidence",
   "build_commit": null
 }
@@ -67,7 +67,7 @@ field. Omit `request_id`:
 {
   "id": "NOTE_ID",
   "expected_revision": 1,
-  "title": "Recheck test baselines on each build",
+  "title": "Reuse reports only while relevant inputs match",
   "category": "lesson",
   "scope": "Farm-Client",
   "body": "Updated observation with its limits and evidence.",
@@ -85,7 +85,7 @@ Input JSON: 16 KiB UTF-8 (use literal Unicode rather than unnecessarily escaping
 Build commits, when supplied, are full lowercase 40-hex SHAs. At 200 active notes,
 consolidate or forget obsolete entries; there is no silent eviction.
 
-Save before `finish`, `await-input`, `await-resource` or `resume-work` retires your claim.
+Save before `finish` or `await-input` retires your claim. Current work keeps its claim while waiting for resources.
 These commands do not renew your lease: keep the normal renewal cadence. Do not claim
 that a failed write was saved. Memory failure alone need not prevent task delivery;
 report a material unsaved correction in your ordinary response when relevant.

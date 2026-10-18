@@ -265,7 +265,8 @@ class DockerServices:
 
 class ServerSlotPool:
     def __init__(self, ledger_factory, settings, *, host, root, state_dir, quiescent, admission,
-                 services=None, clock=time.time):
+                 services=None, clock=time.time, single_only=False):
+        self.single_only = single_only
         self.ledger = ledger_factory()
         self.settings = validate_settings(settings)
         self.host, self.root = host, Path(root).absolute()
@@ -361,7 +362,7 @@ class ServerSlotPool:
         if Maintenance(self.ledger).requested():
             return {"settled": settled, "granted": 0}
         for _ in range(self.settings["count"]):
-            pending = self.ledger.reservation_queue('server_slot')
+            pending = self.ledger.reservation_queue('server_slot', single_only=self.single_only)
             def waiting(request, blockers, **extra):
                 self.ledger.resource_wait_detail(request["reservation_id"],
                     {"observed_at": self.clock(), "blockers": blockers,
@@ -372,7 +373,15 @@ class ServerSlotPool:
             if not pending:
                 break
             request = pending[0]
-            if not self.quiescent(request["item_id"]):
+            from .execution import single, resource_ready
+            requesting_item = self.ledger.item(request['item_id'])
+            if single(requesting_item):
+                if (requesting_item['state'] != 'running' or not requesting_item['worker_pid']
+                        or requesting_item['lease_expires_at'] <= self.ledger.clock()
+                        or requesting_item['withdraw_deadline'] is not None):
+                    waiting(request, ['worker_unavailable'])
+                    break
+            elif not self.quiescent(request["item_id"]):
                 waiting(request, ["worker_teardown"])
                 break  # Preserve FIFO while the checkpointing attempt finishes exiting.
             if request["server_test_plan"] is None and self.ledger.replan_legacy_server_request(request["reservation_id"]):
@@ -385,6 +394,7 @@ class ServerSlotPool:
                 waiting(request, ["server_capacity"])
                 break
             reservation = self.admission.acquire(self.ledger, "server_slot", host=self.host, owner="server-pool",
+                                                  single_only=self.single_only,
                                                   exclude_resources=excluded, expected_reservation=request["reservation_id"])
             if reservation is None:
                 break
@@ -425,11 +435,20 @@ class ServerSlotPool:
                 _write_worker_file(directory / "server-resource.json", json.dumps(public), sync=True)
                 _write_worker_file(directory / "reservation.token", reservation["token"], mode=0o600, sync=True)
                 self.ledger.set_slot_state(slot, "batch_busy", parked_commit=lease["commit"])
-                self.ledger.resume(item_id, "isolated server services ready")
+                if single(self.ledger.item(item_id)):
+                    resource_ready(self.ledger, reservation)
+                else:
+                    self.ledger.resume(item_id, "isolated server services ready")
                 granted += 1
             except Exception as exc:
                 self._hold(slot, "server preparation failed: " + type(exc).__name__)
-                self.ledger.fail_queued(item_id, "server preparation failed; slot held for investigation")
+                if single(self.ledger.item(item_id)):
+                    with self.ledger._transaction():
+                        self.ledger.connection.execute("UPDATE work_items SET stage='resource-preparation-failed',updated_at=? "
+                            "WHERE id=? AND state='running'", (self.clock(), item_id))
+                        self.ledger._audit(item_id, 'resource_preparation_failed', type(exc).__name__)
+                else:
+                    self.ledger.fail_queued(item_id, "server preparation failed; slot held for investigation")
         return {"settled": settled, "granted": granted}
 
     def recover(self, slot, reason):

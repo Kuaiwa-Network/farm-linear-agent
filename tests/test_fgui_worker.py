@@ -18,7 +18,7 @@ from test_ledger import ISSUE, SESSION, issue
 from test_lark_cli import BLOCK, SECRET
 
 ROOT = Path(__file__).resolve().parents[1]
-SKILLS = load_skills(ROOT/"skills")
+SKILLS = load_skills(ROOT/"skills", replay_legacy=True)
 LARK = {"found": True, "version": "1.0.82", "required": None, "ok": True,
         "profile": {"name": "farmbot", "home": None, "exists": True, "other_profiles": 0,
                     "user_logins": 0, "master_key_file": False}}
@@ -51,7 +51,7 @@ class FguiScopeTests(unittest.TestCase):
         self.addCleanup(ledger.close)
         ledger.observe_issue(issue())
         ledger.ensure_session(SESSION, ISSUE, delegation=True)
-        item = ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fgui")
+        item = ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fgui", execution_contract='staged-v1')
         token = ledger.claim(item["id"], worker_id="ui-scope")["token"]
         authoring = replace(SKILLS["fgui"], writes=("farmgui",), resources=())
         with self.assertRaisesRegex(LedgerError, "not a fgui target"):
@@ -113,12 +113,12 @@ class FguiScopeTests(unittest.TestCase):
         work = " ".join(SKILLS["work"].skill_md.read_text(encoding="utf-8").split())
         self.assertIn("Pass the decision, baseline commit/controls/states, allowed changes", work)
         self.assertIn("preservation limits and checks into this task", work)
-        review = (ROOT / "skills/fgui/templates/visual-approval.md").read_text(encoding="utf-8")
+        review = (ROOT / "skills/legacy/fgui/templates/visual-approval.md").read_text(encoding="utf-8")
         for phrase in ("为什么需要或不需要像素对比", "参考图与渲染条件可比", "不让人例行选择验证方式",
                        "保持原样", "before image or source evidence",
                        "不作为自动调整源样式的依据", "仅确认视觉，暂不导出"):
             self.assertIn(phrase, review)
-        document = (ROOT / "skills/fgui/templates/ui-document.md").read_text(encoding="utf-8")
+        document = (ROOT / "skills/legacy/fgui/templates/ui-document.md").read_text(encoding="utf-8")
         for phrase in ("Chosen validation checks", "whether pixel comparison is needed", "before/after evidence",
                        "optional checks skipped with reasons"):
             self.assertIn(phrase, document)
@@ -128,6 +128,8 @@ class FguiToolchainTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="UI doctor ")
         self.addCleanup(self.tmp.cleanup)
+        # Preserve diagnostics for archived profiles without exposing them in live intake.
+        self.enterContext(patch('agent.doctor.load_skills', return_value=SKILLS))
         self.config = Config("doctor-only", "doctor-only", "doctor-only", runtime="codex",
                              local_root=Path(self.tmp.name)/"empty", enabled_skills=["chat", "fgui"], lark_cli=BLOCK)
         self.commands = []
@@ -159,7 +161,7 @@ class FguiToolchainTests(unittest.TestCase):
         imaging = next(argv for argv, _ in self.commands if "-c" in argv)
         self.assertEqual(imaging[0:3], [sys.executable, "-I", "-B"])
         self.assertFalse(Paths(self.config).ledger.exists())
-        self.assertEqual({f["code"] for f in report["findings"]}, {"ledger_unreadable"})
+        self.assertEqual({f["code"] for f in report["findings"]}, {"ledger_unreadable", "retired_execution_profiles"})
         self.assertNotIn(SECRET, json.dumps(report))
         self.assertNotIn(BLOCK["app_id"], json.dumps(report))
 

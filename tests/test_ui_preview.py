@@ -71,7 +71,7 @@ class UiPreviewTests(unittest.TestCase):
         self.assertEqual(json.loads((self.output/"report.json").read_text(encoding="utf-8")), report)
 
     def test_native_cli_uses_the_selected_python_and_unicode_paths(self):
-        entry = Path(__file__).resolve().parents[1]/"skills/fgui/tools/preview.py"
+        entry = Path(__file__).resolve().parents[1]/"skills/legacy/fgui/tools/preview.py"
         run = subprocess.run([sys.executable, "-B", str(entry), "--project-root", str(self.root),
                               "--package", "One", "--component", "view", "--output-root", str(self.output)],
                              capture_output=True, text=True, encoding="utf-8", timeout=30)
@@ -82,7 +82,7 @@ class UiPreviewTests(unittest.TestCase):
         self.assertNotIn(str(self.private), run.stdout)
 
     def test_native_cli_gap_exit_is_distinct_from_refusal_and_success(self):
-        entry = Path(__file__).resolve().parents[1]/"skills/fgui/tools/preview.py"
+        entry = Path(__file__).resolve().parents[1]/"skills/legacy/fgui/tools/preview.py"
         args = [sys.executable, "-B", str(entry), "--project-root", str(self.root), "--package", "One",
                 "--component", "view", "--output-root", str(self.output)]
         (self.root/"assets/One/Res/red.png").write_bytes(b"unhydrated LFS pointer")
@@ -94,7 +94,7 @@ class UiPreviewTests(unittest.TestCase):
         self.assertNotIn(str(self.private), refused.stderr)
 
     def test_missing_prepared_dependency_is_a_sanitized_host_gap(self):
-        entry = Path(__file__).resolve().parents[1]/"skills/fgui/tools/preview.py"
+        entry = Path(__file__).resolve().parents[1]/"skills/legacy/fgui/tools/preview.py"
         run = subprocess.run([sys.executable, "-I", "-S", "-B", str(entry), "--help"],
                              capture_output=True, text=True, encoding="utf-8", timeout=30)
         self.assertEqual(run.returncode, 1)

@@ -19,7 +19,7 @@ from agent.skills import load_skills
 from agent.slots import SlotPool
 from test_ledger import issue, PIN
 
-SKILLS = load_skills(Path(__file__).resolve().parents[1] / "skills")
+SKILLS = load_skills(Path(__file__).resolve().parents[1] / "skills", replay_legacy=True)
 IMAGES = {role: "sha256:" + str(index) * 64 for index, role in enumerate(("mongo", "redis", "etcd", "nats", "proxy"), 1)}
 SETTINGS = {"count": 3, "docker": str(Path(tempfile.gettempdir()).absolute() / "docker"), "images": IMAGES}
 
@@ -75,13 +75,15 @@ class ServerPoolFixture(unittest.TestCase):
         self.addCleanup(pool.close)
         return pool
 
-    def request(self, commit="a" * 40, *, root="farm-hive", mode="batch", skill="fix", reserve=True, plan=None):
+    def request(self, commit="a" * 40, *, root="farm-hive", mode="batch", skill="fix", reserve=True, plan=None,
+                execution_contract='staged-v1'):
         self.sequence += 1
         number = self.sequence
         identity = str(uuid4())
         self.ledger.observe_issue(issue(id=identity, identifier=f"FARM-{number}", branch_name=f"farmbot/farm-{number}"))
         self.ledger.ensure_session(identity, identity, delegation=True)
-        item = self.ledger.create_work_item(issue_id=identity, session_id=identity, skill=skill, target=PIN)
+        item = self.ledger.create_work_item(issue_id=identity, session_id=identity, skill=skill, target=PIN,
+                                            execution_contract=execution_contract)
         self.ledger.connection.execute("UPDATE work_items SET root_repo=? WHERE id=?", (root, item["id"]))
         if not reserve:
             return item["id"]
@@ -312,7 +314,7 @@ class PoolTests(ServerPoolFixture):
         self.pool.tick()
         launcher = RecordingLauncher(self.root.parent / "runs")
         trees = FakeWorktrees(self.root.parent / "worktrees")
-        scheduler = Scheduler(self.ledger, launcher, SKILLS, trees, skill_root=Path(__file__).resolve().parents[1] / "skills",
+        scheduler = Scheduler(self.ledger, launcher, SKILLS, trees, replay_legacy=True, skill_root=Path(__file__).resolve().parents[1] / "skills",
                               db_path=self.db, runtime_name="codex", host="test", server_slots_root=self.root)
         with patch("agent.server_slots.time.time", return_value=self.now), patch.object(
                 trees, "verification_commit", create=True, return_value="a" * 40) as verify:
@@ -341,7 +343,7 @@ class PoolTests(ServerPoolFixture):
                     self.ledger.set_slot_state(reservation["resource"], "held")
                 launcher, trees = FakeLauncher(self.root.parent / "runs"), FakeWorktrees(self.root.parent / "worktrees")
                 scheduler = Scheduler(self.ledger, launcher, SKILLS, trees,
-                                      skill_root=Path(__file__).resolve().parents[1] / "skills", db_path=self.db,
+                                      replay_legacy=True, skill_root=Path(__file__).resolve().parents[1] / "skills", db_path=self.db,
                                       runtime_name="codex", host="test", server_slots_root=self.root)
                 self.assertIsNone(scheduler.launch(self.ledger.item(item)))
                 self.assertEqual((trees.added, trees.reads, launcher.spawned), ([], [], []))
@@ -362,7 +364,7 @@ class PoolTests(ServerPoolFixture):
 
         launcher, trees = FakeLauncher(self.root.parent / "runs"), HeldMeanwhile(self.root.parent / "worktrees")
         scheduler = Scheduler(self.ledger, launcher, SKILLS, trees,
-                              skill_root=Path(__file__).resolve().parents[1] / "skills", db_path=self.db,
+                              replay_legacy=True, skill_root=Path(__file__).resolve().parents[1] / "skills", db_path=self.db,
                               runtime_name="codex", host="test", server_slots_root=self.root)
         self.assertIsNone(scheduler.launch(self.ledger.item(item)))
         self.assertTrue(trees.added)
@@ -377,7 +379,7 @@ class PoolTests(ServerPoolFixture):
                     item = self.request(skill=skill, reserve=False)
                     launcher = FakeLauncher(self.root.parent / "runs")
                     scheduler = Scheduler(self.ledger, launcher, SKILLS, FakeWorktrees(self.root.parent / "worktrees"),
-                        skill_root=Path(__file__).resolve().parents[1] / "skills", db_path=self.db,
+                        replay_legacy=True, skill_root=Path(__file__).resolve().parents[1] / "skills", db_path=self.db,
                         runtime_name="fake", host="test", server_slots_root=self.root if configured else None)
                     scheduler.launch(self.ledger.item(item))
                     payload = json.loads(launcher.spawned[-1][1].split("\n\n", 1)[1])

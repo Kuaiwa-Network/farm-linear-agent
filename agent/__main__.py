@@ -14,6 +14,7 @@ from .memory import prune_snapshots
 from .router import CONVERSATION_SKILLS, WRITE_SKILLS, continuation_refusal
 from .stages import current_root, write_repositories
 from .withdrawal import NOTICE_REASONS, notice as withdrawal_notice, question_withdrawn
+from .execution import single, skill_for
 
 
 def parser():
@@ -69,6 +70,7 @@ def parser():
     context.add_argument("--view", choices=["full", "resume"], default="full")
     cmd("pop-inbox", "--item", token=True)
     dependency = cmd("prepare-go-dependencies", "--item", "--module", "--commit", token=True)
+    dependency.add_argument('--repo', help='repository for a single-worker dependency request')
     dependency.add_argument("--retry", action="store_true", help="retry a failed/cancelled request after host correction; at most three")
     cmd("go-dependencies", "--item", "--request-id", token=True)
     cmd("tasks", "--item")
@@ -123,6 +125,12 @@ def parser():
     repair = cmd("request-repair", "--item", "--summary-file", token=True)
     repair.add_argument("--message-id", type=int, required=True)
     resource = cmd("await-resource", "--item", "--resource", token=True)
+    cmd('resource-status', '--item', token=True)
+    cmd('cancel-resource', '--item', '--reservation', token=True)
+    cmd('unity-tools', '--item', token=True)
+    cmd('unity-read', '--item', '--uri', token=True)
+    cmd('unity-tool', '--item', '--name', '--input', token=True)
+    cmd('publish-ui', '--item', '--packages', token=True)
     resource.add_argument('--checkpoint', help='save this checkpoint before requesting the resource')
     resource.add_argument("--server-test-plan", help="JSON file with exact packages, tests and race selection")
     resource.add_argument("--server-scope-reason", help="concrete coverage reason for broader or named-only server checks")
@@ -242,6 +250,8 @@ def conversation_request(ledger, item_id, issue, running, *, start):
     if context["coordination"]["skill"] != "chat":
         return None, None
     work = context["resumable_work"]
+    if work is not None and set(running) <= {'chat', 'work'} and not single(ledger.item(work['id'])):
+        return None, 'historical staged work requires settled host adoption into single-worker-v1 before continuation'
     if work is not None and work["skill"] in running:
         return work["skill"], None
     children = bot_children(issue.get("label_groups"))
@@ -359,7 +369,7 @@ def verify_late_prs(ledger, args, token, progress):
     if Path(args.db).resolve() != paths.ledger.resolve():
         raise LedgerError("publication reconciliation must use the configured host ledger")
     item = ledger.item(args.item)
-    skill = load_skills(ROOT / 'skills').get(item['skill'])
+    skill = skill_for(item, load_skills(ROOT / 'skills', replay_legacy=not single(item)).get(item['skill']))
     session = ledger.session(item['session_id']) or {}
     if item['skill'] not in WRITE_SKILLS or not skill or not session.get('delegation'):
         raise LedgerError("only a delegated write worker may reconcile published PRs")
@@ -496,6 +506,27 @@ def post_notice(ledger, api, notice):
 
 def run(args, ledger, api_factory):
     c = args.command
+    # Old commands remain available to explicitly retained historical jobs;
+    # they cannot recreate stages/subtasks or semantic gates on a new owner.
+    from .execution import RETIRED_COMMANDS
+    if c in RETIRED_COMMANDS and single(ledger.item(args.item)):
+        raise LedgerError('this staged command is retired for single-worker jobs; continue in the current worker')
+    if c in ('resource-status', 'unity-tools', 'unity-read', 'unity-tool'):
+        from . import worker_resources
+        function = worker_resources.status if c == 'resource-status' else worker_resources.unity
+        return function(args, ledger, load_config(secure_permissions=False), resolve_token(args))
+    if c == 'cancel-resource':
+        from .execution import cancel_queued_resource
+        return cancel_queued_resource(ledger, args.item, resolve_token(args), args.reservation)
+    if c == 'publish-ui':
+        from .worker_resources import context
+        from .worker_ui import export
+        from .fgui_workflow import read_packages
+        token = resolve_token(args)
+        config = load_config(secure_permissions=False)
+        _, paths = context(args, ledger, config, token)
+        return export(ledger, args.item, token, config, api_factory,
+                      read_packages(args.packages, paths.runs / args.item))
     if c == "document-reader-status":
         from .lark_cli import SKILLS
         from .lark_diagnostics import profile_status
@@ -524,7 +555,8 @@ def run(args, ledger, api_factory):
         if c == 'go-dependencies':
             return status(ledger, config, args.item, args.request_id)
         trees = JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger)
-        return request(ledger, trees, config, args.item, token, args.module, args.commit, retry=args.retry)
+        return request(ledger, trees, config, args.item, token, args.module, args.commit, retry=args.retry,
+                       repo=getattr(args, 'repo', None))
     if c == "memory-list":
         return ledger.memory_list(args.item, resolve_token(args))
     if c == 'shared-test-repairs':
@@ -624,7 +656,7 @@ def run(args, ledger, api_factory):
             from .config import ROOT
             from .skills import load_skills
             item = ledger.item(args.item)
-            skill = load_skills(ROOT / "skills").get(item["skill"])
+            skill = skill_for(item, load_skills(ROOT / "skills", replay_legacy=not single(item)).get(item["skill"]))
             published = progress.get("published_prs")
             if (isinstance(published, list) and all(isinstance(url, str) for url in published)
                     and skill is not None):
@@ -648,7 +680,7 @@ def run(args, ledger, api_factory):
         item = ledger.item(args.item)
         refuse_withdrawn(item)
         # The item's own manifest decides its stages: any staged skill, to a repository in its writes.
-        skill = load_skills(ROOT / "skills").get(item["skill"])
+        skill = skill_for(item, load_skills(ROOT / "skills", replay_legacy=not single(item)).get(item["skill"]))
         if skill is None or not skill.staged:
             raise LedgerError(f"repository handoff requires a staged skill; {item['skill']} is not staged on this host")
         if args.to not in skill.writes:
@@ -859,7 +891,8 @@ def run(args, ledger, api_factory):
         from .config import ROOT
         from .skills import load_skills
         from .fgui_workflow import UiWorkflow, read_packages
-        skill = load_skills(ROOT / "skills").get(ledger.item(args.item)["skill"])
+        item = ledger.item(args.item)
+        skill = load_skills(ROOT / "skills", replay_legacy=not single(item)).get(item["skill"])
         source_stage = (c in ('review-ui', 'export-ui') or c == 'verify-ui-source'
                         and ledger.item(args.item)['root_repo'] in (None, 'farmgui'))
         workflow = UiWorkflow(ledger, args.item, token, config, skill, api_factory,
@@ -905,9 +938,9 @@ def run(args, ledger, api_factory):
             raise LedgerError("preview upload must use the configured host ledger")
         internal = item.get("parent_id") and "work" in (config.enabled_skills or [])
         scene = internal and item["skill"] == "scene" and item["root_repo"] in (None, "Farm-Client")
-        if not scene and (item["skill"] != "fgui" or item["root_repo"] not in (None, "farmgui")):
+        if not single(item) and not scene and (item["skill"] != "fgui" or item["root_repo"] not in (None, "farmgui")):
             raise LedgerError("preview upload requires this job's farmgui authoring stage")
-        if not internal and "fgui" not in (config.enabled_skills or []):
+        if not single(item) and not internal and "fgui" not in (config.enabled_skills or []):
             raise LedgerError("preview upload requires explicit fgui enablement on this host")
         image = read_image(args.file, paths.runs / args.item)
         ledger.renew(args.item, token)
@@ -924,7 +957,7 @@ def run(args, ledger, api_factory):
         keepalive()
         result = api.upload_image(image, keepalive=keepalive)
         keepalive()
-        if scene:
+        if scene or single(item):
             with ledger._transaction():
                 ledger._owned(args.item, token)
                 ledger._audit(args.item, "scene_preview_uploaded", details=result)
@@ -975,8 +1008,8 @@ def run(args, ledger, api_factory):
         paths = Paths(config)
         if Path(args.db).resolve() != paths.ledger.resolve():
             raise LedgerError("publication must use the configured host ledger")
-        skills = load_skills(ROOT / 'skills')
-        skill = skills.get(item['skill'])
+        skills = load_skills(ROOT / 'skills', replay_legacy=not single(item))
+        skill = skill_for(item, skills.get(item['skill']))
         session = ledger.session(item['session_id']) or {}
         if (item['skill'] not in WRITE_SKILLS or not skill or args.repo not in write_repositories(item, skill)
                 or not session.get('delegation')):
@@ -1006,7 +1039,7 @@ def run(args, ledger, api_factory):
                 verification_record(workflow, 'fgui_guards_complete', 'guards_sha256', receipt, ui_scope, installed)
             result = PublicationVerifier(trees, issue_prefix=config.issue_prefix).verify(
                 args.repo, args.item, issue['identifier'], suffix_roles=skill.initial_root is not None,
-                require_main=ui_scope is None)
+                require_main=ui_scope is None and not single(item))
             if ui_scope is not None:
                 # Fresh UI scope already verifies the exact certified candidate
                 # and its qualified base's ancestry of actual remote main.
@@ -1055,7 +1088,10 @@ def run(args, ledger, api_factory):
         item = ledger.item(args.item)
         refuse_withdrawn(item)
         # The item's own manifest decides what it may wait for (P11), as it decides handoff-repository's stages.
-        skill = load_skills(ROOT / "skills").get(item["skill"])
+        if single(item):
+            from .worker_resources import request
+            return request(args, ledger, load_config(secure_permissions=False), token)
+        skill = skill_for(item, load_skills(ROOT / "skills", replay_legacy=not single(item)).get(item["skill"]))
         if skill is None:
             raise LedgerError(f"a resource request requires the item's skill; {item['skill']} is not loaded here")
         require_listed_resource(skill, args.resource)
@@ -1259,7 +1295,7 @@ def run(args, ledger, api_factory):
         from .config import ROOT
         from .skills import load_skills
         from .withdrawal import grace_seconds
-        grace = grace_seconds(load_skills(ROOT / "skills").get(item["skill"]))
+        grace = grace_seconds(load_skills(ROOT / "skills", replay_legacy=not single(item)).get(item["skill"]))
         view, reason = ledger.withdraw(args.item, token, delegated=delegated, closed=closed, read_at=read_at,
                                        grace_seconds=grace)
         posted = post_closing_notice(ledger, lambda: api, view, reason) if view["state"] == "cancelled" else False
@@ -1289,7 +1325,7 @@ def run(args, ledger, api_factory):
             return {'input_valid': True, 'completion_checked': False,
                     'maintenance_requested': item['maintenance_requested'],
                     'next': 'Complete live gates and confirmed delivery, then run finish without --check-input.'}
-        if item['skill'] == 'work' and args.outcome == 'delivered':
+        if item['skill'] == 'work' and args.outcome == 'delivered' and not single(item):
             from .presentation_artifacts import verify_parent_head
             from .workflow import task_views
             if any((t.get('evidence') or {}).get('ui_source_delivery_id') for t in task_views(ledger, args.item)):
@@ -1308,7 +1344,7 @@ def run(args, ledger, api_factory):
             config = load_config(secure_permissions=False)
             if Path(args.db).resolve() != Paths(config).ledger.resolve():
                 raise LedgerError("UI delivery must use the configured host ledger")
-            workflow = UiWorkflow(ledger, args.item, token, config, load_skills(ROOT / "skills").get("fgui"),
+            workflow = UiWorkflow(ledger, args.item, token, config, load_skills(ROOT / "skills", replay_legacy=True).get("fgui"),
                                   api_factory, stage='farmgui' if item['root_repo'] in (None, 'farmgui') else 'Farm-Client')
             from .presentation_contract import source_only
             if item.get('parent_id') and (source_only(item) or evidence.get('source_only') is True):

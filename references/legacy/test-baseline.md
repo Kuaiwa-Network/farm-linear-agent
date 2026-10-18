@@ -51,7 +51,7 @@ memory and a worker seat before switching/preparing and resuming candidate verif
 test jobs and complete evidence remain mandatory. The priority expires if another reservation uses that slot;
 it cannot be chained from the candidate. A failed settlement does not grant access to a held Editor.
 For a diagnosed descendant repair, use `--repair-candidate-reservation` as described
-in [the worker CLI](worker-cli.md#continuing-a-diagnosed-client-repair). Preserve the
+in [the worker CLI](../worker-cli.md#continuing-a-diagnosed-client-repair). Preserve the
 original baseline and failed full pair. Test-fixture-only causal repairs can use
 the explicit retained-full plus fresh-focused comparison, never a relabeled full pass.
 

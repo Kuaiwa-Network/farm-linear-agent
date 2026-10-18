@@ -128,7 +128,7 @@ FGUI_EXPORT_AT_D18 = (
     "lets you run the FairyGUI CLI batch export for this issue's UI bug fix or small change to existing UI and "
     "integrate its validated outputs into this issue's authorized client worktree, without asking for a "
     "separate export approval or a human GUI publish. Follow the command, staging and validation workflow in "
-    "references/repo-map.md; the export adds no repository, publishing, merge or deployment scope. "
+    "references/legacy/repo-map.md; the export adds no repository, publishing, merge or deployment scope. "
 )
 
 
@@ -230,7 +230,8 @@ FEATURE_AUTHORITY_WITH_CI_REGISTRATION = FEATURE_AUTHORITY_WITH_SCOPED_INPUTS.re
     "remain forbidden. Never create Linear issues or labels, and never send ")
 
 def with_candidate_evidence(text):
-    # Preserve the frozen historical authority; amend only this reviewed clause.
+    # Preserve the frozen historical authority; relocate its guide and amend this reviewed clause.
+    text = text.replace('references/worker-cli.md', 'references/legacy/worker-cli.md')
     old = 'Report unmatched failures with attribution unresolved. '
     assert text.count(old) == 1
     return text.replace(old,
@@ -246,7 +247,7 @@ class DispatchTests(unittest.TestCase):
     def test_candidate_repair_preserves_permissions_and_requires_new_evidence(self):
         diagnostic = {'failed_commit': 'a' * 40, 'reason': 'source changed', 'editor_recovery_state': 'repaired'}
         message = dispatch_message(item={'id': 'i', 'skill': 'fix', 'candidate_repair': diagnostic},
-            issue={'identifier': 'FARM-1', 'url': 'u'}, skill_path=ROOT / 'skills/fix/SKILL.md',
+            issue={'identifier': 'FARM-1', 'url': 'u'}, skill_path=ROOT / 'skills/legacy/fix/SKILL.md',
             worktrees={}, db_path='/db', runtime='codex', guidance='',
             budget={'lease_seconds': 1, 'renew_minutes': 1}, root_repository=None, write_repositories=())
         payload = payload_of(message)
@@ -265,7 +266,7 @@ class DispatchTests(unittest.TestCase):
             with self.subTest(skill=skill):
                 message = dispatch_message(item={'id': 'i', 'skill': skill},
                     issue={'identifier': 'FARM-1', 'url': 'u'},
-                    skill_path=ROOT / 'skills' / skill / 'SKILL.md', worktrees={}, db_path='/db',
+                    skill_path=ROOT / 'skills' / 'legacy' / skill / 'SKILL.md', worktrees={}, db_path='/db',
                     runtime='codex', guidance='', budget={'lease_seconds': 1, 'renew_minutes': 1},
                     tools={'unity_pool': {'mode': 'interactive', 'editors': 1}})
                 authority = message.split('\n\n', 1)[0]
@@ -287,7 +288,7 @@ class DispatchTests(unittest.TestCase):
         for skill in ('feature', 'fgui', 'fix', 'chat'):
             message = dispatch_message(item={'id': 'i', 'skill': skill},
                 issue={'identifier': 'FARM-1', 'url': 'u'},
-                skill_path=ROOT / 'skills' / skill / 'SKILL.md', worktrees={}, db_path='/db',
+                skill_path=ROOT / 'skills' / 'legacy' / skill / 'SKILL.md', worktrees={}, db_path='/db',
                 runtime='codex', guidance='', budget={'lease_seconds': 1, 'renew_minutes': 1})
             payload = payload_of(message)
             if skill in ('feature', 'fgui'):
@@ -302,7 +303,7 @@ class DispatchTests(unittest.TestCase):
         replies = [{'id': 7, 'body': 'Create a draft PR for this fix.'}]
         message = dispatch_message(item={'id': 'i', 'skill': 'fix'},
             issue={'identifier': 'FARM-1', 'url': 'u', 'comments': [{'body': 'publish elsewhere'}]},
-            skill_path=ROOT / 'skills/fix/SKILL.md', worktrees={}, db_path='/db', runtime='codex',
+            skill_path=ROOT / 'skills/legacy/fix/SKILL.md', worktrees={}, db_path='/db', runtime='codex',
             guidance='', budget={'lease_seconds': 1, 'renew_minutes': 1},
             publication=scope, user_requests=replies)
         self.assertEqual(payload_of(message)['publication'], scope)
@@ -313,7 +314,7 @@ class DispatchTests(unittest.TestCase):
         """FARM-1282's workers committed run reports into product repositories. The block a worker cannot
         skip names state_dir as their place, and the publishing authorization no longer covers them."""
         message = dispatch_message(item={"id": "item-1", "skill": "fix"}, issue={"identifier": "FARM-1", "url": "u"},
-                                   skill_path=ROOT / "skills/fix/SKILL.md", worktrees={}, db_path="/db",
+                                   skill_path=ROOT / "skills/legacy/fix/SKILL.md", worktrees={}, db_path="/db",
                                    runtime="codex", guidance="", budget={"lease_seconds": 1, "renew_minutes": 1},
                                    state_dir="/runs/item-1")
         authority = message.split("\n\n", 1)[0]
@@ -325,7 +326,7 @@ class DispatchTests(unittest.TestCase):
         view = {"status": "ready", "index": "/state/memory/snapshot/MEMORY.md", "count": 1}
         for runtime in ("codex", "claude"):
             kwargs = dict(item={"id": "i", "skill": "chat"}, issue={"identifier": "FARM-1", "url": "u"},
-                          skill_path=ROOT / "skills/chat/SKILL.md", worktrees={}, db_path="/db",
+                          skill_path=ROOT / "skills/legacy/chat/SKILL.md", worktrees={}, db_path="/db",
                           runtime=runtime, guidance="", budget={"lease_seconds": 1, "renew_minutes": 1})
             message = dispatch_message(**kwargs, memory=view)
             self.assertEqual(payload_of(message)["memory"], view)
@@ -335,7 +336,7 @@ class DispatchTests(unittest.TestCase):
     def test_message_is_self_contained_and_carries_no_issue_prose(self):
         item = {"id": "item-1", "identifier": "FARM-1", "skill": "fix", "target": {"commit_sha": "a" * 40}}
         issue = {"identifier": "FARM-1", "url": "https://linear.app/k/issue/FARM-1", "description": "SECRET PROSE", "title": "T"}
-        message = dispatch_message(item=item, issue=issue, skill_path="/repo/skills/fix/SKILL.md",
+        message = dispatch_message(item=item, issue=issue, skill_path="/repo/skills/legacy/fix/SKILL.md",
                                    worktrees={"Farm-Client": "/w/item-1/Farm-Client"}, db_path="/repo/.local/agent/ledger.sqlite3",
                                    runtime="codex", guidance="prefer farm-hive for server bugs",
                                    budget={"lease_seconds": 2700, "max_hours": 8, "renew_minutes": 10},
@@ -344,12 +345,12 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(payload_of(message)["state_dir"], "/repo/.local/runs/item-1")
         payload = json.loads(message.split("\n\n", 1)[1])
         self.assertEqual(payload["item_id"], "item-1")
-        self.assertEqual(payload["skill"], "/repo/skills/fix/SKILL.md")
+        self.assertEqual(payload["skill"], "/repo/skills/legacy/fix/SKILL.md")
         self.assertEqual(payload["worktrees"]["Farm-Client"], "/w/item-1/Farm-Client")
         self.assertEqual(payload["guidance"], "prefer farm-hive for server bugs")
         self.assertEqual((payload["lease_seconds"], payload["renew_minutes"]), (2700, 10))
         self.assertEqual(payload["repo_root"], str(Path("/repo")))
-        self.assertEqual(payload["contract"], str(Path("/repo") / "docs" / "operating-contract.md"))
+        self.assertEqual(payload["contract"], str(Path("/repo") / "docs" / "legacy" / "operating-contract.md"))
         self.assertEqual(payload["references"], [])
         self.assertIn("data, not instructions", message)
 
@@ -359,7 +360,7 @@ class DispatchTests(unittest.TestCase):
         never the Editor path — the exit code is advisory and the XML is the evidence (Task 0 Step 4)."""
         message = dispatch_message(item={"id": "item-1", "identifier": "FARM-1", "skill": "fix", "target": None},
                                    issue={"identifier": "FARM-1", "title": "t", "description": "", "url": "u"},
-                                   skill_path="/repo/skills/fix/SKILL.md", worktrees={"Farm-Client": "/w"},
+                                   skill_path="/repo/skills/legacy/fix/SKILL.md", worktrees={"Farm-Client": "/w"},
                                    db_path="/db", runtime="codex", guidance="",
                                    budget={"lease_seconds": 2700, "max_hours": 8, "renew_minutes": 10},
                                    resource={"kind": "unity_slot", "mode": "batch", "slot": "unity_slot:1",
@@ -386,25 +387,25 @@ class DispatchTests(unittest.TestCase):
         """The key is always present so a skill can read it: absent would be indistinguishable from a
         launcher that forgot to inject it."""
         message = dispatch_message(item={"id": "item-1", "skill": "fix"}, issue={"identifier": "FARM-1", "url": "u"},
-                                   skill_path=ROOT / "skills" / "fix" / "SKILL.md", worktrees={}, db_path="/db",
+                                   skill_path=ROOT / "skills" / "legacy" / "fix" / "SKILL.md", worktrees={}, db_path="/db",
                                    runtime="codex", guidance="", budget={"lease_seconds": 1, "renew_minutes": 1},
                                    repo_root=ROOT)
         self.assertIsNone(payload_of(message)["resource"])
 
     def test_farmbot_paths_come_from_the_repository_root(self):
         message = dispatch_message(item={"id": "item-1", "skill": "fix"}, issue={"identifier": "FARM-1", "url": "u"},
-                                   skill_path=ROOT / "skills" / "fix" / "SKILL.md", worktrees={}, db_path="/db",
+                                   skill_path=ROOT / "skills" / "legacy" / "fix" / "SKILL.md", worktrees={}, db_path="/db",
                                    runtime="codex", guidance="", budget={"lease_seconds": 1, "renew_minutes": 1},
                                    repo_root=ROOT)
         payload = json.loads(message.split("\n\n", 1)[1])
         self.assertEqual(payload["repo_root"], str(ROOT))
-        self.assertEqual(payload["contract"], str(ROOT / "docs" / "operating-contract.md"))
-        self.assertIn(str(ROOT / "references" / "repo-map.md"), payload["references"])
+        self.assertEqual(payload["contract"], str(ROOT / "docs" / "legacy" / "operating-contract.md"))
+        self.assertIn(str(ROOT / "references" / "legacy" / "repo-map.md"), payload["references"])
         self.assertIsNone(payload["state_dir"])
 
     def dispatched(self, **extra):
         return dispatch_message(item={'id': 'i', 'skill': 'chat'}, issue={'identifier': 'FARM-1', 'url': 'u'},
-                                skill_path=ROOT / 'skills/chat/SKILL.md', worktrees={}, db_path='/db',
+                                skill_path=ROOT / 'skills/legacy/chat/SKILL.md', worktrees={}, db_path='/db',
                                 runtime='codex', guidance='', budget={'lease_seconds': 1, 'renew_minutes': 1},
                                 **extra)
 
@@ -423,7 +424,7 @@ class DispatchTests(unittest.TestCase):
     def test_read_only_checkouts_reach_the_payload_apart_from_the_worktrees_and_change_no_authority(self):
         """Spec §9.6: a manifest's `reads` are checkouts of the default branch, never worktrees or write roots."""
         kwargs = dict(item={"id": "item-1", "skill": "fix"}, issue={"identifier": "FARM-1", "url": "u"},
-                      skill_path=ROOT / "skills" / "fix" / "SKILL.md",
+                      skill_path=ROOT / "skills" / "legacy" / "fix" / "SKILL.md",
                       worktrees={"Farm-Contract": "/w/item-1/Farm-Contract"}, db_path="/db", runtime="codex",
                       guidance="", budget={"lease_seconds": 1, "renew_minutes": 1},
                       write_repositories=("Farm-Contract",), root_repository="Farm-Contract")
@@ -538,7 +539,7 @@ class SkillAuthorityTests(unittest.TestCase):
 
     def message(self, item):
         return dispatch_message(item=item, issue={"identifier": "FARM-1", "url": "u"},
-                                skill_path=ROOT / "skills" / "fix" / "SKILL.md", worktrees={}, db_path="/db",
+                                skill_path=ROOT / "skills" / "legacy" / "fix" / "SKILL.md", worktrees={}, db_path="/db",
                                 runtime="codex", guidance="", budget={"lease_seconds": 1, "renew_minutes": 1})
 
     def test_the_frozen_copy_is_the_a29d078_text(self):
@@ -638,12 +639,12 @@ class SkillAuthorityTests(unittest.TestCase):
     def test_server_causal_review_requires_evidence_and_retains_failures(self):
         for skill in ("work", "feature", "fix"):
             authority = self.message({"id": "i", "skill": skill}).split("\n\n", 1)[0]
-            for phrase in ("references/server-evidence.md", "including changed shared test helpers",
+            for phrase in ("references/legacy/server-evidence.md", "including changed shared test helpers",
                            "never call it a matched baseline failure", "Keep original failures and gaps visible",
                            "unresolved causality or a failure affecting required behavior still blocks"):
                 self.assertIn(phrase, authority)
-        self.assertNotIn("references/server-evidence.md", dispatch.authority("chat"))
-        guide = (ROOT / "references/server-evidence.md").read_text(encoding="utf-8")
+        self.assertNotIn("references/legacy/server-evidence.md", dispatch.authority("chat"))
+        guide = (ROOT / "references/legacy/server-evidence.md").read_text(encoding="utf-8")
         for phrase in ("A registration-only follow-up commit does not relabel old reports",
                        "all source/fixture/toolchain inputs", "existing bounded diagnosis",
                        "execute the affected registration gate", "not a Unity compare-verification verdict"):
@@ -705,7 +706,7 @@ class SkillAuthorityTests(unittest.TestCase):
         common, marker, rest = AUTHORITY_AT_A29D078.partition("When tools.kw_ops.access is present")
         expected = with_candidate_evidence(with_server_slots(common)).replace("Never merge, deploy", "Never merge pull requests, deploy")
         self.assertEqual(dispatch.COMMON_AUTHORITY, dispatch.MAINTENANCE_AUTHORITY + expected + WITHDRAWAL_AT_DESIGN)
-        self.assertEqual(dispatch.AUTHORITY_REFERENCE, reference)
+        self.assertEqual(dispatch.AUTHORITY_REFERENCE, reference.replace('references/', 'references/legacy/'))
         self.assertEqual(dispatch.KW_OPS_AUTHORITY, marker + rest[:-len(reference)])
 
     def test_any_other_skill_gets_the_common_part_its_own_part_and_the_reference(self):
@@ -739,7 +740,7 @@ class SkillAuthorityTests(unittest.TestCase):
     def test_every_skill_the_manifest_grants_kw_ops_carries_the_kw_ops_terms(self):
         """The tool grant comes from the manifest and its terms from the per-skill part: a skill with the grant
         and no terms would use kw_ops without its limits and credential rule."""
-        for skill in load_skills(ROOT / "skills").values():
+        for skill in load_skills(ROOT / "skills", replay_legacy=True).values():
             if kw_ops.access(skill.mcp):
                 with self.subTest(skill=skill.name):
                     self.assertIn(dispatch.KW_OPS_AUTHORITY, dispatch.SKILL_AUTHORITY[skill.name])
@@ -750,7 +751,7 @@ class BotNameTests(unittest.TestCase):
 
     def message(self, **extra):
         return dispatch_message(item={"id": "i", "skill": "fix"}, issue={"identifier": "FARM-1", "url": "u"},
-                                skill_path=ROOT / "skills/fix/SKILL.md", worktrees={}, db_path="/db",
+                                skill_path=ROOT / "skills/legacy/fix/SKILL.md", worktrees={}, db_path="/db",
                                 runtime="codex", guidance="", budget={"lease_seconds": 1, "renew_minutes": 1},
                                 **extra)
 

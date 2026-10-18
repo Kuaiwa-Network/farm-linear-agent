@@ -9,7 +9,7 @@ class ResumeWorkTests(LedgerBase):
         fix = self.new_item(delegate_id=APP)
         self.ledger.cancel(fix["id"], "previous attempt stopped")
         self.ledger.ensure_session("mention", ISSUE, False)
-        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="mention", skill="chat")
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="mention", skill="chat", execution_contract='staged-v1')
         self.ledger.push_inbox(chat["id"], text)
         token = self.ledger.claim(chat["id"], worker_id="chat")["token"]
         return fix, chat, token
@@ -50,7 +50,7 @@ class ResumeWorkTests(LedgerBase):
     def test_mention_cannot_create_new_fix_authority(self):
         self.ledger.observe_issue(issue(delegate_id=APP))
         self.ledger.ensure_session("mention", ISSUE, False)
-        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="mention", skill="chat")
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="mention", skill="chat", execution_contract='staged-v1')
         self.ledger.push_inbox(chat["id"], "Please fix this")
         token = self.ledger.claim(chat["id"], worker_id="chat")["token"]
         with self.assertRaisesRegex(LedgerError, "previously delegated"):
@@ -61,16 +61,16 @@ class ResumeWorkTests(LedgerBase):
         self.ledger.cancel(fix["id"], "stop")
         self.ledger.observe_issue(issue(id=OTHER, delegate_id=APP))
         self.ledger.ensure_session("other", OTHER, False)
-        chat = self.ledger.create_work_item(issue_id=OTHER, session_id="other", skill="chat")
+        chat = self.ledger.create_work_item(issue_id=OTHER, session_id="other", skill="chat", execution_contract='staged-v1')
         self.assertIsNone(self.ledger.issue_context(chat["id"])["resumable_work"])
 
     def test_original_session_prefers_its_own_fix_over_newer_other_session(self):
         first = self.new_item(delegate_id=APP)
         self.ledger.cancel(first["id"], "stop")
         self.ledger.ensure_session("later", ISSUE, True)
-        later = self.ledger.create_work_item(issue_id=ISSUE, session_id="later", skill="fix")
+        later = self.ledger.create_work_item(issue_id=ISSUE, session_id="later", skill="fix", execution_contract='staged-v1')
         self.ledger.cancel(later["id"], "stop")
-        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="chat")
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="chat", execution_contract='staged-v1')
         self.assertEqual(self.ledger.issue_context(chat["id"])["resumable_work"]["id"], first["id"])
 
     def test_message_arriving_during_handoff_reaches_resumed_fix(self):

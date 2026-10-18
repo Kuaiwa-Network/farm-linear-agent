@@ -187,6 +187,9 @@ class LauncherTests(unittest.TestCase):
             if name == "codex":
                 config = tomllib.loads((home / "config.toml").read_text())
                 self.assertFalse(config["features"]["memories"])
+                self.assertTrue(config["features"]["multi_agent"])
+                self.assertEqual(config['sandbox_mode'], 'workspace-write')
+                self.assertIn('--approve-for-me', RUNTIMES[name].command)
                 self.assertIn("features.memories=false", RUNTIMES[name].command)
             else:
                 self.assertEqual(env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1")
@@ -467,7 +470,7 @@ class LauncherTests(unittest.TestCase):
             "writable_roots": [str(launcher.state_dir("sandbox-explicit")), str(writable[0])],
             "network_access": True})
         self.assertEqual(config["projects"][str(Path(self.tmp.name).resolve())], {"trust_level": "untrusted"})
-        self.assertEqual(config["features"], {"memories": False, "shell_snapshot": False})
+        self.assertEqual(config["features"], {"memories": False, "multi_agent": True, "shell_snapshot": False})
         self.assertEqual(config["shell_environment_policy"], {"exclude": ["KW_OPS_TOKEN"]})
         self.assertEqual(config["mcp_servers"]["kw_ops"], server)
 
@@ -532,7 +535,7 @@ class LauncherTests(unittest.TestCase):
         self.finished_by(launcher)
         config = tomllib.loads((handle.run_dir / "home" / "config.toml").read_text(encoding="utf-8"))
         self.assertNotIn("shell_environment_policy", config)
-        self.assertEqual(config["features"], {"memories": False})
+        self.assertEqual(config["features"], {"memories": False, "multi_agent": True})
 
     def test_sandbox_roots_and_network_access_precede_mcp_servers_in_the_home_config(self):
         codex_command = RUNTIMES["codex"].command

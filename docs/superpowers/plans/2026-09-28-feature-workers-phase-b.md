@@ -15207,7 +15207,7 @@ Keep the rest of that paragraph, which goes on from `lands.` on the same line. A
 ```markdown
 
 Progress: Phase A landed on 2026-09-26 and 2026-09-27 (#52, #53 and #55 to #58), and Phase B as
-#<B1>, #<B2> and #<B3>, each following its plan in [`docs/superpowers/plans/`](../plans/), whose "As
+#<B1>, #<B2> and #<B3>, each following its plan in [`docs/superpowers/plans/`](.), whose "As
 executed" sections record the live checks. Phase B settles what this design left to its
 implementation in the decisions P1 to P16 of [its
 plan](../plans/2026-09-28-feature-workers-phase-b.md). `feature` is opt-in (P1) and exclusive (P8).

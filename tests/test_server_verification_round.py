@@ -35,7 +35,7 @@ class ServerRoundTests(ServerPoolFixture):
         git('add', '.', cwd=self.path)
         git('commit', '-qm', 'candidate', cwd=self.path)
         self.candidate = self.trees.head(self.path)
-        self.skills = load_skills(Path(__file__).resolve().parents[1] / 'skills')
+        self.skills = load_skills(Path(__file__).resolve().parents[1] / 'skills', replay_legacy=True)
 
     def advance_main(self, value):
         (self.origin / 'main.txt').write_text(value, encoding='utf-8')

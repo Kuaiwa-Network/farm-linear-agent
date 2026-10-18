@@ -57,7 +57,7 @@ class FixedEditorPoolTests(SlotFixture):
 
     def test_pool_reserves_worker_before_switch_and_preparation_never_holds_scheduler_lock(self):
         launcher = FakeLauncher(self.root / 'runs')
-        scheduler = Scheduler(self.ledger, launcher, SKILLS, self.trees, skill_root=ROOT / 'skills',
+        scheduler = Scheduler(self.ledger, launcher, SKILLS, self.trees, replay_legacy=True, skill_root=ROOT / 'skills',
                               db_path=self.root / 'ledger.sqlite3', runtime_name='fake', host='test', max_concurrent=1)
         pool = self.fixed_pool(1, worker_acquire=scheduler.acquire_unity)
         pool.ensure()
@@ -106,7 +106,7 @@ class FixedEditorPoolTests(SlotFixture):
         self.ledger.ensure_session(session, issue_id, True)
         item = self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill="fix",
             target={"repository": "Farm-Client", "requested_ref": "main", "commit_sha": commit,
-                    "server_environment": "test", "selected_at": SELECTED_AT})
+                    "server_environment": "test", "selected_at": SELECTED_AT}, execution_contract='staged-v1')
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
         self.ledger.await_resource(item["id"], token, "unity_slot", mode, skill=SKILLS["fix"])
         return item["id"]
@@ -390,7 +390,7 @@ class FixedEditorPoolTests(SlotFixture):
         sha = self.trees.head(self.origin)
         item = self.ledger.create_work_item(issue_id=ISSUE, session_id="server", skill="fix",
             target={"repository": "farm-hive", "requested_ref": "main", "commit_sha": sha,
-                    "server_environment": "test", "selected_at": SELECTED_AT})
+                    "server_environment": "test", "selected_at": SELECTED_AT}, execution_contract='staged-v1')
         self.ledger.connection.execute("UPDATE work_items SET root_repo='farm-hive' WHERE id=?", (item["id"],))
         token = self.ledger.claim(item["id"], worker_id="server")["token"]
         self.ledger.await_resource(item["id"], token, "server_slot", "batch", skill=SKILLS["fix"], commit_sha=sha)
@@ -483,7 +483,7 @@ class FixedEditorConfigTests(SlotFixture):
 
     def test_dispatch_overrides_legacy_batch_instructions_without_granting_editor_lifecycle(self):
         message = dispatch_message(item={"id": "i", "skill": "fix"},
-            issue={"identifier": "FARM-1", "url": "u"}, skill_path=self.root / "skills/fix/SKILL.md",
+            issue={"identifier": "FARM-1", "url": "u"}, skill_path=self.root / "skills/legacy/fix/SKILL.md",
             worktrees={}, db_path=self.root / "ledger.sqlite3", runtime="fake", guidance="", budget=SKILLS["fix"].budget,
             tools={"unity_pool": {"mode": "interactive", "editors": 2}})
         authority, payload = message.split("\n\n", 1)

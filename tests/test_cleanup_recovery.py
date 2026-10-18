@@ -18,7 +18,7 @@ class CleanupRecoveryTests(unittest.TestCase):
         self.addCleanup(self.ledger.close)
         self.ledger.observe_issue(issue())
         self.ledger.ensure_session(SESSION, ISSUE, delegation=True)
-        self.item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill='fix')
+        self.item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill='fix', execution_contract='staged-v1')
         self.ledger.set_worker(self.item['id'], 123, 'windows-test')
         self.ledger.fail_queued(self.item['id'], 'exited')
         self.ledger.record_cleanup(self.item['id'], {}, error='unverified')
@@ -88,7 +88,7 @@ class CleanupRecoveryTests(unittest.TestCase):
         self.recover(110)
         launcher = Launcher(Paths(self.config).runs, RUNTIMES['fake'], self.config.host)
         trees = FakeWorktrees(Path(self.tmp.name) / 'worktrees')
-        scheduler = Scheduler(self.ledger, launcher, {}, trees, skill_root=Path(self.tmp.name),
+        scheduler = Scheduler(self.ledger, launcher, {}, trees, replay_legacy=True, skill_root=Path(self.tmp.name),
                               db_path=Paths(self.config).ledger, runtime_name='fake', host=self.config.host)
         with patch('agent.cleanup_recovery.windows_boot_time', return_value=110), \
                 patch.object(launcher, 'alive', return_value=True), patch.object(launcher, 'kill_pid') as kill:

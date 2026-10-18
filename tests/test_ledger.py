@@ -14,7 +14,7 @@ from agent.stages import write_repositories
 from test_skills import opt_in_skill, staged_skill, write_skill
 
 ROOT = Path(__file__).resolve().parents[1]
-SKILLS = load_skills(ROOT / "skills")
+SKILLS = load_skills(ROOT / "skills", replay_legacy=True)
 
 TEAM = "9676b5f9-eff3-485b-80ed-900ed137e21a"
 ISSUE = "10000000-0000-4000-8000-000000000001"
@@ -69,7 +69,10 @@ class LedgerBase(unittest.TestCase):
     def new_item(self, skill="fix", target=PIN, **issue_changes):
         self.ledger.observe_issue(issue(**issue_changes))
         self.ledger.ensure_session(SESSION, ISSUE, delegation=True)
-        return self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill=skill, target=target)
+        # Historical stage fixtures stay explicit; fresh production work uses
+        # the single-owner contract (covered by test_single_worker).
+        return self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill=skill, target=target,
+                                            execution_contract='staged-v1')
 
 
 class SchemaTests(LedgerBase):
@@ -122,7 +125,7 @@ class SchemaTests(LedgerBase):
         chat as a mention's, which no withdrawal touches (withdrawn-work design K2)."""
         fix = self.new_item()
         self.ledger.cancel(fix["id"], "Stop")
-        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="chat")
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="chat", execution_contract='staged-v1')
         for table, column in (("work_items", "authority"), ("work_items", "withdraw_deadline"),
                               ("work_items", "withdraw_reason"), ("issue_checks", "undelegated_since"),
                               ("issue_checks", "unreachable_since"), ("sessions", "forwarded_item")):
@@ -244,23 +247,23 @@ class WorkItemTests(LedgerBase):
         self.new_item()
         self.ledger.ensure_session("session-2", ISSUE, delegation=True)
         with self.assertRaises(LedgerError):
-            self.ledger.create_work_item(issue_id=ISSUE, session_id="session-2", skill="fix")
+            self.ledger.create_work_item(issue_id=ISSUE, session_id="session-2", skill="fix", execution_contract='staged-v1')
 
     def test_unknown_issue_or_skill_is_rejected(self):
         self.ledger.ensure_session(SESSION, ISSUE, delegation=True)
         with self.assertRaises(LedgerError):
-            self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix")
+            self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix", execution_contract='staged-v1')
         self.ledger.observe_issue(issue())
         with self.assertRaises(LedgerError):
-            self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="")
+            self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="", execution_contract='staged-v1')
 
     def test_queue_orders_by_priority_then_creation(self):
         self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2", priority=1))
         self.ledger.ensure_session("s-low", ISSUE, delegation=True)
         self.ledger.ensure_session("s-high", OTHER, delegation=True)
         self.ledger.observe_issue(issue())
-        low = self.ledger.create_work_item(issue_id=ISSUE, session_id="s-low", skill="fix")
-        high = self.ledger.create_work_item(issue_id=OTHER, session_id="s-high", skill="fix")
+        low = self.ledger.create_work_item(issue_id=ISSUE, session_id="s-low", skill="fix", execution_contract='staged-v1')
+        high = self.ledger.create_work_item(issue_id=OTHER, session_id="s-high", skill="fix", execution_contract='staged-v1')
         self.assertEqual([high["id"], low["id"]], [row["id"] for row in self.ledger.queue()])
 
     def test_session_records_delegation_and_active_item_lookup(self):
@@ -300,7 +303,7 @@ class WorkItemTests(LedgerBase):
                          {"repository": "Farm-Client", "requested_ref": "main", "commit_sha": "a" * 40,
                           "server_environment": "公共测试服", "selected_at": SELECTED_AT})
         item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix",
-                                            target=self.ledger.session(SESSION)["target"])
+                                            target=self.ledger.session(SESSION)["target"], execution_contract='staged-v1')
         self.assertEqual(item["target"]["commit_sha"], "a" * 40)
 
     def test_a_target_whose_commit_or_timestamp_is_malformed_is_refused(self):
@@ -328,13 +331,13 @@ class AuthorityTests(LedgerBase):
         for authority, expected in ((None, "mention"), ("delegation", "delegation"), ("operator", "operator")):
             with self.subTest(authority=authority):
                 chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="chat",
-                                                    authority=authority)
+                                                    authority=authority, execution_contract='staged-v1')
                 self.assertEqual((chat["authority"], self.ledger.item(chat["id"])["authority"]), (expected, expected))
                 self.ledger.cancel(chat["id"], "Stop")
         for skill, authority in (("chat", "person"), ("chat", ""), ("fix", "mention"), ("fix", "operator")):
             with self.subTest(skill=skill, authority=authority):
                 with self.assertRaisesRegex(LedgerError, "authority"):
-                    self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill=skill, authority=authority)
+                    self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill=skill, authority=authority, execution_contract='staged-v1')
         self.assertIsNone(self.ledger.active_item_for_issue(ISSUE))
 
     def test_issue_context_tells_the_worker_its_authority_and_whether_it_is_withdrawn(self):
@@ -392,7 +395,7 @@ class RepositoryStageTests(LedgerBase):
         self.ledger.connection.execute("UPDATE work_items SET root_repo='Farm-Client' WHERE id=?", (fix["id"],))
         self.ledger.fail_queued(fix["id"], "earlier attempt ended")
         self.ledger.ensure_session("chat-session", ISSUE, delegation=False)
-        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="chat-session", skill="chat")
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="chat-session", skill="chat", execution_contract='staged-v1')
         self.ledger.push_inbox(chat["id"], "请重新调查并修复")
         token = self.ledger.claim(chat["id"], worker_id="investigator")["token"]
         message_id = self.ledger.issue_context(chat["id"])["session_messages"][-1]["id"]
@@ -573,7 +576,7 @@ class SuccessorTests(LedgerBase):
         target: neither the receiver nor a conversation gives a feature job one (plan P6)."""
         self.ledger.observe_issue(issue(delegate_id=self.APP))
         self.ledger.ensure_session(session, ISSUE, delegation=True)
-        return self.ledger.create_work_item(issue_id=ISSUE, session_id=session, skill=skill)
+        return self.ledger.create_work_item(issue_id=ISSUE, session_id=session, skill=skill, execution_contract='staged-v1')
 
     def at_second_stage(self, item):
         """Run `item` through stage A, with its first question round (`questions-1`, plan P15) and a plan, into its
@@ -592,7 +595,7 @@ class SuccessorTests(LedgerBase):
     def conversation(self, session="mention"):
         """A claimed conversation on the issue with one message; `mention` is not a delegation session."""
         self.ledger.ensure_session(session, ISSUE, delegation=session != "mention")
-        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=session, skill="chat")
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=session, skill="chat", execution_contract='staged-v1')
         self.ledger.push_inbox(chat["id"], "继续做")
         return chat, self.ledger.claim(chat["id"], worker_id="conversation")["token"]
 
@@ -836,7 +839,7 @@ class LeaseTests(LedgerBase):
         self.assertEqual(self.ledger.cancel(item["id"], "again")["state"], "cancelled")
         self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2"))
         self.ledger.ensure_session("s2", OTHER, delegation=True)
-        other = self.ledger.create_work_item(issue_id=OTHER, session_id="s2", skill="fix")
+        other = self.ledger.create_work_item(issue_id=OTHER, session_id="s2", skill="fix", execution_contract='staged-v1')
         self.ledger.claim(other["id"], worker_id="w")
         self.assertEqual(self.ledger.fail(other["id"], "budget exceeded")["state"], "failed")
 
@@ -932,7 +935,7 @@ class SessionPeopleTests(LedgerBase):
         app_user = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
         self.ledger.observe_issue(issue(delegate_id=app_user))
         self.ledger.ensure_session(SESSION, ISSUE, delegation=True, creator=OWNER)
-        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="chat")
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="chat", execution_contract='staged-v1')
         self.now = 1790307000.0  # 2026-09-25T03:30:00Z
         self.ledger.push_inbox(chat["id"], "请修复，保留现有排序", author=DESIGNER)
         self.now += 1800  # the repair starts half an hour later; the copied message keeps its own time
@@ -951,7 +954,7 @@ class OwnerTests(LedgerBase):
         """issue-context of a fix item on an issue with these fields, delegated in a session `delegator` opened."""
         self.ledger.observe_issue(issue(id=issue_id, **changes))
         self.ledger.ensure_session(session, issue_id, delegation=True, creator=delegator)
-        item = self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill="fix", target=PIN)
+        item = self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill="fix", target=PIN, execution_contract='staged-v1')
         return self.ledger.issue_context(item["id"])
 
     def test_the_assignee_owns_the_issue_and_its_creator_is_named_beside_them(self):
@@ -989,14 +992,14 @@ class OwnerTests(LedgerBase):
             metadata.pop(key, None)
         self.ledger.connection.execute("UPDATE issues SET metadata=? WHERE id=?", (json.dumps(metadata), ISSUE))
         self.ledger.ensure_session(SESSION, ISSUE, delegation=True)
-        item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix", target=PIN)
+        item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix", target=PIN, execution_contract='staged-v1')
         context = self.ledger.issue_context(item["id"])
         self.assertEqual((context["owner"], context["creator"]), (None, None))
 
     def test_a_mention_does_not_make_its_author_the_owner(self):
         self.ledger.observe_issue(issue(assignee=None, creator=DESIGNER))
         self.ledger.ensure_session("mention", ISSUE, delegation=False, creator=OWNER)
-        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="mention", skill="chat")
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="mention", skill="chat", execution_contract='staged-v1')
         self.assertIsNone(self.ledger.issue_context(chat["id"])["owner"])
         self.ledger.ensure_session(SESSION, ISSUE, delegation=True, creator=LEAD)
         context = self.ledger.issue_context(chat["id"])
@@ -1217,7 +1220,7 @@ class PauseTests(LedgerBase):
         item_id, token, granted = self.running_with_slot()
         self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2"))
         self.ledger.ensure_session("session-2", OTHER, delegation=True)
-        other = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill="fix", target=PIN)["id"]
+        other = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill="fix", target=PIN, execution_contract='staged-v1')["id"]
         other_token = self.ledger.claim(other, worker_id="w3")["token"]
         self.assertEqual(self.ledger.await_input(other, other_token, "需要哪个环境？")["state"], "awaiting_input")
         with self.assertRaisesRegex(LedgerError, "release the resource reservation"):
@@ -1812,7 +1815,7 @@ class NoticeReconciliationTests(LedgerBase):
         self.assertEqual(self.ledger.finish(first, token, "blocked",
                                             {"summary": "x", "comment_action_id": blocker["action_id"]})["state"], "blocked")
         self.ledger.ensure_session("session-2", ISSUE, delegation=True)
-        second = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-2", skill="fix")["id"]
+        second = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-2", skill="fix", execution_contract='staged-v1')["id"]
         token = self.ledger.claim(second, worker_id="w2")["token"]
         later = self.ledger.prepare_notice(second, token, "question", "questions-1", "第二份工作的问题。")
         self.assertNotEqual(later["marker"], earlier["marker"])
@@ -1893,7 +1896,7 @@ class SecondItemOnOneIssueTests(LedgerBase):
         return item["id"], action["action_id"]
 
     def second_item(self):
-        item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix", target=PIN)
+        item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix", target=PIN, execution_contract='staged-v1')
         return item["id"], self.ledger.claim(item["id"], worker_id="w2")["token"]
 
     def audit_details(self, item_id, kind):
@@ -2020,7 +2023,7 @@ class SecondItemOnOneIssueTests(LedgerBase):
         _, first_action = self.blocked_first_item()
         self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2", url="https://linear.app/x/issue/FARM-2"))
         self.ledger.ensure_session("session-2", OTHER, delegation=True)
-        other = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill="fix", target=PIN)
+        other = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill="fix", target=PIN, execution_contract='staged-v1')
         token = self.ledger.claim(other["id"], worker_id="w3")["token"]
         with self.assertRaises(LedgerError):
             self.ledger.finish(other["id"], token, "blocked", {"summary": "借用", "comment_action_id": first_action})
@@ -2070,7 +2073,7 @@ class WithdrawnWorkBase(LedgerBase):
         self.ledger.observe_issue(issue(delegate_id=self.APP))
         self.ledger.ensure_session(session, ISSUE, delegation=delegation)
         item = self.ledger.create_work_item(issue_id=ISSUE, session_id=session, skill=skill,
-                                            target=None if skill == "chat" else PIN)
+                                            target=None if skill == "chat" else PIN, execution_contract='staged-v1')
         self.ledger.set_worker(item["id"], 4321, "test")
         token = self.ledger.claim(item["id"], worker_id="parked")["token"]
         for body, author, received_at in messages:
@@ -2109,14 +2112,14 @@ class CancelHygieneTests(WithdrawnWorkBase):
         first = self.new_item()
         self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2"))
         self.ledger.ensure_session("session-2", OTHER, delegation=True)
-        second = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill="fix", target=PIN)
+        second = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill="fix", target=PIN, execution_contract='staged-v1')
         for item in (first, second):
             self.pending_progress(item["id"])
         self.ledger.cancel(second["id"], "Linear stop")
         self.assertIsNotNone(self.progress(second["id"]))  # SessionProgress still corrects it to "stopped"
         self.ledger.cancel(first["id"], "Linear delegation removed", drop_progress=True)
         self.assertIsNone(self.progress(first["id"]))
-        third = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill="fix", target=PIN)
+        third = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill="fix", target=PIN, execution_contract='staged-v1')
         self.ledger.claim(third["id"], worker_id="w")
         self.pending_progress(third["id"])
         self.assertIsNone(self.ledger.cancel(third["id"], "Linear delegation removed", states=UNCLAIMED,
@@ -2133,7 +2136,7 @@ class CancelHygieneTests(WithdrawnWorkBase):
                 self.ledger.observe_issue(issue())
                 self.ledger.ensure_session(SESSION, ISSUE, delegation=True)
                 item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill=skill,
-                                                    target=None if skill == "chat" else PIN, authority=authority)
+                                                    target=None if skill == "chat" else PIN, authority=authority, execution_contract='staged-v1')
                 self.ledger.push_inbox(item["id"], "公共测试服", resume_waiting=True, demote_to_mention=True)
                 self.assertEqual(self.ledger.item(item["id"])["authority"], after)
                 self.assertEqual("authority" in self.audit_kinds(item["id"]), authority != after)
@@ -2174,7 +2177,7 @@ class CancelHygieneTests(WithdrawnWorkBase):
         chat = self.new_item(skill="chat", target=None)
         self.ledger.push_inbox(chat["id"], "奖励领了两次", author=DESIGNER)
         self.ledger.cancel(chat["id"], "Linear delegation removed")
-        fresh = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="chat")
+        fresh = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="chat", execution_contract='staged-v1')
         history = self.ledger.issue_context(fresh["id"])["conversation_history"]
         self.assertEqual([(entry["item_id"], [message["body"] for message in entry["messages"]]) for entry in history],
                          [(chat["id"], ["奖励领了两次"]), (fresh["id"], [])])
@@ -2301,7 +2304,7 @@ class WithdrawalTests(WithdrawnWorkBase):
         self.assertEqual(self.ledger.cleanup_record(item["id"])["worker_pid"], 4321)
         self.assertIn("withdrawn", self.audit_kinds(item["id"]))
         self.ledger.ensure_session("session-2", ISSUE, delegation=True)
-        successor = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-2", skill="fix", target=PIN)
+        successor = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-2", skill="fix", target=PIN, execution_contract='staged-v1')
         self.assertEqual(successor["predecessor_id"], item["id"])
         self.assertEqual(self.ledger.issue_context(successor["id"])["recovery"]["plan"], plan)
 
@@ -2358,7 +2361,7 @@ class WithdrawalTests(WithdrawnWorkBase):
             with self.subTest(authority=authority):
                 self.ledger.ensure_session(session, ISSUE, delegation=False)
                 chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=session, skill="chat",
-                                                    authority=authority)
+                                                    authority=authority, execution_contract='staged-v1')
                 token = self.ledger.claim(chat["id"], worker_id="w")["token"]
                 with self.assertRaisesRegex(LedgerError, "does not depend on the card's delegation"):
                     self.ledger.withdraw(chat["id"], token, delegated=False, closed=False)
@@ -2366,7 +2369,7 @@ class WithdrawalTests(WithdrawnWorkBase):
                 self.ledger.flag_withdrawal(chat["id"], "unreachable", self.now + 600)
                 view, reason = self.ledger.withdraw(chat["id"], token, delegated=False, closed=False)
                 self.assertEqual((view["state"], reason), ("cancelled", "unreachable"))
-        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="mention", skill="chat", authority="mention")
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="mention", skill="chat", authority="mention", execution_contract='staged-v1')
         token = self.ledger.claim(chat["id"], worker_id="w")["token"]
         view, reason = self.ledger.withdraw(chat["id"], token, delegated=False, closed=True)
         self.assertEqual((view["state"], reason), ("cancelled", "closed"))
@@ -2383,7 +2386,7 @@ class WithdrawalTests(WithdrawnWorkBase):
         with self.assertRaises(LedgerError):
             self.ledger.renew(item["id"], token)
         self.ledger.ensure_session("session-2", ISSUE, delegation=True)
-        successor = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-2", skill="fix", target=PIN)
+        successor = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-2", skill="fix", target=PIN, execution_contract='staged-v1')
         self.assertEqual(successor["predecessor_id"], item["id"])
 
     def test_a_flagged_worker_that_delivers_is_delivered(self):
@@ -2444,7 +2447,7 @@ class ContinuationSessionTests(WithdrawnWorkBase):
 
     def conversation(self, session="mention"):
         self.ledger.ensure_session(session, ISSUE, delegation=session != "mention")
-        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=session, skill="chat")
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=session, skill="chat", execution_contract='staged-v1')
         token = self.ledger.claim(chat["id"], worker_id="conversation")["token"]
         self.ledger.push_inbox(chat["id"], "继续修奖励")
         return chat, token, self.ledger.issue_context(chat["id"])["session_messages"][-1]["id"]
@@ -2464,7 +2467,7 @@ class ContinuationSessionTests(WithdrawnWorkBase):
         self.assertEqual((successor["session_id"], successor["predecessor_id"], self.authority_column(successor["id"])),
                          ("session-2", fix["id"], "delegation"))
         self.ledger.cancel(successor["id"], "Linear stop")
-        local = self.ledger.create_work_item(issue_id=ISSUE, session_id="local-farm-1", skill="fix", target=PIN)
+        local = self.ledger.create_work_item(issue_id=ISSUE, session_id="local-farm-1", skill="fix", target=PIN, execution_contract='staged-v1')
         self.ledger.cancel(local["id"], "operator cancel")
         self.assertEqual(self.ledger.retry(local["id"], "operator retry")["session_id"], "local-farm-1")
 
@@ -2480,7 +2483,7 @@ class ContinuationSessionTests(WithdrawnWorkBase):
     def test_retry_of_a_cancelled_conversation_keeps_its_session_and_authority(self):
         self.ledger.observe_issue(issue(delegate_id=self.APP))
         self.ledger.ensure_session("mention", ISSUE, delegation=False)
-        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="mention", skill="chat")
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="mention", skill="chat", execution_contract='staged-v1')
         self.ledger.cancel(chat["id"], "Linear stop")
         self.ledger.ensure_session("session-2", ISSUE, delegation=True)
         successor = self.ledger.retry(chat["id"], "operator retry")
@@ -2532,7 +2535,7 @@ class StopTargetTests(WithdrawnWorkBase):
         has stopped (A2)."""
         self.ledger.observe_issue(issue(delegate_id=self.APP))
         self.ledger.ensure_session("session-1", ISSUE, delegation=True)
-        old = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-1", skill="chat", authority="delegation")
+        old = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-1", skill="chat", authority="delegation", execution_contract='staged-v1')
         self.ledger.cancel(old["id"], "Linear delegation removed")
         self.ledger.observe_issue(issue(delegate_id=None))
         for session, authority in (("mention", "mention"), ("local-farm-1", "operator")):
@@ -2540,7 +2543,7 @@ class StopTargetTests(WithdrawnWorkBase):
                 self.now += 5
                 self.ledger.ensure_session(session, ISSUE, delegation=False)
                 chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=session, skill="chat",
-                                                    authority=authority)
+                                                    authority=authority, execution_contract='staged-v1')
                 self.assertEqual(self.target("session-1"), (None, "stopped"))
                 self.assertEqual(self.target(session), (chat["id"], "own"))
                 self.ledger.cancel(chat["id"], "Linear stop")
@@ -2657,7 +2660,7 @@ class OwedClosureTests(WithdrawnWorkBase):
         created in the thread since, speaks there itself, and the older closing words would follow its own."""
         self.ledger.observe_issue(issue(delegate_id=self.APP))
         self.ledger.ensure_session("session-0", ISSUE, delegation=True)
-        fix = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-0", skill="fix", target=PIN)
+        fix = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-0", skill="fix", target=PIN, execution_contract='staged-v1')
         self.ledger.fail_queued(fix["id"], "launch failed")
         owed = self.ledger.owe_closure("session-0", item_id=fix["id"], kind="error", body="无法启动工作进程。")
         self.assertEqual(owed["item_state"], "failed")
@@ -2680,7 +2683,7 @@ class OwedClosureTests(WithdrawnWorkBase):
         self.assertFalse(self.ledger.closure_superseded(mention))
         self.ledger.cancel(successor["id"], "Linear stop")
         self.now += 5
-        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="mention", skill="chat")
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="mention", skill="chat", execution_contract='staged-v1')
         self.assertTrue(self.ledger.closure_superseded(mention))
         self.assertEqual(chat["session_id"], "mention")
         self.ledger.drop_closure("mention")
@@ -2694,7 +2697,7 @@ class OwedClosureTests(WithdrawnWorkBase):
         self.ledger.observe_issue(issue(delegate_id=self.APP))
         self.ledger.ensure_session("session-0", ISSUE, delegation=True)
         self.ledger.ensure_session("mention", ISSUE, delegation=False)
-        fix = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-0", skill="fix", target=PIN)
+        fix = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-0", skill="fix", target=PIN, execution_contract='staged-v1')
         self.ledger.fail_queued(fix["id"], "launch failed")
         self.ledger.owe_closure("session-0", item_id=fix["id"], kind="error", body="无法启动工作进程。")
         self.ledger.owe_closure("mention", kind="response", body="没有可停止的工作。")
@@ -2757,7 +2760,7 @@ class OwedClosureTests(WithdrawnWorkBase):
         self.ledger.observe_issue(issue(delegate_id=self.APP))
         for session in ("session-0", "mention", "other"):
             self.ledger.ensure_session(session, ISSUE, delegation=session == "session-0")
-        fix = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-0", skill="fix", target=PIN)
+        fix = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-0", skill="fix", target=PIN, execution_contract='staged-v1')
         self.ledger.claim(fix["id"], worker_id="w")
         owed = self.ledger.owe_closure("session-0", item_id=fix["id"], kind="error", body="处理这条消息时出错。")
         self.assertEqual(owed["item_state"], "running")
@@ -2832,7 +2835,7 @@ class OwedClosureTests(WithdrawnWorkBase):
         self.ledger.observe_issue(issue(delegate_id=self.APP))
         for session, delegation in (("session-0", True), ("mention", False), ("other", False)):
             self.ledger.ensure_session(session, ISSUE, delegation=delegation)
-        fix = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-0", skill="fix", target=PIN)
+        fix = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-0", skill="fix", target=PIN, execution_contract='staged-v1')
         self.ledger.fail_queued(fix["id"], "launch failed")
         note = self.ledger.owe_closure("session-0", kind="response", body="这个讨论串里没有进行中的工作。")
         reply = self.ledger.owe_closure("mention", kind="response", body="没有可停止的工作。")
@@ -3375,7 +3378,7 @@ class ReservationTests(unittest.TestCase):
         session = f"session-{issue_id}"
         self.ledger.ensure_session(session, issue_id, True)
         target = {**PIN, "commit_sha": commit}
-        return self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill="fix", target=target)
+        return self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill="fix", target=target, execution_contract='staged-v1')
 
     def waiting(self, issue_id, commit, mode, priority=2):
         item = self.item(issue_id, commit, priority=priority)
@@ -3427,7 +3430,7 @@ class ReservationTests(unittest.TestCase):
     def test_an_item_without_a_pinned_commit_cannot_request_a_slot(self):
         self.ledger.observe_issue(issue())
         self.ledger.ensure_session(SESSION, ISSUE, True)
-        item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix")
+        item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix", execution_contract='staged-v1')
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
         with self.assertRaises(LedgerError):
             self.ledger.await_resource(item["id"], token, "unity_slot", "batch", skill=SKILLS["fix"])

@@ -73,7 +73,7 @@ class MemoryIntegrationTests(unittest.TestCase):
                 runtime = RUNTIMES[name]._replace(command=[sys.executable, str(worker), "{last_message}"], seed_files={})
                 launcher = Launcher(root / "runs", runtime, host="test")
                 scheduler = Scheduler(db, launcher, SKILLS, FakeWorktrees(root / "worktrees"),
-                                      skill_root=ROOT / "skills", db_path=root / "agent" / "ledger.sqlite3",
+                                      replay_legacy=True, skill_root=ROOT / "skills", db_path=root / "agent" / "ledger.sqlite3",
                                       runtime_name=name, host="test", api=StubLinear(stub))
                 evidence = []
                 try:
@@ -83,7 +83,7 @@ class MemoryIntegrationTests(unittest.TestCase):
                         issue_id = str(uuid4())
                         db.observe_issue(issue(id=issue_id))
                         db.ensure_session(mode, issue_id, delegation=False)
-                        item = db.create_work_item(issue_id=issue_id, session_id=mode, skill="chat")
+                        item = db.create_work_item(issue_id=issue_id, session_id=mode, skill="chat", execution_contract='staged-v1')
                         with patch.dict(os.environ, {"MEMORY_TEST_MODE": mode, "MEMORY_TEST_NOTE": json.dumps(NOTE),
                                                      "FARMBOT_LINEAR_STUB_DIR": str(stub),
                                                      "FARMBOT_CONFIG": str(root / "missing.json")}):

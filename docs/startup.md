@@ -22,7 +22,7 @@ replace release maintenance when changing a running installation.
    selection and MCP endpoint/account required by this host. Retain the existing
    slot folders and ownership/recovery evidence. Native Windows interactive
    Editors need the configured user's logged-in desktop session. Capacity and
-   [resource admission](../README.md#server-test-slots-and-heavy-resource-admission)
+   [resource admission](operating-contract.md#resource-ownership)
    determine which Editors can run together.
 4. Seed owned repository clones ahead of the first start, with Git LFS available
    for Unity projects. Keep controller clone configuration and publication
@@ -36,7 +36,7 @@ admission can defer some starts while a healthy Editor serves work. This mode
 uses interactive worker MCP tests; older queued Unity batch requests convert to
 interactive without counting as executed tests. Activate this policy only after
 active Unity work settles and projects outside the selected count are closed.
-See [fixed pool activation and recovery](operating-contract.md#fixed-unity-editor-pool).
+See [resource ownership and recovery](operating-contract.md#resource-ownership).
 Without `unity_pool`, the existing on-demand batch/interactive mode remains.
 
 For example, from the accepted source checkout:
@@ -65,7 +65,7 @@ Start only the installed supervisor or the foreground controller for this
 instance. When a supervisor already owns it, use that installation; its config,
 environment, interpreter and release hashes must still match. Replace pinned
 inputs only through settled maintenance. The Windows installation procedure is
-in the [README](../README.md#run).
+in the [maintenance guide](../README.md#maintenance-and-rollout).
 
 For a configured foreground instance, from its accepted source checkout:
 

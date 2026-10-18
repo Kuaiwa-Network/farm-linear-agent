@@ -19,7 +19,8 @@ TERMINAL = ("delivered", "blocked", "failed", "cancelled")
 VERDICTS = ("ok", "attention", "starting", "unresponsive", "stopped", "unknown")
 DISPLAY_STATES = ("queued", "launching", "switching_repo", "retry_wait", "running", "awaiting_input",
                   "awaiting_resource", "waiting_for_recovery", "maintenance_paused", "maintenance_handoff",
-                  "acceptance_paused", 'waiting_presentation', 'waiting_parent_repair')
+                  "acceptance_paused", 'waiting_presentation', 'waiting_parent_repair',
+                  'legacy_paused', 'resource_in_use', 'preparing_resource', 'waiting_worker', 'waiting_worker_cleanup')
 OUTCOMES = ("delivered", "no_change", "blocked", "failed", "cancelled")
 FAILURE_CODES = ("worker_launch_failed", "worker_start_failed", "worker_claim_timeout", "worker_exit_failed",
                  "model_capacity_exhausted", "skill_disabled", "job_failed")
@@ -50,7 +51,7 @@ KNOWN_TABLES = ("work_items", "issues", "audit", "published_prs", "slots", "rese
 REQUIRED = {"work_items": ("id", "issue_id", "skill", "state", "stage", "created_at", "updated_at"),
             "issues": ("id", "metadata")}
 OPTIONAL_ITEM_COLUMNS = ("priority", "worker_pid", "next_root_repo", "root_repo", "retry_not_before",
-                         "lease_expires_at")
+                         "lease_expires_at", "execution_contract")
 SLOT_FIELDS = ("slot_id", "kind", "state", "commit", "holder", "mode", "recovery")
 HEALTH_FIELDS = ("ok", "status", "latency_ms", "error_type", "checked_at")
 INSTANCE_FIELDS = ("environment", "instance_id", "bot_name", "host")
@@ -181,6 +182,15 @@ def _unity_queue(db, schema):
 
 
 def _display_state(row, now):
+    if row['stage'] == 'legacy-adoption-required':
+        return 'legacy_paused'
+    if row['state'] == 'running' and row.get('execution_contract') == 'single-worker-v1':
+        if row['stage'] in ('waiting-for-unity_slot', 'waiting-for-server_slot', 'waiting-for-unity'):
+            return 'awaiting_resource'
+        if row['stage'] == 'unity-preparing':
+            return 'preparing_resource'
+        if row['stage'] == 'resource-ready':
+            return 'resource_in_use'
     if row['state'] == 'awaiting_input' and row['stage'] == 'waiting-parent-repair':
         return 'waiting_parent_repair'
     if (row['state'] == 'awaiting_input' and row.get('waiting_tasks')
@@ -295,8 +305,9 @@ def _jobs(rows, times, prs, unity_queue, now, beat_state, beat, renew_seconds, r
     for row in rows:
         display = _display_state(row, now)
         position = (positions.get(row["id"]) if display == "queued"
-                    else unity.get(row["id"]) if row["state"] == "awaiting_resource" else None)
-        server_wait = (resource_waits or {}).get(row["id"]) if row["state"] == "awaiting_resource" else None
+                    else unity.get(row["id"]) if row['state'] == 'awaiting_resource' or display == 'awaiting_resource' else None)
+        server_wait = ((resource_waits or {}).get(row["id"])
+                       if row['state'] == 'awaiting_resource' or display == 'awaiting_resource' else None)
         if server_wait:
             position = server_wait.get("position") or 1
         if maintenance and row['state'] in ('queued', 'running', 'awaiting_resource'):

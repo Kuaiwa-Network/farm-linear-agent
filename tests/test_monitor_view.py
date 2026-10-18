@@ -57,7 +57,7 @@ class ViewBase(unittest.TestCase):
         self.ledger.observe_issue(issue(**({"id": issue_id, "identifier": f"FARM-{n}", "title": f"标题 {n}",
                                             "url": f"https://linear.app/k/issue/FARM-{n}"} | changes)))
         self.ledger.ensure_session(f"session-{n}", issue_id, delegation=True)
-        return self.ledger.create_work_item(issue_id=issue_id, session_id=f"session-{n}", skill=skill, target=PIN)
+        return self.ledger.create_work_item(issue_id=issue_id, session_id=f"session-{n}", skill=skill, target=PIN, execution_contract='staged-v1')
 
     def claim(self, item):
         self.ledger.set_worker(item["id"], 515151, "test-host")
@@ -95,7 +95,7 @@ class ServerWaitTests(ViewBase):
         item = self.job()
         token = self.claim(item)["token"]
         self.sql("UPDATE work_items SET root_repo='farm-hive' WHERE id=?", item["id"])
-        skills = load_skills(Path(__file__).resolve().parents[1] / "skills")
+        skills = load_skills(Path(__file__).resolve().parents[1] / "skills", replay_legacy=True)
         self.ledger.await_resource(item["id"], token, "server_slot", "batch", skill=skills["fix"], commit_sha="a" * 40)
         reservation = self.ledger.reservations()[0]
         detail = {"observed_at": NOW, "profile": "full", "blockers": ["commit_headroom"], "requested_mib": 8192,

@@ -123,7 +123,7 @@ class SharedRepairTests(unittest.TestCase):
 
 class SharedRepairInstructionsTests(unittest.TestCase):
     def test_worker_checks_existing_diagnoses_before_spending_diagnostic_budget(self):
-        from agent import dispatch
+        from agent import legacy_dispatch as dispatch
         from pathlib import Path
         source = Path(dispatch.__file__).read_text(encoding='utf-8')
         self.assertIn('shared-test-repairs --candidate ORIGINAL_FULL_REPORT', source)

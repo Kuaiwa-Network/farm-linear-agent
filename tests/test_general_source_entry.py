@@ -40,7 +40,7 @@ class SourceEntryTests(unittest.TestCase):
     def successor(self):
         previous = self.scenario.parent
         view = self.ledger.create_work_item(issue_id=ledger_fixtures.ISSUE, session_id=ledger_fixtures.SESSION,
-                                           skill="work", target=None)
+                                           skill="work", target=None, execution_contract='staged-v1')
         self.assertEqual(view["predecessor_id"], previous)
         self.scenario.parent = view["id"]
         self.scenario.token = self.ledger.claim(view["id"], worker_id="successor")["token"]

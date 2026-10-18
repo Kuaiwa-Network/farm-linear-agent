@@ -94,13 +94,17 @@ def _load_one(directory):
                  initial_root=initial_root, staged=staged, reads=tuple(reads), opt_in=opt_in, exclusive=exclusive)
 
 
-def load_skills(root):
+def load_skills(root, *, replay_legacy=False):
     root = Path(root)
     skills = {}
     for directory in sorted(p for p in root.iterdir() if p.is_dir()):
         if (directory / "skill.json").exists():
             skill = _load_one(directory)
             skills[skill.name] = skill
+    if replay_legacy:
+        for name in ('chat', 'work', 'fix', 'feature', 'fgui', 'scene'):
+            if (root / 'legacy' / name / 'skill.json').is_file():
+                skills[name] = _load_one(root / 'legacy' / name)
     if not skills:
         raise SkillError(f"{root}: no skills found")
     return skills

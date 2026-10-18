@@ -20,6 +20,8 @@ class SceneDeliveryTests(unittest.TestCase):
         self.fixture = fixture = cli_fixtures.CliTests()
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
+        # macOS temporary roots may use /var aliases; owned fixture paths use the real root.
+        fixture.root = fixture.root.resolve()
         args, self.ledger, self.config, self.api, self.github = fixture.publication_fixture()
         self.api.create_activity = Mock(return_value="progress")
         self.parent, self.parent_token = args.item, args.token

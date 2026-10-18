@@ -69,7 +69,7 @@ fabricate a human answer or treat unchanged failing evidence as passed.
 Your dispatch also supplies `execution.platform` and `execution.python`.
 On Windows (`win32`), use that absolute Python executable with `PYTHONUTF8=1`
 and `-X utf8 -B`, including for the ledger CLI. Follow **Native Windows commands**
-in `references/repo-map.md` for every generator/gate below. The `bash` and
+in `references/legacy/repo-map.md` for every generator/gate below. The `bash` and
 `python3` examples in this file apply to macOS/Linux; Windows uses the verified
 native Python/CMD/Go entry points, never Git Bash, MSYS or WSL.
 
@@ -77,14 +77,14 @@ Read the current repository entry points and pins first. A missing native tool,
 entry point, prepared dependency cache or sandbox access is a named verification
 gap; never install/upgrade tools or weaken containment/ownership to proceed.
 When dispatch supplies configured `tools.go_dependencies`, use the host request
-and polling commands in `references/worker-cli.md` before verification and after
+and polling commands in `references/legacy/worker-cli.md` before verification and after
 dependency pins change. Pending preparation is controller work, not a human
 question. Continue independent work and renew the claim while waiting; the
 worker still uses read-only modules and offline verification. Unconfigured or
 failed host preparation remains a named gap; do not install tools or download
 modules yourself.
 For authorized commits use the fixed per-command FarmBot identity in
-`references/worker-cli.md`, also on TestBot; missing ambient Git author settings
+`references/legacy/worker-cli.md`, also on TestBot; missing ambient Git author settings
 alone are not a host gap and do not authorize editing Git configuration.
 For stage D's unpublished designer digest, the native `designer-digest.py` reads
 the exact config SHA's committed blobs and prints the same `ds_content_digest`
@@ -134,7 +134,7 @@ to chase a newer tip. The exact unchanged candidate may use that settled baselin
 for its remaining verification and, after both leases settle, draft publication;
 the controller still checks actual upstream ancestry. A diagnosed descendant repair
 may continue this original round with `await-resource --repair-candidate-reservation`
-naming the original settled candidate lease. Follow `references/worker-cli.md`:
+naming the original settled candidate lease. Follow `references/legacy/worker-cli.md`:
 retain the original reports, verify the repair, and use `compare-verification
 --repair-original` only for its strictly checked test-fixture-only evidence reuse.
 Other changed source still needs fresh affected verification. Compare complete failures and either deliver an eligible draft, fix an
@@ -181,15 +181,15 @@ never publish a failing snapshot or silently declare generation unnecessary.
 
 ## Intake (every attempt)
 
-1. For fresh intake read this file, `contract`, `references/worker-cli.md`, the Code-worker sections of `references/repo-map.md`
-   and the `feature` sections of `references/comment-templates.md`, then the current root's own instructions
+1. For fresh intake read this file, `contract`, `references/legacy/worker-cli.md`, the Code-worker sections of `references/legacy/repo-map.md`
+   and the `feature` sections of `references/legacy/comment-templates.md`, then the current root's own instructions
    (`AGENTS.md`, `CLAUDE.md` and the files your stage's section names).
    On continuation, batch `startup.read_together` with the current root's required rules instead;
-   follow `references/worker-start.md` and read only the capability sections needed by the saved stage.
+   follow `references/legacy/worker-start.md` and read only the capability sections needed by the saved stage.
    All mandatory current-stage instructions still apply; stale or missing facts need a full read.
 2. `python3 -m agent --db DATABASE claim --item ITEM_ID --worker-id WORKER_ID` (the configured Python on Windows).
    Write the token to `STATE_DIR/token`: on POSIX use mode 0600; on Windows keep the inherited DACL
-   and do not change ACLs. Follow the claim-token storage procedure in `references/worker-cli.md`
+   and do not change ACLs. Follow the claim-token storage procedure in `references/legacy/worker-cli.md`
    and never print it. Claim-authenticated commands take
    `--item ITEM_ID --token-file STATE_DIR/token`; `fetch-issue` and `issue-context` take only `--item ITEM_ID`.
    Never put `--token` on a command line. If the claim fails, stop and exit 2. Then follow
@@ -280,7 +280,7 @@ save a checkpoint with the plan and a fresh handoff, run `handoff-repository --t
 
 ## The plan
 
-Keep the job's state in the checkpoint's `plan` (`references/worker-cli.md`, "Plan"). A checkpoint that includes
+Keep the job's state in the checkpoint's `plan` (`references/legacy/worker-cli.md`, "Plan"). A checkpoint that includes
 `plan` replaces it whole, so always write the complete plan; one that omits `plan` keeps the saved one. Strings
 stay within 2,000 characters, arrays within 50 entries and the whole plan within 16,000 characters; longer notes go
 to files under STATE_DIR. This skill writes these keys:
@@ -584,7 +584,7 @@ A card that no longer carries Bot/Code is a question, not a stop.
   draft PRs of this job. After a push, set that entry's `head` in `plan.prs`.
 - A PR body links the card and says what the stage changes and why (the OpenSpec change and its scenario
   numbers), which checks ran and which did not, the merge preconditions the stage names, the CI it expects
-  (`references/repo-map.md`), the unrelated drift a generator brought, listed, and suspected designer defects,
+  (`references/legacy/repo-map.md`), the unrelated drift a generator brought, listed, and suspected designer defects,
   asked about. Register each PR in `published_prs` and in `plan.prs`.
 - For a server candidate already selected for service verification, the fixed server-round rule in
   stage D takes precedence over the following base-drift rule. Complete that round without merging
@@ -860,7 +860,7 @@ section. A contract change enters farm-hive at its plan: its behaviour is settle
    On resume verify `resource.commit`, use only `resource.environment` for
    Mongo/Redis/etcd/NATS, and run the repository's service-backed checks inside this
    worker. Declare exact packages, Test names and race in that JSON as described in
-   `references/worker-cli.md`; execute `resource.test_argv` within its declared
+   `references/legacy/worker-cli.md`; execute `resource.test_argv` within its declared
    scope. The controller derives focused/targeted/full memory costs. Preserve all
    required coverage and race checks. Full memory cost does not require full-repository scope.
    A broader selection needs a new plan and concrete `--server-scope-reason`; separate multi-node commands
@@ -869,8 +869,8 @@ section. A contract change enters farm-hive at its plan: its behaviour is settle
    stop the game processes, release quiescent and exit through a normal checkpoint
    handoff/park. A next resource request waits for this attempt's verified exit.
    A host without server slots records required uncovered service-backed checks as pending; it grants no fallback
-   to a shared environment. See `references/worker-cli.md` for leases and recovery.
-   For retained server failures, follow [server evidence](../../references/server-evidence.md): distinguish
+   to a shared environment. See `references/legacy/worker-cli.md` for leases and recovery.
+   For retained server failures, follow [server evidence](../../../references/legacy/server-evidence.md): distinguish
    matched baseline failures from source-proven independent defects and unresolved failures. Review changed
    shared helpers and actual failing assertions; a different package name does not establish independence.
 7. When the new pin turns unrelated tests red, adjust only failures shown to be plain data moves. Suspected designer
@@ -939,7 +939,7 @@ record its skip and continue Closing; never create a client branch merely for a 
 ## Stage F: Farm-Client
 
 Root Farm-Client. Follow its own AGENTS/CLAUDE, the accepted change's client 交棒 and scenarios, and
-`references/repo-map.md`'s client tooling section. The controller's `target` is this stage's immutable main
+`references/legacy/repo-map.md`'s client tooling section. The controller's `target` is this stage's immutable main
 baseline, not the issue's intake commit or the revision that later tests will verify. Confirm your actual branch
 equals `target.issue_branch`; preserve it and any recovery work. Record it in `plan.prs.Farm-Client` only after
 "Other people's work" passes. Before initial verification, fetch and integrate required main ancestry
@@ -991,7 +991,7 @@ id, result/evidence) before requesting, releasing or publishing, so retries cann
    `tools.client_typecheck.reference_checkout`. No `--no-tests` for the gate. macOS may retain its shell entry
    with an explicit readonly reference. Missing matching Unity-generated projects or hydrated references are
    BLOCKED host capabilities; never start Unity or inspect another personal checkout to obtain them.
-6. Use [verification preparation](../../references/client-verification-resume.md) to preflight required LFS
+6. Use [verification preparation](../../../references/legacy/client-verification-resume.md) to preflight required LFS
    inputs and the repository-supported test output layout before executing tests. Arbitrary external
    `BaseOutputPath` can break tests that discover source roots; retain the supported ignored bin/obj layout.
    Run the repository's full .NET unit command with the verified `FARM_CONFIG_ARTIFACT_ROOT` when applicable.
@@ -1018,7 +1018,7 @@ id, result/evidence) before requesting, releasing or publishing, so retries cann
    another worker. Report `verification-progress --phase testing` and then `--phase presentation-qa`.
    No QA on a concrete unsafe regression, no holding Unity for offline comparison or a human wait.
    A gap, failed setup/test or untested behavior is reported explicitly. Release the reservation with the actual
-   clean/unclean verdict and token procedure in `references/worker-cli.md`; save the results/checkpoint before
+   clean/unclean verdict and token procedure in `references/legacy/worker-cli.md`; save the results/checkpoint before
    releasing. A clean release does not retire your worker claim: use read-only `slots`/`reservations` to wait for
    the pool to park the released slot in `idle_closed` or `idle_open`, with no active reservation on it, before
    step 9; report a held slot or missing quiescence as a gap. An unclean release retires the claim and queues
@@ -1037,14 +1037,14 @@ id, result/evidence) before requesting, releasing or publishing, so retries cann
    If the candidate completed before its first comparison baseline, request that baseline with
    `--reuse-candidate-reservation CANDIDATE_RESERVATION_ID`; it binds the exact cleanly released run and
    its recorded upstream. Existing rounds must reuse their pair instead of requesting another baseline.
-   Default to [candidate-first assessment](../../references/candidate-verification.md): run required
+   Default to [candidate-first assessment](../../../references/legacy/candidate-verification.md): run required
    checks at the actual issue scope, then use `verify-candidate` after clean settlement. Do not run main
    preemptively or run identical source/inputs twice merely to label a baseline. Preserve repository
    completion gates and all actual failures/skips. The command validates the real source delta, current
    reservation and explicit scope/causal evidence; required affected tests must pass. An eligible
    single-run assessment completes this gate without inventing a tested baseline.
    Only if failure attribution remains unresolved and a named source/input difference can be distinguished,
-   save the hypothesis/selection and follow [baseline comparison](../../references/test-baseline.md).
+   save the hypothesis/selection and follow [baseline comparison](../../../references/legacy/test-baseline.md).
    Already completed pairs, including same commits with empty diff and explicit scope, remain valid inputs.
    Use `verification-progress --phase failure-review`, then `compare-verification`
    with complete evidence/scope under this item's state_dir; it updates Monitor immediately. A matching failure
@@ -1100,11 +1100,11 @@ complete or explicitly not required. Never apply this path to introduced unmerge
 unresolved decisions, stage limits, a closed-unmerged Contract PR or failed/missing mandatory checks.
 
 Before this docs-only handoff, checkpoint completed consumer stages and exact retained input identities,
-then run `closing-preflight` with the current claim. Follow `references/closeout-reuse.md` to retain
+then run `closing-preflight` with the current claim. Follow `references/legacy/closeout-reuse.md` to retain
 original reports through one evidence index and inspect remote issue-branch history before editing.
 Save a fresh handoff and enter Farm-Contract once, select the recorded issue branch, verify its clean saved
 HEAD and current PR state. Before running Contract gates, inspect and reconcile the fetched
-Contract main once as described in `references/closeout-reuse.md`; do not discover known
+Contract main once as described in `references/legacy/closeout-reuse.md`; do not discover known
 history lag through a failed gate run. Keep sufficient consumer inputs and frozen reports.
 Then update only this issue's tasks/scenarios with exact tested commits,
 report links, actual acceptance and unmerged/unaccepted consumer steps. Use existing evidence rather than
@@ -1344,7 +1344,7 @@ production release. Set `stages.G` to done, then finish delivered
 
 ## Outcomes
 
-Follow `references/closeout-reuse.md`: retain original reports through an evidence
+Follow `references/legacy/closeout-reuse.md`: retain original reports through an evidence
 index, keep handoffs compact and do not restart a worker for offline comparison.
 
 Prepare the final draft body, checkpoint and outcome together. Before posting delivery,

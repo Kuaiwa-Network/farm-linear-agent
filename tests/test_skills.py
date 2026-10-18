@@ -51,7 +51,7 @@ def opt_in_skill(root, name="feature", **overrides):
 
 class WorkerCliReferenceTests(unittest.TestCase):
     def reference(self):
-        path = ROOT / "references" / "worker-cli.md"
+        path = ROOT / "references" / "legacy" / "worker-cli.md"
         self.assertTrue(path.is_file(), "workers need a copyable CLI and checkpoint reference")
         return path.read_text(encoding="utf-8")
 
@@ -92,7 +92,7 @@ class WorkerCliReferenceTests(unittest.TestCase):
             try:
                 ledger.observe_issue(issue())
                 ledger.ensure_session(SESSION, ISSUE, delegation=True)
-                item = ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix")
+                item = ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix", execution_contract='staged-v1')
                 claimed = ledger.claim(item["id"], worker_id="reference-test")
                 for example in examples:
                     with self.subTest(example=example):
@@ -116,15 +116,15 @@ class ClaimTokenInstructionTests(unittest.TestCase):
     def test_every_claiming_skill_distinguishes_posix_mode_from_windows_acl(self):
         for skill in ("chat", "work", "fix", "feature", "fgui", "scene"):
             with self.subTest(skill=skill):
-                text = (ROOT / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+                text = (load_skills(ROOT / "skills", replay_legacy=True)[skill].skill_md).read_text(encoding="utf-8")
                 self.assertIn("on POSIX use mode 0600; on Windows keep the inherited DACL", text)
                 self.assertIn("do not change ACLs", text)
                 self.assertIn("claim-token storage procedure", text)
-                self.assertIn("references/worker-cli.md", text)
+                self.assertIn("references/legacy/worker-cli.md", text)
                 self.assertNotIn("with mode 0600", text)
 
     def test_shared_storage_procedure_refuses_stale_tokens_and_permission_repair(self):
-        text = (ROOT / "references" / "worker-cli.md").read_text(encoding="utf-8")
+        text = (ROOT / "references" / "legacy" / "worker-cli.md").read_text(encoding="utf-8")
         storage = text.split("\n## Claim-token storage\n", 1)[1].split("\n`withdraw`", 1)[0]
         for phrase in ("os.O_EXCL", "existing file or", "do not overwrite, delete or repair",
                        "Stop and report a storage failure", "On POSIX use mode 0600",
@@ -139,11 +139,11 @@ class CommentTemplateTests(unittest.TestCase):
     exactly as production's did before the name became configurable."""
 
     def rendered(self, name):
-        text = (ROOT / "references" / "comment-templates.md").read_text(encoding="utf-8")
+        text = (ROOT / "references" / "legacy" / "comment-templates.md").read_text(encoding="utf-8")
         return text.replace("<bot_name>", name)
 
     def test_templates_carry_no_hard_coded_bot_name(self):
-        raw = (ROOT / "references" / "comment-templates.md").read_text(encoding="utf-8")
+        raw = (ROOT / "references" / "legacy" / "comment-templates.md").read_text(encoding="utf-8")
         self.assertNotIn("FarmBot", raw)
         self.assertIn("`bot_name`", raw)
 
@@ -169,7 +169,7 @@ class RunReportInstructionTests(unittest.TestCase):
 
     def worker_reads(self):
         """What a worker is told to read: its skill, every reference and the operating contract."""
-        paths = [*(ROOT / "skills").glob("*/SKILL.md"), *(ROOT / "references").glob("*.md"),
+        paths = [*(ROOT / "skills").rglob("SKILL.md"), *(ROOT / "references").rglob("*.md"),
                  ROOT / "docs" / "operating-contract.md"]
         return {path.relative_to(ROOT).as_posix(): path.read_text(encoding="utf-8") for path in sorted(paths)}
 
@@ -181,7 +181,7 @@ class RunReportInstructionTests(unittest.TestCase):
 
     def test_the_fix_skill_and_report_format_write_the_report_in_state_dir(self):
         texts = self.worker_reads()
-        for name in ("skills/fix/SKILL.md", "references/evidence-format.md"):
+        for name in ("skills/legacy/fix/SKILL.md", "references/legacy/evidence-format.md"):
             with self.subTest(name=name):
                 self.assertIn("`STATE_DIR/report.md`", texts[name])
 
@@ -189,12 +189,12 @@ class RunReportInstructionTests(unittest.TestCase):
         """Retries and resumes keep the job's id, so they share its state_dir (Launcher.state_dir): a fixed
         report.md would let a later attempt overwrite the evidence of an earlier one."""
         texts = self.worker_reads()
-        for name in ("skills/fix/SKILL.md", "references/evidence-format.md"):
+        for name in ("skills/legacy/fix/SKILL.md", "references/legacy/evidence-format.md"):
             with self.subTest(name=name):
                 self.assertIn("`STATE_DIR/report-2.md`", texts[name])
 
     def test_candidate_lessons_go_to_shared_memory_not_a_pull_request(self):
-        text = self.worker_reads()["references/evidence-format.md"]
+        text = self.worker_reads()["references/legacy/evidence-format.md"]
         self.assertNotIn("promotion is a PR", text)
         self.assertIn("references/memory.md", text)
 
@@ -203,7 +203,7 @@ class PeopleInstructionTests(unittest.TestCase):
     """Fix workers name deciders and mention people only from issue-context's Linear users (spec §5.1, §5.3, D17)."""
 
     def test_the_fix_skill_names_deciders_from_authors_and_mentions_the_owner_and_creator(self):
-        text = (ROOT / "skills" / "fix" / "SKILL.md").read_text(encoding="utf-8")
+        text = (ROOT / "skills" / "legacy" / "fix" / "SKILL.md").read_text(encoding="utf-8")
         for phrase in ("`[DECIDED:<Linear user name>@<date>]`", "`author.name`", "the `displayName` handle",
                        "the date is the calendar date of its `created_at` in UTC+8", "`created_at` itself is UTC",
                        "the comment's own `url`", "Only when the comment has no `url`", "`owner.person.url`",
@@ -222,7 +222,7 @@ class PeopleInstructionTests(unittest.TestCase):
         self.assertNotIn("date part of its `created_at`", text)
 
     def test_the_comments_that_ask_a_human_to_act_mention_the_owner(self):
-        text = (ROOT / "references" / "comment-templates.md").read_text(encoding="utf-8")
+        text = (ROOT / "references" / "legacy" / "comment-templates.md").read_text(encoding="utf-8")
         for kind in ("blocker", "delivery"):
             with self.subTest(kind=kind):
                 section = text.split(f"\n## {kind}\n", 1)[1].split("\n## ", 1)[0]
@@ -239,7 +239,7 @@ class WithdrawalInstructionTests(unittest.TestCase):
         return " ".join(ROOT.joinpath(*parts).read_text(encoding="utf-8").split())
 
     def test_j2_j3_skill_texts_withdraw_instead_of_pausing(self):
-        fix = self.text("skills", "fix", "SKILL.md")
+        fix = self.text("skills", "legacy", "fix", "SKILL.md")
         for phrase in ("If `fetch-issue` prints `delegated: false` or `withdrawn: true`",
                        "any command refuses with `delegation withdrawn`", "publish nothing and ask nothing",
                        "run `withdraw` and exit", "`withdraw` ends the job as cancelled",
@@ -251,13 +251,13 @@ class WithdrawalInstructionTests(unittest.TestCase):
         # await-input: the two contradicted each other (J2).
         self.assertNotIn("re-delegated away, stop publication and finish blocked", fix)
         self.assertNotIn("(such as revoked delegation,", fix)
-        chat = self.text("skills", "chat", "SKILL.md")
+        chat = self.text("skills", "legacy", "chat", "SKILL.md")
         for phrase in ("`issue-context.coordination.authority`", "do not ask a question: `await-input` will refuse",
                        "the card is no longer delegated to `bot_name`", "finish delivered",
                        "With `mention` or `operator` authority, delegation does not matter to you"):
             with self.subTest(skill="chat", phrase=phrase):
                 self.assertIn(phrase, chat)
-        reference = self.text("references", "worker-cli.md")
+        reference = self.text("references", "legacy", "worker-cli.md")
         for phrase in ("`withdrawn`", "`withdraw`", "save a checkpoint first; exit after it succeeds"):
             with self.subTest(reference=phrase):
                 self.assertIn(phrase, reference)
@@ -266,18 +266,18 @@ class WithdrawalInstructionTests(unittest.TestCase):
         """Silent-delegation design A8, P9: a question posted with `activity` parks nothing, so its thread waits for
         an answer no job reads. The skill told workers both not to do that and to do it; now only `await-input` asks,
         and the CLI refuses the other way. No skill tells a worker to post an elicitation itself."""
-        fix = self.text("skills", "fix", "SKILL.md")
+        fix = self.text("skills", "legacy", "fix", "SKILL.md")
         self.assertNotIn("`--type elicitation` only for a question", fix)
         self.assertIn("use `activity --type thought` for progress; a question always goes through `await-input`, "
                       "which posts it and parks the job", fix)
-        for skill in sorted(path.parent.name for path in (ROOT / "skills").glob("*/SKILL.md")):
-            with self.subTest(skill=skill):
-                self.assertNotIn("--type elicitation", self.text("skills", skill, "SKILL.md"))
+        for path in (ROOT / "skills").rglob("SKILL.md"):
+            with self.subTest(skill=str(path)):
+                self.assertNotIn("--type elicitation", path.read_text(encoding="utf-8"))
 
 
 class SkillRegistryTests(unittest.TestCase):
     def test_repository_skills_load_with_expected_authority(self):
-        skills = load_skills(ROOT / "skills")
+        skills = load_skills(ROOT / "skills", replay_legacy=True)
         self.assertEqual(set(skills), {"chat", "work", "feature", "fix", "fgui", "scene"})
         self.assertEqual(skills["fix"].trigger, ("delegation",))
         self.assertIn("Farm-Client", skills["fix"].writes)
@@ -324,10 +324,10 @@ class StageManifestTests(unittest.TestCase):
     """Optional stage keys (spec §9.5): initial_root, staged and reads."""
 
     def test_the_fix_manifest_names_the_bot_label_it_answers(self):
-        self.assertEqual(load_skills(ROOT / "skills")["fix"].intents, ("label:Bot/修改",))
+        self.assertEqual(load_skills(ROOT / "skills", replay_legacy=True)["fix"].intents, ("label:Bot/修改",))
 
     def test_fix_is_staged_from_a_neutral_start_and_chat_is_not_staged(self):
-        skills = load_skills(ROOT / "skills")
+        skills = load_skills(ROOT / "skills", replay_legacy=True)
         self.assertEqual((skills["fix"].staged, skills["fix"].initial_root, skills["fix"].reads), (True, None, ()))
         self.assertEqual((skills["chat"].staged, skills["chat"].initial_root, skills["chat"].reads), (False, None, ()))
 
@@ -368,7 +368,7 @@ class OptInManifestTests(unittest.TestCase):
     """Phase B plan P1 and P8: optional `opt_in` and `exclusive` manifest keys."""
 
     def test_both_keys_default_to_false_and_this_checkouts_skills_set_neither(self):
-        skills = load_skills(ROOT / "skills")
+        skills = load_skills(ROOT / "skills", replay_legacy=True)
         for name in ("chat", "fix"):
             with self.subTest(skill=name):
                 self.assertEqual((skills[name].opt_in, skills[name].exclusive), (False, False))
@@ -404,7 +404,7 @@ class EnabledSkillsTests(unittest.TestCase):
 
     def setUp(self):
         from agent.dispatch import SKILL_AUTHORITY
-        self.skills = load_skills(ROOT / "skills")
+        self.skills = load_skills(ROOT / "skills", replay_legacy=True)
         self.authority = SKILL_AUTHORITY
 
     def test_without_the_key_every_loaded_skill_runs(self):
@@ -505,14 +505,14 @@ class FeatureManifestTests(unittest.TestCase):
     }
 
     def test_the_manifest_file_is_the_phase_c_shared_interface(self):
-        raw = json.loads((ROOT / "skills" / "feature" / "skill.json").read_text(encoding="utf-8"))
+        raw = json.loads((ROOT / "skills" / "legacy" / "feature" / "skill.json").read_text(encoding="utf-8"))
         self.assertEqual(raw, self.SHARED_INTERFACE)
         # The historical Phase B fixture still checks compatibility with target-free server stages.
         for key in ("trigger", "intents", "initial_root", "staged", "reads", "mcp", "budget", "opt_in", "exclusive"):
             self.assertEqual(raw[key], FEATURE_SHAPE[key])
 
     def test_the_manifest_loads_as_a_staged_opt_in_exclusive_skill_without_tools(self):
-        feature = load_skills(ROOT / "skills")["feature"]
+        feature = load_skills(ROOT / "skills", replay_legacy=True)["feature"]
         self.assertEqual((feature.trigger, feature.intents, feature.writes, feature.initial_root, feature.staged,
                           feature.reads, feature.resources, feature.gates, feature.mcp, feature.budget),
                          (("delegation",), ("label:Bot/Code",), ("Farm-Contract", "common", "farm-hive", "Farm-Client"),
@@ -524,7 +524,7 @@ class FeatureManifestTests(unittest.TestCase):
 
     def test_feature_runs_only_where_enabled_skills_names_it(self):
         from agent.dispatch import SKILL_AUTHORITY
-        skills = load_skills(ROOT / "skills")
+        skills = load_skills(ROOT / "skills", replay_legacy=True)
         self.assertIn("feature", skills)  # loaded on every host that has this checkout
         self.assertEqual(set(enabled_skills(skills, None, authority=SKILL_AUTHORITY)), {"chat", "fix"})
         for names in (["chat", "fix", "feature"], ["chat", "feature"]):
@@ -538,7 +538,7 @@ class FeatureInstructionTests(unittest.TestCase):
     Whitespace is normalized, so rewrapping a paragraph changes nothing here."""
 
     def raw(self):
-        return (ROOT / "skills" / "work" / "code-stages.md").read_text(encoding="utf-8")
+        return (ROOT / "skills" / "legacy" / "work" / "code-stages.md").read_text(encoding="utf-8")
 
     def text(self):
         return " ".join(self.raw().split())
@@ -672,7 +672,7 @@ class FeatureInstructionTests(unittest.TestCase):
             try:
                 ledger.observe_issue(issue())
                 ledger.ensure_session(SESSION, ISSUE, delegation=True)
-                item = ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="feature")["id"]
+                item = ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="feature", execution_contract='staged-v1')["id"]
                 token = ledger.claim(item, worker_id="w")["token"]
                 for example in examples:
                     with self.subTest(example=example[:60]):
@@ -687,7 +687,7 @@ class FeatureCommentTemplateTests(unittest.TestCase):
     """Phase B, Task 13: the feature worker's comment templates, rendered for an instance."""
 
     def rendered(self, name="FarmBot"):
-        return (ROOT / "references" / "comment-templates.md").read_text(encoding="utf-8").replace("<bot_name>", name)
+        return (ROOT / "references" / "legacy" / "comment-templates.md").read_text(encoding="utf-8").replace("<bot_name>", name)
 
     def section(self, name):
         return self.rendered().split(f"\n## {name}\n", 1)[1].split("\n## ", 1)[0]
@@ -735,7 +735,7 @@ class FeatureClosingInstructionTests(unittest.TestCase):
     """Phase B, Task 14: stages C and D, the closing steps and the delivery, pinned like Task 13's sentences."""
 
     def raw(self):
-        return (ROOT / "skills" / "work" / "code-stages.md").read_text(encoding="utf-8")
+        return (ROOT / "skills" / "legacy" / "work" / "code-stages.md").read_text(encoding="utf-8")
 
     def assert_phrases(self, phrases):
         text = " ".join(self.raw().split())
@@ -748,7 +748,7 @@ class FeatureClosingInstructionTests(unittest.TestCase):
             "When stage D is skipped, set both `closing.hive_resynced` and `closing.pin_written` to true",
             "do not hand off to farm-hive for closing", "Keep `config.sha` for the client stage",
             "When stage C ran and stage D was not skipped"))
-        template = (ROOT / "references" / "comment-templates.md").read_text(encoding="utf-8")
+        template = (ROOT / "references" / "legacy" / "comment-templates.md").read_text(encoding="utf-8")
         self.assertIn("服务端阶段跳过时", template)
 
     def test_every_hive_closing_attempt_selects_and_reuses_its_recorded_followup(self):
@@ -815,7 +815,7 @@ class FeatureClosingTemplateTests(unittest.TestCase):
     """Phase B, Task 14: the closing, re-ask, pin-mismatch and delivery templates."""
 
     def section(self, name):
-        text = (ROOT / "references" / "comment-templates.md").read_text(encoding="utf-8")
+        text = (ROOT / "references" / "legacy" / "comment-templates.md").read_text(encoding="utf-8")
         return text.split(f"\n## {name}\n", 1)[1].split("\n## ", 1)[0]
 
     def assert_in_section(self, name, phrases):
@@ -853,7 +853,7 @@ class IssueScopeInstructionTests(unittest.TestCase):
         return " ".join((ROOT / path).read_text(encoding="utf-8").split())
 
     def test_docs_only_input_retention_applies_to_initial_export_and_closing(self):
-        raw = (ROOT / "skills/work/code-stages.md").read_text(encoding="utf-8")
+        raw = (ROOT / "skills/legacy/work/code-stages.md").read_text(encoding="utf-8")
         initial = " ".join(raw.split("## Stage F: Farm-Client\n", 1)[1].split("\n## Closing", 1)[0].split())
         closing = " ".join(raw.split("## Closing\n", 1)[1].split("\n## Outcomes", 1)[0].split())
         self.assertIn("When no network-input update is required, retain the existing generated files/provenance", initial)
@@ -865,19 +865,19 @@ class IssueScopeInstructionTests(unittest.TestCase):
         self.assertIn("newer tip alone does not invalidate the selected verified snapshot", closing)
 
     def test_verification_entrypoints_do_not_restart_rounds_for_a_new_main_tip(self):
-        fix = self.text('skills/fix/SKILL.md')
-        feature = self.text('skills/work/code-stages.md')
+        fix = self.text('skills/legacy/fix/SKILL.md')
+        feature = self.text('skills/legacy/work/code-stages.md')
         self.assertIn('Do not merge or rerun tests solely because of a newer tip or worker restart', fix)
         self.assertIn('A resumed unchanged candidate keeps its controller-recorded round', feature)
         for text in (fix, feature):
             self.assertIn('candidate-only run can retain its', text)
         self.assertNotIn('If main advances, commit the integration and rerun required checks', fix)
-        work = self.text('skills/work/SKILL.md')
+        work = self.text('skills/legacy/work/SKILL.md')
         self.assertIn('If `resource.reuse_candidate_reservation` is present', work)
         self.assertIn('a newer main tip does not restart verification', work)
 
     def test_required_generation_and_unmerged_provenance_are_not_waived(self):
-        text = self.text("skills/work/code-stages.md")
+        text = self.text("skills/legacy/work/code-stages.md")
         for phrase in ("actual generator input inventory", "schemas, message IDs, registry/manifest inputs",
                        "introduced generated output or an unmerged source pin",
                        "Never cherry-pick generated files, partially sync, hand-edit output or weaken a gate",
@@ -888,7 +888,7 @@ class IssueScopeInstructionTests(unittest.TestCase):
                 self.assertIn(phrase, text)
 
     def test_general_job_and_recovered_waits_remain_bound_to_the_issue(self):
-        general, feature = self.text("skills/work/SKILL.md"), self.text("skills/work/code-stages.md")
+        general, feature = self.text("skills/legacy/work/SKILL.md"), self.text("skills/legacy/work/code-stages.md")
         self.assertIn("Ask for an asset only when the accepted outcome actually requires that asset", general)
         self.assertIn("Recheck older plans that demand a full sync", general)
         self.assertIn("choice to keep scope never means waiting for an unrelated feature", general)
@@ -898,12 +898,12 @@ class IssueScopeInstructionTests(unittest.TestCase):
         self.assertIn("Continue acceptance/write-back without waiting for unrelated upstream compatibility work", feature)
         self.assertIn("A no-re-sync decision omits only protocol work; still enter farm-hive for required config/published-pin work", feature)
         self.assertIn("never just change the plan to hide an input pin", feature)
-        reference = self.text("references/worker-cli.md")
+        reference = self.text("references/legacy/worker-cli.md")
         self.assertIn("`closing.not_required` maps unnecessary closing steps to reasons", reference)
         self.assertIn("not that a test or export passed", reference)
 
     def test_templates_do_not_reintroduce_global_sync_or_external_feature_waits(self):
-        text = self.text("references/comment-templates.md")
+        text = self.text("references/legacy/comment-templates.md")
         self.assertNotIn("保留客户端 re-export／验证要求", text)
         self.assertNotIn("客户端 PR 要等契约合并后的重新导出", text)
         self.assertIn("“保持本工单范围”不附带等待其他功能完成", text)

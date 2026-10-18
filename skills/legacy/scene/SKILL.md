@@ -8,7 +8,7 @@ Farm-Client instructions. This is presentation work within that job, not a
 separately labelled issue. Follow the worker CLI, current write scope and the
 existing claim, publication, foreign-work and resource rules. Use
 `execution.python` with native argument lists.
-Follow the claim-token storage procedure in `references/worker-cli.md`:
+Follow the claim-token storage procedure in `references/legacy/worker-cli.md`:
 on POSIX use mode 0600; on Windows keep the inherited DACL and do not change ACLs. Store only
 your own claim, never the parent's token.
 

@@ -1,0 +1,3192 @@
+# FarmBot operating contract
+
+Continuation startup uses the current root's instructions, skill and bounded
+`references/worker-start.md` read batch. `startup.start_argv` uses
+`claim --context --save-token STATE_DIR/token` to store the secret exclusively at
+the configured item path and return a secret-free compact resume view. Existing
+files/links, wrong ledger/path and storage failure refuse startup; an uncertain
+claim is never retried or overwritten. Plain claim stays compatible. Neither
+variant changes claim/maintenance fencing or live issue verification. The
+worker still fetches current issue facts. It reads
+required phase rules without serially reopening unrelated workflow stages.
+Write and read-only checkouts share one launch's fetch scope, with a fresh fetch
+on the next launch and the existing clone trust/config checks preserved.
+
+Resource/repository handoff commands accept `--checkpoint FILE`, running normal
+checkpoint gates before the ordinary transition. Refusal retains saved progress
+without releasing the claim/resource; success retires the claim and requires
+immediate worker exit, not another final-report rewrite. Descendant teardown,
+worker capacity and Editor quiescence still precede the next reservation.
+These changes add no schema or write grants; older releases retain the normal
+separate claim/checkpoint/handoff commands and all recovery evidence.
+
+Closeout reuses the original evidence index and compact prepared report packet.
+At docs-only Contract entry, workers inspect/reconcile pinned fetched main history
+before editing and running all required Contract gates, so stale history does not
+first appear as deleted main protocol files. This does not invalidate unchanged
+consumer candidates or require adopting unrelated inputs. `verify-publication`
+returns an explicit `push_argv` and Windows execution hint: normal automatic
+approval for the exact push outside the restricted shell, with hooks and all
+destination/claim checks retained. The hint is not approval or execution; denial
+still stops publication. No schema migration or permission expansion is involved.
+
+Current behaviour implemented in this repository. Closure cleanup requires deployment of this revision. Rewritten in place whenever behaviour changes; the
+design rationale lives in `docs/superpowers/specs/`.
+
+## General issue jobs
+
+The opt-in `work` workflow owns one delegated issue and ignores Bot labels for new
+delegations and first authorized conversation requests. Bug fixing and feature
+implementation use the same capabilities and only the required stages. New or
+changed behavior, including UI-only interactions/states, uses shared OpenSpec in
+Farm-Contract. Pure visual corrections check existing requirements and actual
+design references; farmgui needs no separate OpenSpec project.
+
+Workers choose investigation and workflow steps from actual acceptance gaps,
+dependencies and valid existing evidence. Investigation starts with relevant
+repositories/paths and expands only when findings or unresolved scope require it;
+legacy fix intake no longer requires examining every available worktree. Question
+rounds are conditional on necessary unresolved human decisions, approvals, inputs
+or external actions. Applicable attributed rulings are reused for unchanged scope;
+silence and worker guesses never replace required approval. Existing-contract
+delegation records the existing full SHA and scenario references without an empty
+commit, artificial edit or new Contract PR; actual contract changes still require
+their commit and repository review/gates. Workers record reasons briefly in the
+existing plan/handoff and reassess changed requirements or relevant inputs. These
+are worker instructions, not a new controller proof of reasoning or a gate waiver;
+claim/publication checks, required tests and certified teardown remain unchanged.
+
+The requested outcome and attributed human scope limits govern the whole job,
+including resumed work and closing. Nearby defects, shared documents, other cards
+and newer main changes do not add requirements or waiting conditions. A choice
+to keep scope never means waiting for another feature. Workers establish whether
+a blocker was caused by their change or actually prevents the issue's required
+behavior or verification. Proven unrelated findings remain recorded limitations;
+unresolved attribution remains explicit and cannot waive required gates. Existing
+full-suite failures require reviewed candidate evidence or, when attribution
+needs it, a baseline comparison for draft eligibility. Missing assets are
+questions only for required presentation work.
+
+Client workers complete one bounded diagnostic attempt before stopping solely
+for unresolved failure attribution when their existing authority and tools allow
+it. They retain the original failed full-suite pair, start offline and request
+only necessary focused observations on the original candidate. The hypothesis,
+observations and consumed budget survive resumes; no full-baseline retry or
+automatic waiver follows. A focused pass cannot replace the failed full suite.
+An exhausted diagnostic or a specific capability gap remains a concrete blocker.
+This instruction change adds no schema or verdict exception; already running
+workers receive it only through an authorized handoff or a new installed attempt.
+
+Protocol generation and closing re-sync depend on actual consumer input needs,
+not simply completion of Client stage F or a Contract merge. Workers inspect the
+issue diff, input inventory, schemas/message IDs, registry/manifest and generator
+pins, existing generated declarations/provenance and accepted consumer behavior.
+A docs-only Contract change with sufficient existing inputs retains their actual
+identities and records why initial generation and post-merge re-export are not
+required. New output or unmerged input pins introduced by the job still need
+verified-main provenance and required re-export/checks. Full atomic generation,
+repository gates, Client main ancestry and config publishing/pin checks remain.
+Do not adopt unrelated newer Contract inputs just to update a tip or partially
+sync generated files. An actually necessary incompatible upstream dependency
+remains a measured blocker; the rule grants no failing-snapshot publication.
+
+Input decisions live in existing bounded plan objects (`client.inputs.network`,
+`closing.inputs.hive`); `closing.not_required` records evidence-based reasons for
+unnecessary steps. A true boolean with such a reason means not required, never
+that a test/export ran. Required acceptance/write-back can proceed without an
+unnecessary consumer re-sync. Resumed workers recheck older plans/waits against
+the accepted scope and retain all still-required gates and evidence. These are
+worker instructions and records, not a new controller input-diff classifier or
+database schema. No migration is required; downgrading loses these instructions
+and requires settled review of unfinished jobs before resuming old workers.
+
+For a docs-only Contract change whose required consumer inputs remain sufficient,
+the worker can publish measured acceptance to the existing Contract draft and
+finish draft delivery without waiting solely for that draft's merge/archive.
+All other required closing and human gates must be satisfied. The explicit
+`closing.deferred_archive` remains `pending_contract_merge`, `writeback_opened`
+remains false, and the public draft/delivery records the remaining archive and
+provenance obligation. `closing.acceptance` names the published head and evidence.
+The controller validates the deferred record's shape, stage completion and input
+decisions at finish; it does not independently classify a Contract diff as docs-only.
+Actual introduced unmerged inputs, config pins, waivers and missing acceptance
+cannot use this path. No post-delivery background worker or merge grant is added.
+
+An explicit `await-resource --repair-candidate-reservation ORIGINAL_ID --commit
+REPAIRED_SHA` continues a diagnosed repair from this item's original, cleanly
+settled comparison. The controller validates a clean owned descendant with no
+new merge commits and records the actual diff and original baseline in its audit.
+Main must still contain that baseline; current-main drift alone does not require
+merging or repeating the baseline. Ordinary requests do not inherit unrelated
+rounds. Repair identity is rechecked atomically at admission and survives
+certified retry/requeue. This is ancestry evidence, never a test pass.
+
+For changes confined to existing C# test fixtures under `Assets/**/Tests/**`,
+`compare-verification --repair-original` may retain the original complete pair
+and compare a fresh, completed whole-fixture run on the repaired SHA. The Git
+delta and fixture identities, environment/package inputs, complete expected
+selection, original fixture leaves, and all unmatched failures are checked.
+Every new focused result must pass; new skips/failures, lost tests, ambiguous
+identities and unrelated blockers cannot be waived. A causal source/diagnostic
+review remains required. The report preserves original failed counts and SHAs,
+names repaired failures, reports only actually executed focused candidate counts,
+and keeps `full_suite_passed=false`. Runtime/asset changes require normal
+candidate evidence; they cannot use this focused evidence composition.
+
+These records use existing audit storage; there is no database schema migration.
+Downgrading does not erase records but older controllers cannot interpret repair
+continuations. Settle and pause these jobs before rollback; retain all reports and
+do not resume an older controller into automatic fresh-main retries.
+
+Client candidate admission records its host-verified upstream SHA. A candidate
+with a cleanly released run in the current generation and no comparison round
+can use that pin for remaining focused checks/publication; it need not invent a
+comparison baseline merely to freeze main. An unclean/incomplete newer run or an
+existing comparison round prevents falling back to that candidate-only record.
+This records ancestry, not a passing result; required tests and acceptance remain.
+A candidate
+that ran before its first comparison baseline may be explicitly bound with
+`await-resource --baseline --commit CANDIDATE --reuse-candidate-reservation ID`.
+The controller requires the same item/generation/SHA/mode, clean release and no
+earlier comparison round for that candidate/mode. It records the binding in the
+reservation audit, carries it through bounded recovery and accepts that exact
+candidate's earlier report once the baseline settles. It does not infer a pass:
+all environment, input, selection, complete-result and affected-test checks remain.
+The upstream pin must still be an ancestor of actual remote main and the candidate;
+legacy reservations without a pin retain current-main validation. A later round
+without an explicit valid binding cannot borrow an older run. These are additive
+audit fields, not a migration; older code ignores them and may request redundant
+work, so a downgrade requires settling/reviewing unfinished rounds first.
+
+Verification workers receive a short resume guide and batch evidence reads. They
+prepare local test inputs before requesting resources and perform planned issue
+presentation QA in the candidate reservation when safe, then release and keep the
+claim for offline comparison/publication. Baseline workers with a retained
+candidate compare existing reports after release instead of queuing another run.
+Monitor distinguishes preparation, test execution, presentation QA, comparison
+and publication; these progress labels are not verdicts. Runtime instructions
+take effect only for new installed attempts or an authorized safe handoff.
+
+After the shared behavior is settled, the general job may delegate durable `fgui`
+or `scene` tasks and continue independent server/config work. Each has separate
+claim tokens, checkpoints, human gates and run evidence, sharing the job's owned
+branches. Actual human answers go to the parent, which routes them with original
+attribution; partial answers resume only the relevant task. Missing assets are
+questions, never implicit permission to invent art or use placeholders. The
+FGUI visual approval and certified export remain source gates. New internal FGUI
+tasks deliver a versioned source artifact and cannot enter Client or reserve
+Unity. After certified child teardown the parent consumes that exact receipt,
+installs it, handles necessary metadata/dependency prerequisites and verifies
+guards/loading at its final candidate. Source completion is not issue acceptance.
+Standalone FGUI and existing partial installs retain their legacy recovery gates.
+
+Parent Client entry waits for configuration stages B/C and server stage D to
+be done or explicitly skipped with reasons. Versioned tasks permit parent
+prerequisite integration before all children finish; legacy tasks keep their
+original join until source handoff or an explicit prerequisite yield. Final issue
+delivery still requires every child and all required final-candidate integration
+evidence. All same-repository writers
+serialize, including attempts recovered after restart; a presentation retains its
+Client stage across human/resource waits and terminal task retries until delivery
+or a certified prerequisite yield. `yield-presentation` records a clean scene
+candidate and exact outside repair paths, retires its claim and parks it without
+a human question. The parent can write only after worker quiescence; after a
+bounded committed repair `resume-presentation` preserves the child's original
+entry and records inherited repair files that the child cannot alter.
+FGUI retains its reviewed source through certified delivery. The job keeps one immutable Client pin,
+and each presentation task retains a clean entry HEAD for its own scoped diff.
+On first Client entry, a general job whose preferred issue branch already exists
+selects a fresh branch suffixed with its owning job ID at current trusted main.
+It records that branch and baseline before checkout, leaving retained branches
+and commits intact. A pre-existing suffixed branch, unpinned worktree or recorded
+Client plan without its baseline is still refused; retries retain the saved pin.
+Tasks report progress without closing the shared session. Only the parent posts
+the issue outcome, including every task's PRs. Stop/failure cancels the whole job;
+withdrawal preserves the shared claimed-worker grace, including parked
+coordinators and queued/parked children through quick re-delegation. Shared source
+is cleaned only after certified child teardown. Successor UI recovery retains the
+original source entry branch/commit and Client entry baseline, accepts only
+matching certified installation history, and
+requires appropriate current approval/export/guards/Unity proofs. Unchanged
+certified source handoffs retain the original approval/export; their immutable
+staged bytes are checked again on consumption. New scene requests declare exact
+asset scope, a source/Unity validation mode and optional earlier sibling task
+dependencies. Delivery checks file scope, ordinary-file/LFS identity, asset/meta
+pairs and GUID preservation/collisions. Unity mode additionally requires a
+controller-recorded exact-candidate asset-load probe, not a worker's claimed pass.
+New scenes leave the final Client draft to the parent; legacy scene delivery
+also binds its actual open draft. A parked old scene can receive scope through
+`authorize-scene-scope`, without answering or waiving human decisions.
+No-change delivery proves zero task
+diff. Delivered tasks are rechecked at their exact clean source/Client HEADs after
+process quiescence. Proven late writes invalidate that task's delivery while
+preserving the candidate and certified teardown for attributed human retry. Internal UI
+no-change delivery requires clean owned source on its controller-recorded entry
+branch, zero tree diff from the immutable source entry commit, and zero
+original-baseline Client diff when it entered Client. Unknown verification errors
+retain delivery and pending cleanup for a later check, holding subsequent writers.
+Optional progress posts cannot fail an already durable transition.
+Native FGUI export remains serialized by the host mutex with fenced bounded waits;
+UI authoring and server work still run concurrently.
+
+New task questions, failures and certified completion wake a parked coordinator
+once per actionable round, including when it used ordinary `await-input` for its
+own human question. That question remains saved; a coordination wake is not an
+answer and does not resume dependent work. Withdrawn jobs and open resource
+reservations cannot be revived through this wake path.
+
+A queued Client parent with unfinished presentation tasks and a task question,
+failure or pending inbox message can launch a coordination-only attempt after
+its previous worker is proven quiescent. The controller persists `@coordination`
+in `root_repo`; it resolves to no repository write root, not the initial
+Farm-Contract root. This also recovers already-queued waits from older releases.
+The attempt routes actual attributed answers without editing repositories or
+requesting tests. Candidate pins, reports, checkpoint and generation are retained.
+After presentation delivery and certified teardown, an ordinary repository
+handoff restores Client authority, still checking B/C/D and actual writer ownership.
+Maintenance, single-issue admission and withdrawal fences remain authoritative.
+Monitor distinguishes internal artifact waits and parent prerequisite repair
+from human replies. A source-only upgrade is an explicit host operation:
+`resume-ui-source` requires maintenance, stopped controller, quiescent issue
+workers/resources, current delegation, a technical wait without a human question,
+an unchanged clean Client entry and no outstanding installation journal. It
+requeues source verification; it never certifies delivery or fabricates an answer.
+After Stop, a successor whose controller ancestry retains an unfinished FGUI
+Client entry keeps the legacy installation protocol, even under a different
+task key. Original baseline, installation journals and teardown checks remain
+required; fresh tasks without that retained Client work use source delivery.
+
+Shared code-stage rules live in `skills/work/code-stages.md`. `chat` remains the
+read-only entry. New work uses `work`; the `feature` compatibility entry reads
+those shared rules and `fix` retains its existing continuation profile. Existing
+job IDs, claims, candidates, questions and evidence are not rewritten into a new
+profile. Compatibility profiles must remain enabled while their old jobs need
+recovery; new delegated/conversation work still selects `work` first.
+This adds no database columns. An older release does not understand the narrower
+root. Before rollback, let coordination items leave it through certified handoff
+on this release, then pause and settle workers. Do not rewrite live roots or
+discard evidence to make an older scheduler run.
+
+All write workers receive the fixed per-command Git commit identity
+`FarmBot <farmbot@localhost>` in their launch authority, including TestBot.
+Ambient author settings are unnecessary; workers keep the existing Git safety
+flags and never edit global or clone configuration to supply an identity.
+
+Enable `work` explicitly; hosts without it retain the legacy routing described
+below. Existing jobs retain their profile, which must stay enabled to continue
+them. See [activation, concurrency and schema recovery](../general-workflow.md).
+This is offline implementation, not evidence of deployment or live acceptance.
+
+## Host configuration
+
+### Fixed Unity Editor pool
+
+`unity_pool: {"editors": 2}` enables a persistent interactive-only pool; 3 or
+another positive count up to the configured slot count is accepted. The first N
+entries in `slots` select the owned projects; other recorded closed slots are
+never opened or granted. Startup opens selected Editors sequentially, verifies
+their clean commit and MCP identity, and retains them between jobs. Each grant
+still switches to and verifies the exact reserved candidate. On release the slot
+retains its last clean candidate, avoiding an extra return-to-main import.
+
+Memory admission gates new Editor startup, not repeated process launches for each
+test. Reuse charges no additional Editor estimate. If only one can start, jobs
+continue through it while other starts wait for headroom; idle Editors are not
+closed for server requests or failed admission checks. Server capacity must be
+budgeted alongside the permanently retained Editor pool. Configurations whose
+fixed Editor estimates exceed the shared reservation budget are refused.
+
+All Unity tests use worker MCP `run_tests`/`get_test_job` after instance and commit
+verification. Before every interactive test start or mode change, workers archive
+the preceding completed run's errors and establish a separate compilation/reload
+boundary as described in `references/worker-cli.md`. A refresh acknowledgement or
+cached idle state is insufficient: fresh state, a native readiness probe, clean
+exact source and the fresh compilation Console must agree before creating a job.
+Expected refresh/reload disconnections are settled through bounded read-only
+polling; workers never resend the compile request or blindly repeat a test start.
+An ambiguous start remains a verification gap until retained jobs and live runner
+state have been reconciled. This adds no Editor lifecycle authority and changes
+no claim, reservation or release fences.
+Queued Unity batch requests are converted in place to interactive,
+preserving ID, candidate, generation and FIFO. Conversion is not execution or test
+evidence. Server-slot batch mode is unchanged. Without `unity_pool`, legacy hosts
+retain their existing batch/interactive behavior during migration.
+
+Edit the profile and restart only after the controller's workers have settled,
+with active Unity reservations settled and all projects outside the selected
+count closed. A violating startup leaves the fixed pool
+unavailable; ticks cannot bypass that guard. Interrupted starts preserve the
+project in held state for the existing bounded preparation recovery; failed
+Editors never count as test passes and healthy selected Editors remain usable.
+Workers cannot launch, stop or restart Editors. Stop, withdrawal, claim fencing,
+identity, exact-commit and quiescence checks remain in force.
+
+A single persistent Editor is supported with `unity_pool: {"editors": 1}`;
+Unity requests use FIFO with the bounded comparison continuation below; `max_concurrent` independently controls code
+workers. Settle reservations and close unselected owned Editors before reducing
+the configured pool. An idle Editor whose process ownership cannot be read is
+excluded from grants immediately. A successful observation within 30 seconds
+restores eligibility without restarting it; continuous uncertainty requests the
+existing fenced preparation recovery. Windows process inspection filters Unity
+processes at the provider and allows 15 seconds for the native query.
+
+No schema migration is introduced. Settled queued batch rows change their mode
+to interactive when this policy is enabled; older code already understands that
+mode on rollback. Existing active batch executions must finish before activation.
+This implementation has offline tests, not real Editor or production acceptance.
+
+A Client work/feature/fix comparison baseline can atomically release and queue its exact pre-recorded candidate
+with `continue-verification`, using both the live claim and reservation tokens. Complete baseline evidence and
+quiescence are prerequisites. The next turn stays on the baseline's slot while that baseline remains its last
+reservation; another use or withdrawal removes priority, and a held slot cannot grant it. The candidate cannot chain priority.
+Reservation sequence, distinct run identities and immutable target are preserved. The scheduler, memory
+admission and Monitor share this queue order. Worker exit/containment, worker-seat availability, clean owned
+candidate validation and pool quiescence remain mandatory before the candidate starts. This is a fresh worker
+handoff; it does not permit in-place source switching by a worker. Already queued jobs keep their normal order.
+The valid continuation retains its departing worker's seat (deduplicated with that same active item), so
+ordinary launches cannot take it between teardown and candidate admission. The seat expires with the hint.
+
+Client workers use `verification-progress` for failure review, publication and final recording, and
+`compare-verification` to validate retained files under their state directory against the settled recorded pair.
+The latter immediately records eligible/blocked/evidence-gap and leaves complete checkpoint data intact.
+These stages are display observations, not evidence of tests passing or authorization to publish/finish.
+NUnit `Failed:Invalid` is retained as a failed leaf, requiring the same reviewed signature as other failures.
+Standalone .NET evidence uses `agent.dotnet_baseline`: complete hash-bound raw TRX, explicit exact commits,
+selection, toolchain/config/package/environment identities and source/dependency reviews. Every execution
+is retained, including duplicate display/test IDs; repeated non-passing identities are an unresolved gap.
+This independent read-only verdict covers only the .NET check. It neither invents Unity reservations nor
+satisfies the Unity, affected-test, QA or publication gates. Existing complete reports can be re-compared
+offline after a parser correction. No database migration or historical result rewrite is required.
+The strict comparison, affected-test and publication gates remain unchanged. No schema migration is needed;
+older releases ignore the continuation audit hint and use ordinary FIFO. Deploy a complete settled release;
+do not run new worker instructions against an older controller/CLI.
+
+### Profile selection
+
+File selection is explicit `--config`, then `FARMBOT_CONFIG`, then the checkout's
+default `.local/agent/config.json`. The loader expands `~` and captures an absolute
+path. A service built from that loaded config passes its path to every worker
+attempt, including resumes, overriding a conflicting inherited `FARMBOT_CONFIG`
+without changing the host process's environment. The launchd installation command
+also embeds the selected absolute path when selection came from the environment
+or default. Directly constructed in-memory configurations have no source file;
+test fixtures must still supply their own worker environment.
+
+The host loader secures the config's permissions on POSIX. Worker CLI and API
+consumers read it without changing permissions, so a selected config can live
+outside worker-writable state directories without granting write access to it.
+
+Workers create claim-token files exclusively in their owned state directory. Their
+instructions require mode 0600 on POSIX and preservation of the inherited DACL on
+Windows, without ACL repair, elevation or writable-root expansion. Windows mode bits
+do not certify account isolation. A token-storage failure stops the worker; it does
+not authorize overwriting or deleting a previous attempt's token.
+
+This pins file selection, not file contents. Restart a settled service after editing
+the file so the controller and its workers load the same settings. State location
+still comes from `local_root`; configure an absolute path for each installation.
+These rules do not by themselves restrict credentials, repositories or live issues.
+
+Codex workers default to FarmBot's `latest-sol` policy at `xhigh` reasoning. Before
+each new or resumed attempt, the launcher selects the highest numeric stable
+`gpt-<version>-sol` advertised for listing and supporting the requested effort in
+`models_cache.json` alongside its configured source `auth.json`. It reads only
+bounded model metadata there, independent of inherited `CODEX_HOME`, repository
+settings and worker environment overrides; it does not copy the catalog into the
+worker home. Missing, malformed or unusable metadata retains the `gpt-6.1-sol`
+release baseline, and selection never downgrades below it or switches model
+families or reduces the requested effort. The host's Codex catalog refresh controls
+when newer versions become selectable; a stale catalog can delay an upgrade.
+FarmBot performs no discovery model call or catalog refresh itself. Catalog
+selection does not establish model access: the host account and selected native
+Codex client must support the resolved model. A newer desktop client's catalog
+does not certify an older pinned bot CLI. Release verification checks that CLI
+version and a bounded real model start; it does not silently downgrade the
+chosen model. Private `codex_workers` entries override either setting per skill; unspecified settings
+retain the FarmBot default. An explicit model identifier pins that skill, while
+`"model": "latest-sol"` restores selection. Only the resolved concrete model and
+effort are written into each new or
+resumed worker's isolated Codex home. Claude workers do not use these settings.
+
+Private `enabled_skills` lists the skills an instance runs, from those in its checkout's `skills/`;
+without the key every one runs except an opt-in skill, one whose `skill.json` sets
+`"opt_in": true`, which runs only where the list names it. A checkout that ships an opt-in skill
+therefore starts nothing new until an operator names it. The list must include `chat`, the
+conversation every other route falls back to, and `chat` cannot be opt-in. A name the checkout
+lacks, or an enabled skill the dispatch AUTHORITY does not cover, is a configuration error: `serve`
+and `enqueue` stop, and `doctor` reports `enabled_skills_invalid`. The receiver routes only to
+enabled skills, and `enqueue`, `request-repair` and `resume-work` refuse the others; `enqueue` says
+when the refused skill is opt-in. A queued item whose skill is loaded but not enabled fails before
+launch with an error activity naming 重试; `retry` or a requested continuation brings it back once
+the skill is enabled. An item whose skill the checkout lacks, which only a rollback leaves, stays
+queued as before. `doctor` reports `skills` with the loaded and enabled names, so an opt-in skill no
+list names shows as loaded and not enabled, and `skill_runtime_unsupported` for enabled skills the
+configured `runtime` cannot launch (see Authority). Restart a settled service after changing the
+list; an older revision ignores the key and runs every skill. An older revision also refuses a
+manifest with `opt_in` or `exclusive`, keys it does not know, so a rollback deploys the older code
+and skill files together, as always.
+
+Private `lark_cli` says how `feature` and `fgui` workers read the 策划案 as FarmBot's own read-only Feishu app
+(spec §5.4): `{"profile": NAME}`, the lark-cli profile that holds the app's ID and secret, and on
+macOS and Linux an optional `"home"`, the absolute directory of a FarmBot-only lark-cli home that
+holds only that profile (`docs/development-workflow.md`). This profile variant accepts no app ID or secret;
+`home` must lie outside `local_root`, the service user's home and every
+temporary directory, and is refused on Windows. `serve` and `enqueue` stop when an enabled skill
+reads the 策划案, today `feature` or `fgui`, and the block is missing; the check reads the config only. Every
+worker, whatever its skill, starts without `LARKSUITE_CLI_APP_ID`, `LARKSUITE_CLI_APP_SECRET`,
+`LARKSUITE_CLI_PROXY_KEY` and any `LARKSUITE_CLI_*ACCESS_TOKEN`, removed after every per-worker
+override. `LARKSUITE_CLI_CONFIG_DIR` is removed too, so it cannot redirect the selected store.
+These removals also cover Unity children and diagnostic tools, which additionally withhold the
+configured kw_ops token. lark-cli prefers credentials from the environment to `--profile`; as with the
+kw_ops token, the removal covers only the environment a worker inherits, so these never belong in a
+shell startup file. The alternative `{"app_id": "cli_example", "secret_env": "FEATURE_FEISHU_SECRET"}`
+keeps the secret in the controller's process environment, never in config. It cannot be combined with
+profile/home and cannot share its source variable with kw_ops. Only a Codex `feature` or `fgui` attempt with
+a nonempty configured source gets `LARKSUITE_CLI_APP_ID`, `LARKSUITE_CLI_APP_SECRET` and forced
+`LARKSUITE_CLI_STRICT_MODE=bot`, added after withholding. The source alias is withheld from every
+worker, diagnostic and Unity child; inherited user/tenant tokens, proxy keys and store overrides remain
+withheld. An environment-granted attempt also removes `LARKSUITE_CLI_AUTH_PROXY`, disables shell
+snapshots and retains the canonical credentials in its shell environment. Every command that worker
+runs can read the bot secret; Feishu permissions must restrict the app to the intended read scope.
+The prompt carries only `tools.lark_cli: {"authentication": "environment"}`; a missing source is an
+unavailable tool, never a fallback to a local profile. Profile launches carry profile/home; other skills
+get neither grant. No app ID or secret value is written to the prompt, Codex config or process record.
+Native Windows Codex homes explicitly write `windows.sandbox` from the host's
+`codex_windows_sandbox`, which accepts exactly `"elevated"` (the default), `"unelevated"` or `"mxc"`.
+`unelevated` selects Codex's restricted current-user backend and requires separate tool and write-boundary
+acceptance. It offers weaker read and network isolation than elevated mode and does not isolate the
+service user's credentials. The choice applies to every Codex skill and resume on that host, retains
+the same worktree/state write roots, untrusted project settings and Job Object containment, and adds
+no authority. Disabled and implicit modes are refused; startup or tool failure never selects a fallback.
+Explicit `mxc` requires a compatible Windows host and Codex runtime. It avoids the legacy fresh-home
+ACL setup cost while retaining the same filesystem/network policy. Validate allowed and denied writes,
+loopback tools and descendant termination under the outer FarmBot Job before selecting it; do not copy
+legacy sandbox caches, share worker homes, disable isolation or silently fall back. A failed MXC startup
+remains a failure. Older FarmBot releases reject this value: settle workers and restore the previous
+sandbox selection before rollback. Provisioning and actual worker acceptance remain host checks. Other platforms and runtimes do not
+write this Windows setting. No state schema changes; settle workers and verify the configured selection
+before rollback to a release that predates support for the selected backend.
+This adds no schema migration. Rollback requires settling workers and restoring a profile-only config
+before running a revision that rejects the environment variant. An older revision ignores the key and
+passes credential variables on.
+
+After document authentication failures, a live `work`, `feature` or `fgui` claim may invoke
+`document-reader-status` against its configured host ledger. This controlled offline diagnostic supports
+native Windows profile mode only: exactly one matching strict bot app, no user identities, and its own
+`appsecret:<appId>` keychain reference. It checks the selected LarkCli registry value and DPAPI using
+lark-cli 1.0.82's service/account entropy; it copies no plaintext into Python values and clears/frees the
+native output buffer. It returns only availability, stage and an optional numeric Windows error code,
+never app IDs, secrets, ciphertext, lengths or fingerprints. It makes no network request or credential
+change. Unsupported platforms/routes gain no fallback. The CLI checks the claim before the probe and
+again before returning; direct worker credential-store inspection remains forbidden. A successful
+availability check is neither authentication nor full-document acceptance. This adds no schema migration;
+older worker CLIs lack the command and must not be replaced by an ad hoc credential-reading script.
+
+On a host that enables
+`feature`, `doctor` adds `tools.feature`, the version of each tool its workers run against the
+repositories' pins and whether the configured lark-cli profile exists, or whether the configured
+environment source is present in doctor's process, with
+`feature_toolchain_incomplete` for a required tool that is missing or wrong (README, diagnostics). It
+runs each tool's version command offline, with lark-cli's update check and metadata fetch off, and
+never calls Feishu; a host that does not enable `feature` runs none of it. The Go directive lookup
+refuses an unsafe clone and disables lazy fetching explicitly; an incomplete clone uses the default
+minimum instead of fetching a missing object.
+
+Windows Code/UI attempts receive `execution.platform` and the controller's absolute
+`execution.python` in dispatch. They use the native repository entry points in
+`references/repo-map.md`, with UTF-8 Python, rather than PATH's `python3` alias or a
+POSIX shell. Windows doctor probes that same interpreter and does not require Bash,
+WSL or GNU utilities. A version inventory does not certify prepared module caches,
+sandbox tool access or actual worker readiness. This adds no write roots or grants;
+fix/chat authority and containment are unchanged.
+
+Hosts may opt into [Go dependency preparation](../go-dependency-preparation.md).
+Each startup validates the configured native tools and Go digest before creating
+or marking fresh/empty cache and preparation roots. Existing ownership markers
+must match the instance and absolute state root; nonempty unmarked storage still
+requires explicit operator adoption. Links and foreign markers remain refused.
+No missing config, tools, credentials or permissions are selected/repaired by
+startup. Read-only `doctor` reports configured storage/tool readiness without
+initializing it. The [host startup guide](../startup.md) covers this alongside Unity
+slot preparation and the configured on-demand or persistent Editor pool mode.
+Workers request only a configured module at their clean committed HEAD. A separate
+controller loop parses/downloads/verifies those immutable module inputs using
+existing pinned native tools, isolated staging and explicitly owned cache roots
+outside worker write roots. No repository tool/build runs on the host. Preparation
+is durable, bounded and cancellation-fenced; pending requests require no human
+reply. Workers remain offline with read-only dependencies and perform the actual
+gates themselves. Failed host preparation remains a named verification gap.
+This adds audit kinds, not a schema migration; rollback requires settling workers
+and removing the optional config block while preserving cache/recovery evidence.
+
+The optional [native Windows Git/LFS callback](../windows-native-git.md) is built
+and selected separately; `serve` and `doctor` do not install or activate it.
+Its GitHub route remains HTTPS github.com only. An optional private companion
+pins one non-GitHub LFS origin and an existing native Git Credential Manager
+executable/hash for noninteractive server-only lookup. It installs no credentials
+and changes no publication authority, worker write root or containment requirement.
+The optional native LFS content-filter adapter in that reference is independently
+selected in the sanitized controller's process environment. It invokes only a
+hash-pinned existing native Git LFS executable with binary protocol streams and no
+helper shell, global/clone configuration change or credential setup. It adds no
+worker authority or default activation; original hydrated bytes and clean source
+identity still require verification.
+
+Explicit profiles select `environment` (`development`, `production`, or `offline`)
+and a lowercase `instance_id`. Existing configs default to `legacy` for compatibility.
+Live profiles require `expected_bot_name`, pinned `expected_app_user_id` and
+`expected_organization_id`, and a dedicated absolute `local_root`. API identity must
+match all configured fields. Live profiles reject the fake runtime and Linear stub
+selector; offline profiles require both. Offline mode still needs local repository
+and Unity fixtures and is not a network sandbox.
+
+`serve` and `seed-clones` acquire a nonblocking OS file lock on the root before
+building state. Explicit profiles bind a fresh root using `environment.json` with
+nonsecret identity fields. Mismatched, corrupt or unmarked existing runtime state is
+refused; it is never automatically adopted. State/Unity paths, including default slot
+folders, must resolve inside the root. Shutdown retains the lock until controller
+threads finish. Maintenance and worker CLI checks reject incompatible ownership
+before opening a ledger; worker CLI additionally checks the selected profile's DB.
+Config-free legacy CLI fixtures remain supported for unmarked databases.
+
+These checks prevent accidental profile mixing; filesystem permissions and credentials
+remain the security boundary. Do not delete the marker or downgrade code to bypass it.
+Migrate an existing production root only as a separately planned, backed-up operation.
+The marker adds no database migration, and legacy production settings are unchanged.
+
+`issue_prefix` defaults to `FARM`, which a development profile testing real 农场 issues
+keeps; a profile serving another team uses that team's key. Writable worktrees
+and publication verification share this policy and use `farmbot/<lowercase-key>`
+with an optional suffix. An unrelated suggested Linear branch becomes the canonical
+branch. Repository identity, private/write permission, protected-branch and exact
+PR verification still apply. The prefix is a publishing rule, not a team admission rule.
+The pinned app/workspace IDs select which app's sessions an instance accepts; within
+the workspace, only a delegation to that app or an @mention of it starts work: a UI
+delegation, or, on a card the instance already tracks, a delegation Linear opened no
+session for, which may also come from an automation or Linear's API (Triggers). No team,
+project or issue allowlist exists, so a development bot sharing the production
+workspace is scoped by the operator's choice of issues.
+
+Explicit launchd profiles use `com.kuaiwa.farmbot.<environment>.<instance_id>` labels;
+legacy labels remain unchanged. Installation writes plists but does not load them.
+
+The HTTP receiver binds the loopback address without reverse-DNS lookup. Host DNS
+availability is not required to start the local listener.
+
+## Triggers
+
+Linear text names the instance by its configured `expected_bot_name` (default `FarmBot`): the
+receiver's acknowledgements and error activities, launch-failure notices, and the worker comments
+rendered from `references/comment-templates.md`, whose `<bot_name>` workers fill from the launch
+message's `bot_name`. A development profile whose app is TestBot therefore speaks as TestBot in the
+shared workspace. The tables below use the production name. Git commit identity, launchd labels,
+the ledger marker and the `/health` body are unchanged.
+
+Issue detail reads retry a timed-out Linear request up to three times before the receiver reports
+an error activity. The retry applies to the current read page only; GraphQL mutations are never
+replayed after a lost response. A prompt that still fails must be retried in Linear.
+
+Linear signs upload URLs (`uploads.linear.app`) with a query string that changes between reads. An
+issue read removes that query string and any fragment, and leaves the Markdown, JSON, HTML (an
+entity such as `&quot;` right after the URL included) or sentence around the URL as written.
+Earlier revisions removed everything from the first `?` or `#` after an upload URL up to the next
+whitespace or `)`, such as the rest of a `<linear-image>` block or of a sentence that went on after
+a question mark. Deploying this revision therefore changes, once, the fingerprint of every tracked
+issue whose description or comments lost text that way, at the issue's next full read (a worker's
+`fetch-issue` or an agent-session event; status checks do not count). Every unfinished job on such
+an issue whose claim is taken before that read then requeues at `finish` (its next attempt redoes
+the work and posts its start comment again), has its repository handoff refused and cannot
+register a PR that Linear attached before its checkpoint, unless its worker re-reads the issue and
+revalidates. That includes a job that is only queued, waiting for a resource or between repository
+stages at the deploy: nothing re-reads the issue before a claim, so its own first `fetch-issue`
+stores the new text. Settle or cancel unfinished jobs on affected issues before deploying, or
+accept one requeue and a repeated start comment for each. Rolling back changes those fingerprints
+back once, with the same effect. Another app's comments, which earlier revisions counted as a
+person's, are a bot's from this revision, so an issue another app commented on changes fingerprint
+once in the same way, and back again on a rollback.
+
+Label-specific rows below describe hosts without `work`. In general mode, any
+delegation starts `work`; the remaining conversation/lifecycle rules apply to
+the parent job, and Stop includes all its tasks.
+
+| You do | FarmBot does |
+|---|---|
+| Assign (delegate) an issue labelled Bot/修改 to @FarmBot | starts a `fix` work item when this instance runs `fix`, whatever else the card carries and whatever text comes with it (otherwise the read-only conversation that says so); first activity within 10 s; posts 「👀 <bot_name> 已开始处理」 (「👀 FarmBot 已开始处理」 in production) once the worker claims |
+| Delegate an issue labelled Bot/UI or Bot/Code | starts opt-in `fgui` for Bot/UI or `feature` for Bot/Code when this instance's `enabled_skills` names it; both sessions get no Farm-Client target, and no activity in either, nor the reply to a mention forwarded to its job, carries a target line; otherwise, and for an unknown Bot child or two, the read-only conversation, whose first activity says what this instance runs |
+| Delegate an issue without a Bot label, whatever its Bug, Improvement, Feature or 部门 labels | starts the read-only conversation; on an instance that runs `fix`, its first activity says the card has no Bot label, that a reply such as 「修复」 starts a fix, and that Bot/修改 set before delegating starts one directly. It investigates, answers or clarifies intent. A standalone `修改`, `UI` or `Code` label outside the group routes like any other label |
+| Reply in a delegation session that never had a work item, for example one whose delegation waited for another session's worker longer than that worker's grace | while the issue is still delegated to FarmBot, routes again on its current labels with your reply as the delegation's text: a Bot child whose skill this instance runs starts its worker; otherwise, the read-only conversation |
+| Ask for a fix, a change or the card's feature in a conversation (a reply, or @FarmBot) | when the issue has recorded delegation and is still delegated to FarmBot, continues the delegation's earlier `fix` or `feature` job whatever the label now says, on an instance that runs its skill; with no earlier job, starts the workflow the Bot label names on an instance that runs it, `fix` with Bot/修改 or no Bot label and `feature` with Bot/Code; with Bot/UI, Bot children that name no workflow, or a workflow this instance does not run, the conversation says why nothing starts |
+| @FarmBot in a comment or the session | interprets intent in read-only execution; a mention never starts write work itself |
+| Reply in a session while a worker runs | the text reaches the worker at its next checkpoint |
+| Reply to a FarmBot question | the parked work item resumes with your answer. On a card no longer delegated to FarmBot, a conversation the delegation opened resumes as one that needs no delegation, so withdrawing the delegation's work leaves it; a parked write job keeps your reply and says the work will stop, and delegating the card again continues it with the reply |
+| Ask naturally to resume finished work, in its session or an @FarmBot mention | chat interprets intent, checks current delegation, and continues the delegation's earlier job, a fix or, on an instance that runs `feature`, a feature job, with the complete reply (a cancelled job gets a fresh linked job); no keyword is required. Negations and questions about restarting do not restart work |
+| Close an issue (a status of type `completed`, `canceled` or `duplicate`, such as Done, Canceled or Duplicate) or archive it | cancels unfinished/blocked work after a current status read, stops owned processes, preserves source and safely cleans worktrees; keeps logs; and posts one closing response in the session of each job it cancels while active (an issue comment for an operator-enqueued job). A deleted issue reads as archived while Linear still returns it |
+| Remove FarmBot's delegation, delegate the card to another app, or dismiss FarmBot's session | two status reads at least `reconcile_seconds` apart (the first is usually within a second of the change) confirm it; the issue's work that the delegation authorised then stops: a queued or waiting job is cancelled with one response in its session (an issue comment for an operator-enqueued job), and a running worker is told to save its progress and stop, and is stopped after twice its renew interval. Branches, draft PRs and recovery refs stay, and delegating the card again continues from them. Conversations started by an @mention or by an operator are not affected. Nothing is cancelled for work created or continued after the read began, or when the delegation comes back before the second read. When the delegation comes back before the second read and Linear opens no session, see *Delegate an issue when Linear opens no session for it* |
+| Remove a Bot label from a delegated card | nothing; only removing the delegation or Stop stops work |
+| Reopen an issue | starts nothing; request continuation or delegate explicitly |
+| Press Stop | the worker process is killed promptly, without waiting for the scheduler; the item is cancelled; FarmBot confirms in the session. A Stop in a session that forwarded a message to the work, or in the card's latest delegation session, stops the card's work wherever it runs; in a session whose work moved to another session, or had already stopped, FarmBot says so and stops nothing. When the stopped work lives in another thread, that thread also gets one closing response |
+| Delegate an issue that already has FarmBot work in another session | the new delegation takes the card over: waiting or queued work and any conversation move to the new session (the old job is cancelled and continued by a linked job with its messages; the old session gets one note); a running write worker is told to save and stop, and the new session starts once it has |
+| Delegate an issue when Linear opens no session for it (one of FarmBot's threads on the card still waits for an answer, or the delegation came through Linear's API or an automation) | on a card FarmBot tracks, about 90 s after a status read first finds the card delegated to FarmBot again with no delegation session recorded since, FarmBot settles it on a fresh read of the card, without opening a session or changing the card. Work of the kind the labels name that the delegation already has is kept, and its thread gets one line (at most one per job in 30 minutes): a waiting job asks its question again, a running one says it goes on. Other queued or waiting work, or a conversation, that lives in a delegation thread Linear shows as not archived is taken over in that same thread with its messages, as a new delegation takes a card over. Otherwise FarmBot records a creation attempt and opens its own session through `agentSessionCreateOnIssue`. Its normal `created` routing checks the card again, carries messages and compatible progress, and defers behind a claimed write worker. An explicit refusal falls back to one note in each open FarmBot thread: a response that ends a waiting thread, keeps its work answerable and says to choose No agent and delegate again; a thought where work runs; a response that closes a thread with no work, unless a Stop there still reaches the card's work or an event of it waits. On an explicit refusal with no open thread, nothing is posted and `doctor` lists `silent_delegation`. An uncertain response is recovered by its unique issue link, without another creation request. A card the fresh read finds closed, archived, trashed or not delegated to FarmBot is left alone, and so is one Linear keeps answering "not found" for 15 minutes while its other calls succeed. A delegation session that arrives later takes the card over as usual |
+| @FarmBot on an issue that already has FarmBot work in another session | Linear opens a new mention conversation; a waiting conversation moves to your thread and answers there; otherwise your text is forwarded to the existing work, and the notice says whether it was resumed, will be read at the next checkpoint, or will not continue because the card is no longer delegated. Reply directly in the original agent session to keep the same conversation |
+
+On legacy hosts, the Bot label group (D18) is team-scoped and single-select, so a card carries at most one child:
+修改, UI or Code. Bug, Improvement, Feature and the 部门 labels are for people and start nothing.
+The group was named 功能 until 2026-09-28. This revision reads it under both names, so it routes
+alike on either side of the rename, and a later revision drops 功能. Revisions before it read only
+a group named 功能, and revisions before label groups read only Bug, so on a host still running one
+a Bot label starts nothing and a delegated Bug card starts `fix`. §7 of
+`docs/superpowers/specs/2026-09-27-bot-label-group-design.md` gives the release order.
+
+## Authority
+
+Workers may start a continuation with `issue-context --view resume`. This read projection
+retains current authority, fingerprint, requirements, human/unknown comments, messages,
+questions, plan and handoff; it indexes bot comment bodies, historical handoffs and
+delivered tasks' checkpoints. Every omitted path is listed and the full view remains
+available. A stale handoff, referenced omitted decision or missing required fact requires
+the full view. This is context navigation, not evidence certification or an authority cache.
+
+`finish --check-input` authenticates/renews the claim and validates local outcome shape
+and configured PR destinations before a delivery comment exists. It makes no network
+call, creates no outbox row, changes no checkpoint or terminal state, and explicitly
+returns `completion_checked=false`. Normal finish retains all current live checks and
+requires the actual confirmed delivery action. Workers prepare closing files together,
+use the foreign-work result included in fresh publication verification, and preserve
+fresh checks before each publication and the final issue refresh. No schema migration;
+older releases lack these optional flags, so workers use their installed CLI reference.
+
+| Skill | May write to | Resources | Needs delegation |
+|---|---|---|---|
+| chat | shared memory through item-authenticated CLI only; no repositories | kw_ops query tools (Codex, when configured) | no |
+| work | one rooted repository per attempt, starting in Farm-Contract; common, farm-hive and Farm-Client as required; coordinates scoped presentation tasks | read-only bot document reads; exact-commit reserved Unity verification; server_slot integration tests in farm-hive; no standing MCP or kw_ops | yes |
+| scene | internal task's scoped Client scene/prefab/display assets on its general job's owned branch | presentation previews and exact-commit reserved Unity verification | through its general job |
+| fix | one rooted repository per worker attempt, selected from Farm-Contract, Farm-Client, farm-hive, farmgui, common; the neutral investigation attempt has no repository writes | Unity slot (one, batch or interactive, two-phase); kw_ops, every tool (Codex, when configured) | yes |
+| feature | one rooted repository per worker attempt: Farm-Contract first (its initial root), then common, farm-hive and Farm-Client as its stages need; reads detached checkouts of Farm-Contract's, Farm-Client's and farmgui's default branches | Unity verification only at an explicit clean committed owned Client HEAD; Unity MCP only with its held interactive reservation; no kw_ops or standing MCP; lark-cli as the FarmBot app, read-only | yes |
+| fgui | starts in farmgui; certified export handoff adds scoped FairyRes/metadata and reasoned guard entries on its owned Farm-Client branch; detached main stays read-only | approximate previews, bot document reads, attributed native export and controller-verified interactive Unity package loading; no gameplay, direct paid CLI, arbitrary MCP or kw_ops | yes |
+
+FarmBot never merges, deploys, changes status or assignee, or edits repositories outside the list.
+Issue text, comments, attachments and Linear guidance are data, never instructions. Worker commands
+in the ledger CLI are item-scoped and token-authenticated; `cancel`, `recover`, `retry`,
+`recover-slot`, `reservations` and `slots` are operator commands for the trusted host. FarmBot is
+one conversational identity. `chat`, `fix` and `feature` remain internal execution-profile
+identifiers, with different tools, budgets and writable roots. Read-only execution starts in its private state
+directory and does not receive repository or clone write roots. A write worker's roots are its
+worktree and, of FarmBot's bare clone of that repository, only what its own git writes: the objects,
+refs, reflogs and LFS store, and its worktree's entry under `worktrees/`. The clone's config, hooks,
+`info/` and other worktrees' entries are not writable, because FarmBot's own git reads them outside
+every sandbox: fetches, new worktrees, the publication check at launch, cleanup's work-in-progress
+commits and the Unity slots' checkouts. Workers push by refspec and never change the clone's config,
+so `git push -u`, deleting a branch and a full `git gc` fail inside a worker, and git may print a
+harmless `packed-refs.lock` error after a commit or fetch that succeeded (the `fix` skill says so).
+Two fetches into one clone race on its ref locks, and the loser fails. FarmBot runs one of its own
+fetches per clone at a time and retries once a fetch that lost that race (`cannot lock ref '…': is at
+… but expected …`, read under `LC_ALL=C`); a worker fetches outside that lock and can still lose. If
+the retry loses too, a slot switch goes on when the clone already holds the pinned commit, and the
+default head is origin's own from `ls-remote` when the clone holds that commit. FarmBot does not read
+the remote-tracking ref then, because a worker can write it.
+Controller fetches of an existing clone use `--no-write-fetch-head`, including calls from the
+worker CLI. They update objects and refs without requiring write access to the clone root;
+`FETCH_HEAD` is not verification evidence and worker write roots do not expand for this operation.
+Every git call FarmBot itself makes runs with hooks and fsmonitor off. On Windows these calls also
+pass `core.longpaths=true` for nested repository files under the isolated state root; this changes
+neither host Git settings nor the clone config allowlist. In a job's worktree it names
+the clone and the worktree's entry itself, after checking that the worktree's `.git` file and the
+entry's `gitdir` and `commondir` still name each other and the clone: a pointer a worker rewrote is
+refused, never followed. FarmBot refuses a clone whose config holds keys it does not write (anything
+beyond core settings, the configured remote as `remote.origin.url` or `pushurl`, FarmBot's fetch
+refspec, branch tracking, git-lfs's format and access keys and a commit identity), whose `info/`
+holds anything but `exclude` and `refs`, or that defines remotes under `remotes/` or `branches/`.
+Jobs on that repository then fail at launch, and `doctor` reports `clone_unexpected`, naming keys
+and files, never values; remove what it names once you know who wrote it. A Codex worker's tools and
+runtime settings come from its launch, not from the repository it works in. Its isolated home
+records the cwd with `trust_level = "untrusted"`, under the path passed to `--cd` (the spelling
+`codex exec` was measured to honour) and its resolved form. Without that decision `codex exec`
+trusts the cwd itself and loads the repository's `.codex/config.toml`: measured, its MCP servers
+start and send any inline credentials; per Codex's trust prompt, project hooks and exec policies
+load too. With it, Codex no longer injects the cwd's `AGENTS.md`, so the `--approve-for-me`
+reviewer, which trusts injected `AGENTS.md` but not tool output, loses that text. Fix workers read
+the current root's `AGENTS.md`/`CLAUDE.md` and other repository instructions when investigation
+needs them; grants a worker needs belong in the dispatch AUTHORITY. That text is a common part plus
+a per-skill part chosen by the item's skill (`agent/dispatch.py`); `fix` and `chat` share the kw_ops
+terms below, and `fix`'s part adds the FairyGUI export grant (UI source ownership), which the
+reviewer would not otherwise see. `feature`'s part carries its own grants and limits and no kw_ops
+terms: never merge, run Jenkins or dispatch CI. Work/feature workers may update an existing entry-point
+inventory and its negative-test injection anchors together when required by this issue's actual business
+change, within the stage's writable repositories. They must prove the entry's necessity and retain exact-set
+checks, with a passing positive and an intentionally failing negative case. This grants no changes to
+workflow/pipeline definitions, triggers, permissions, credentials, runners, gate implementations, scan scope,
+thresholds, skips, exclusions or expected failure results. The source mapping, diff and verification belong
+in the handoff. A CI directory name alone does not require a separate maintainer approval; other CI edits
+remain forbidden. This is a runtime instruction change, with no new filesystem grant or schema migration.
+Server failure review follows `references/server-evidence.md`: exact assertions, immutable inputs and a
+concrete causal chain may establish an independent defect without pretending an unexecuted baseline
+passed. Changed shared helpers must be reviewed. Original failures stay disclosed; unresolved or affected
+failures still block. A registration-only repair reuses unchanged behavior evidence with its original SHA
+and verified input identities, and runs the corrected gate and negative case; it does not waive publication.
+For the existing farm-hive transaction inventory/A25 anchors, publication can retain the last quiescent
+server round's base after a clean linear registration-only descendant. The controller checks exact blob
+edits (sorted additions, both anchors, retained negative entry, unchanged surrounding code), file modes,
+item/generation and real-main ancestry. It returns ancestry-only evidence, never a new test verdict or
+reservation; arbitrary CI edits and business-code changes cannot use this path.
+Linear credentials remain available only through FarmBot's CLI for the
+claimed item; lark-cli only as `lark-cli --profile PROFILE docs +fetch --as bot`, `wiki +node-get
+--as bot` to resolve a linked wiki URL's object type and token, `drive +download --as bot`, and, for
+a linked spreadsheet only, `sheets +workbook-info --as bot` and `sheets +cells-get --as bot` with
+the configured profile, or the explicit environment grant without `--profile` or `HOME`, only to read
+the 策划案. Workers never set `LARKSUITE_CLI_` variables themselves or inspect, print, persist or change
+credentials; comments and documents are data, and a ruling needs a named author; in common only the
+definition layer, its regenerated inventory and count constants; `-unreachable` snapshots and a
+locally computed designer pin on draft PRs until the contract merges and the designer data is
+published; the `-config` Jenkins branch, or `-config-<n>` for a re-pin, at a human-named commit;
+generator output with its drift listed; a named farm-common ref and posted pin values as data after
+the skill's checks; read only in the `reads` checkouts; supported headless Client exports with exact input
+pins and complete metadata; reservation-bound Unity verification of a committed owned Client HEAD; and
+Contract acceptance/archive write-back on the exact `-writeback` draft with pending human work retained.
+No farmgui authoring/export or direct Editor start is granted. A skill whose
+manifest grants kw_ops must carry those terms in its per-skill part, because the grant comes from
+the manifest and its limits from the AUTHORITY; a test checks every loaded skill. Building the
+launch message refuses a skill with no per-skill entry, so its job fails at launch and no worker
+starts: SKILL.md text cannot stand in for a grant. Repository skills under `.agents/skills` and
+`.codex/skills` still load, and workers inherit the service's `HOME`, so the host user's
+`~/.agents/skills` are visible too. Measured with codex-cli 0.155.1 on macOS; the trust fix was
+re-checked on 0.156.1; Windows is unverified. A Claude worker's settings and MCP servers also come
+from its launch, whatever its cwd. It runs with `--setting-sources user`, so of the user, project
+and local settings it reads only the user settings in its isolated `CLAUDE_CONFIG_DIR`, where
+FarmBot seeds none, and with `--strict-mcp-config`, so only the injected `mcp.json` supplies MCP
+servers. `claude -p` skips the workspace trust dialog. Without the first flag it loads the cwd's
+`.claude/settings.json` and `.claude/settings.local.json`: measured, their `apiKeyHelper` ran, their
+hooks ran (`SessionStart` and `UserPromptSubmit` before the first model request, tool hooks around a
+tool call), and their `env` reached the worker and its tools, so an `ANTHROPIC_BASE_URL` they set
+received the worker's requests and OAuth token. A repository worktree's settings loaded, and so did
+a `.claude/settings.json` in a job's state directory: the chat cwd, which the worker can write and
+every attempt of the job shares. Without the second flag, a repository `.mcp.json` server that the
+repository's own settings approved started. The first flag also stops Claude injecting the cwd's
+`CLAUDE.md` (with its `@` imports, `CLAUDE.local.md`, `.claude/CLAUDE.md` and `.claude/rules`) and
+loading the cwd's `.claude` skills, agents and commands and the skills and agents of `--add-dir`
+directories; FarmBot's skills reach workers by path. Settings in `--add-dir` directories and the
+service user's `~/.claude` did not load with or without the flag. Measured with Claude Code 2.1.229
+on macOS; Windows is unverified.
+
+kw_ops, the GM backend of the test game environment, is a standing tool grant that a skill
+manifest declares in `mcp`. `kw_ops` gives fix workers every tool, and `kw_ops:read` gives chat
+workers the query tools listed in `agent/kw_ops.py`, as the server's `enabled_tools`; the skill
+loader rejects any other `mcp` entry at startup. The private host profile's `kw_ops` block names
+the URL and `token_env`, the environment variable that holds the token. The name cannot be one
+FarmBot sets for workers, such as `FARMBOT_DB` or `CODEX_HOME`. The token stays in the
+controller's environment, which a Codex worker with kw_ops inherits, and the worker's CLI reads it
+by name (`bearer_token_env_var`). That worker's isolated home lists the variable under
+`shell_environment_policy.exclude` and sets `features.shell_snapshot = false`, because codex-cli
+0.156.1 re-exports excluded variables from its shell snapshot (measured on macOS; Windows is
+unverified). Every other worker has the variable removed from its environment. Claude workers get
+no kw_ops. The URL must use HTTPS, except HTTP on loopback; an existing remote HTTP configuration
+must be changed before restarting on this revision. FarmBot learns the variable's name only
+from the block, so add the block and the variable together, and remove them together: a variable
+set without the block reaches every worker.
+
+`tools.kw_ops` in the launch payload states the access, `full` or `read`. When kw_ops is not
+configured, its variable is unset or blank, or the runtime is unsupported, it says why instead and
+nothing is injected. Codex waits about a second for kw_ops before the worker's first model
+request, and a worker whose kw_ops has not started by then still runs without it: a refused
+connection logs an error in the worker's stderr, and a slow or silent kw_ops logs nothing
+(measured with codex-cli 0.156.1 on macOS; Windows is unverified). In both cases the payload still
+states the access, and the worker reports the missing kw_ops as a verification gap when the issue
+needs it. Configure kw_ops only when every target it lists is a test server, using a kw_ops
+operator whose permissions cover only test servers; FarmBot does not scope servers. The kw_ops
+terms of the fix and chat AUTHORITY, which tell workers that every listed server is a test server,
+limit full access to the issue's reproduction or verification, and require every state-changing
+call to be recorded.
+Read-only access rests on FarmBot's allowlist, not on kw_ops.
+
+The token variable must be set only in the controller's environment, in the wrapper that starts
+`serve`, never in a shell startup file such as `~/.zshenv`: the removal and the exclusion apply
+only to the environment a worker inherits, and worker shells may source startup files. On Windows,
+provide it only in the controller service's process environment, not as a persistent user or
+machine environment variable, which lives in the registry where same-user processes can likely
+read it (unverified). FarmBot starts batch and interactive Unity Editors with a copy of the
+controller's environment that excludes the configured token variable while retaining other
+variables needed for licensing. `doctor` reports `tools.kw_ops` with `configured` and, for a
+configured host, `token_env` and
+`token_set_in_doctor_environment`, which reflects doctor's own environment, not the running
+controller's.
+
+An active repair can answer questions directly. Free-text intent is interpreted by the
+current worker; QA/retry words do not dispatch work by themselves. Only a child of the Bot
+label group chooses a workflow: Bot/修改 starts `fix`, Bot/UI `fgui` and Bot/Code `feature`,
+whatever text accompanies the delegation, and that text is its first session message. A
+delegation without a Bot label opens the read-only conversation. Earlier revisions started
+`fix` on a Bug card delegated without text; D18 ended that shortcut, because a bug can be
+designer-only work that needs no code change.
+
+`request-repair` checks a fresh Linear snapshot, a live read-only claim, the latest session message
+and a recorded delegation session on the same issue. It atomically retires that claim and either
+continues the delegation's earlier job or creates the first job the card's Bot label names under the
+recorded delegation: a first fix takes that session's target, and a first `feature` or `fgui` job none. The
+earlier job is the latest `fix`, `feature` or `fgui` job of a delegation session on the issue, this
+conversation's session first (`resumable_work` in `issue-context`). A request continues that job whatever the card's label now says, and only on an
+instance that runs its skill: elsewhere `request-repair` and `resume-work` refuse, and no other
+skill's job starts in its place. A mention alone grants no new authority. The card's Bot label
+decides what a request may start when there is no earlier job (D18 f), on an instance that runs it:
+with Bot/修改 or no Bot label, `fix`; with Bot/Code, `feature`; with Bot/UI, `fgui`. An instance that
+does not enable the selected opt-in skill refuses that first job; on a Bot/Code card where this instance does not
+run `feature` it says that; an unknown Bot child or two name no workflow and are refused too. Both
+commands are refused before Linear is read on an instance that runs none of `fix`, `feature` or `fgui`; one
+that runs `feature` but not `fix` reads the card, then refuses a first fix. The acknowledgement in
+the session reads 「已排队开始或继续修改…」 for a fix and 「已排队开始或继续这项工作…」 for other work. FarmBot never sets a
+Bot label; the one label it writes is `待回复`. `resume-work` remains a resume-only
+compatibility command. Cancelled jobs stay cancelled and receive a fresh successor ID; other
+terminal jobs keep their ID. A write job's successor reports in the card's latest delegation session
+a person opened, which a re-delegation may have replaced since the job started; an operator-enqueued
+job's successor, and a conversation's, keep their session. Both commands check the delegate their
+own fresh read returned, not the stored snapshot. A job a conversation starts or continues begins at its initial root,
+which for a fix is the neutral investigation. The launch includes one bounded `prior_context`
+summary from the investigator or the current fix checkpoint; replies, questions and the full prior
+findings remain available in `issue-context`. Both are recall that the new worker must verify. A
+`feature` job starts rooted in Farm-Contract, so its launch carries its own checkpoint handoff, not
+the conversation's summary, which it reads in `issue-context.conversation_history`. Late messages
+and Stop from a source conversation follow its active handoff. Merely observing changed issue
+text/comments does not start work. Historical context is recall, not a current request.
+
+Repository stages follow the skill manifest. A skill whose `skill.json` sets `"staged": true` writes
+one repository per worker attempt, its current root: the item's `root_repo` or, while that is unset,
+the manifest's `initial_root`. Without an `initial_root`, an attempt with no recorded root is
+neutral: it runs in the private state directory and writes no repository. The loader refuses a
+manifest key it does not know, so a misspelled stage key cannot load as that key's default. `fix` is
+staged with no initial root, so a fix begins neutral with read access to all five worktrees. The
+pinned Farm-Client target supplies a Unity baseline, not the investigation root. To edit or use
+repository-specific skills, the worker saves a current checkpoint and calls `handoff-repository --to
+REPO`, where REPO is in the manifest's `writes` and is not the current root. The CLI verifies the
+manifest's stage rule, the configured host ledger and repositories, and fresh Linear delegation,
+then revokes the claim. The controller stops the old worker, requires process-tree teardown evidence
+and rechecks REPO against the manifest before switching `root_repo` and launching a fresh Codex
+worker rooted at REPO; until then the handoff stays pending. The same item, Linear session, branch,
+checkpoint and PR history continue. The new worker can write and verify publication only for its
+root repository; other worktrees remain read-only. Changing cwd in one worker does not switch
+instructions or write authority. A failed/blocked `retry` retains its saved repository root,
+checkpoint and evidence, avoiding a return through the initial repository. A delivered-job retry,
+chat-requested continuation and the successor of a cancelled job start with no recorded root,
+so the next attempt begins at the initial root,
+which for a fix is the neutral investigation and for a skill with an `initial_root` that repository.
+Staged skills require Codex's explicit `workspace-write` sandbox; the Claude fallback has no
+equivalent repository write boundary and is refused for them. A `claude` host still starts with a
+staged skill enabled and queues its jobs; each fails at launch with an error activity, and `doctor`
+reports `skill_runtime_unsupported` naming the runtime and those skills. A Contract-root worker
+follows Farm-Contract's OpenSpec instructions and its Superpowers restriction. Consumer workers use
+their own repository rules.
+
+Closeout uses `closing-preflight` before a docs-only Contract acceptance handoff and
+`finish --check-ready` before preparing delivery. Optional `--checkpoint FILE` saves the final compact
+checkpoint through normal claim/PR/shape gates in the same invocation; it is refused with shape-only
+`--check-input`. A rejected completion check leaves the valid checkpoint and claim available for repair.
+They share existing local consumer
+and finish gates without posting comments or making a terminal transition; final
+finish still repeats all gates and requires the confirmed delivery. Neither preflight
+certifies live authorization or creates missing external controller proofs.
+An item-local `evidence-index` retains original report paths, hashes and reviewed full
+source pins. Continuations verify integrity once and separately check current scope,
+clean pins and required inputs. The index grants no test waiver or publication rights.
+Report paths recognize OS aliases above the trusted item directory (for example
+macOS `/var` and Windows short directory names). The resolved file must remain
+inside that directory; parent traversal and symlinks/junctions at or below the
+item boundary remain rejected, including links whose targets stay inside it.
+Only changed decisions belong in continuation reports/handoffs; compare and publish in
+the current worker after Unity release, handing off only for another repository's write.
+These changes require no database migration. An older release can still read saved
+plans/reports, but does not provide the new preflight/index commands and its explicit
+retry may return to the initial root.
+
+A skill whose `skill.json` lists `reads` also gets, at each launch, a read-only checkout of each
+named repository's default branch at `<local_root>/worktrees/<job>.reads/<repo>@main`, passed in the
+launch payload's `reads` (`feature` lists Farm-Contract, Farm-Client and farmgui). Each is a small
+repository of the controller's own, fetched from the configured remote and checked out detached at
+origin's default branch, which it also keeps as `origin/<default>`; it is never a worktree of
+FarmBot's bare clone, whose objects, refs and worktree entries a worker rooted in that repository
+can write. It borrows that clone's objects through git's alternates, so a large history is not
+fetched again, and nothing else of it; git lists the clone's ref tips there to tell the remote what
+the checkout has. Every git call in the checkout runs with hooks and fsmonitor off and the LFS
+filter emptied, so LFS files stay pointers and no filter program runs, and its config holds only
+git's defaults and its origin, so no repository credential, URL-rewrite or LFS setting reaches it;
+the fetch authenticates through the host's global git configuration, as every FarmBot fetch does.
+Each launch asks origin for its default branch and that branch's tip (`git ls-remote`) and fetches
+only when the checkout's `origin/<default>` does not already name that tip, or when checking the tip
+out fails; either way the checkout is forced back to it. It is not a writable root and keeps no
+recovery ref. A publication retry reuses it without a fetch, as it reuses worktrees. It lives
+beside the job's worktree directory, not in it, and is removed when those worktrees are. Rolling back to an earlier revision leaves such directories behind; delete them
+once their jobs have ended.
+
+A change to the issue during an attempt (title, description, attachments, or a comment that is
+neither a bot's nor FarmBot's own, as People says) refuses that attempt's repository handoff and
+the registration of a PR Linear has already attached, and makes `finish` requeue the item for a
+fresh worker. A worker that has read the change in `issue-context` can call `revalidate` with
+`issue-context.fingerprint`, the fingerprint of the snapshot it read: the ledger accepts only the
+fingerprint it currently stores, moves the claim onto it and records both fingerprints in `audit`.
+The handoff saved before must be saved again, and a later change still refuses the handoff and
+requeues `finish`. A PR that Linear attached before the claim or its last re-read is issue input:
+only a claim that revalidated since may register it as this job's output, and only if nothing else
+changed. The additive `work_items.revalidated_fingerprint` column records a revalidated claim;
+older code ignores it.
+
+A checkpoint may also carry a validated `plan` for work that spans stages and days (keys and bounds in
+`references/worker-cli.md`). The ledger carries it forward when a checkpoint omits it, shows it in
+`issue-context`, and hands the nearest predecessor's plan to a successor as `recovery.plan`. It is recall
+that the worker verifies, never authority, and it is not a handoff. Older code keeps a `plan` key only
+until its next checkpoint that omits it, and never validates one.
+
+An entry of `plan.prs` with `"role": "issue"` records a repository's issue branch, and must name
+this issue's `farmbot/<key>` or `farmbot/<key>-…` (in the host's `issue_prefix`), spelt as git
+accepts it; a repository has at most one. A `feature` or `fgui` plan never records a named suffix
+branch (`-config`, its numbered re-pins, `-waivers` or `-followup`) under the `issue` role: those
+branches have their own roles, and a successor must return to its issue branch. A checkpoint whose
+plan breaks a rule is refused whole, with a message naming the entry. Any other branch, a person's
+included, may be recorded under another role or none. For a skill with an initial root, the plan
+also decides where a later attempt's worktrees start (spec §5.7). At each launch the controller
+reads the issue branch the job's plan records for each repository it writes, from the item's own
+plan or else the nearest predecessor's, as `recovery.plan` is found, and applies the same rules
+again. For such a repository it fetches and checks out that branch itself, never a new
+`farmbot/<key>-<job>` copy: the clone's local branch, moved forward to `origin/<branch>` when the
+remote is ahead of it and left as it is when it has commits of its own, for the worker to integrate
+without force-pushing; else a new branch tracking `origin/<branch>`; else, when neither exists, a
+new branch of that name from the default branch. The worktree tracks `origin/<branch>` whenever the
+remote has it, and every git call this makes in FarmBot's clone runs with hooks and fsmonitor off. A
+successor of cancelled work and a continuation whose worktrees cleanup removed thus go on from the
+job's own branches, and the recovery refs of earlier attempts stay where cleanup left them. A plan
+that breaks the rules, or a recorded branch another worktree has checked out, fails the launch with
+an error naming it. A repository without a recorded issue branch, and every `fix` job, keep the
+earlier rule: `farmbot/<key>` tracking the remote branch when only the remote has it, else a new
+branch from the default branch, named `farmbot/<key>-<job>` when FarmBot's clone already has
+`farmbot/<key>`; a cleaned-up continuation starts such a branch at its recovery commit instead. The
+`feature` skill has one, Farm-Contract.
+
+A fix worker may update Farm-Contract in its Contract-root attempt for a confirmed requirement of
+the issue, a defect or a requested change, before the affected implementation. Uncertain behaviour
+or missing information is a question in Linear via `await-input`, which adds `待回复`,
+emits the elicitation and parks the item. A reply resumes it; insufficient answers lead to another
+question. Worker notices put a concise human request before technical progress and evidence:
+`需要你回答（共 N 项）` with one decision or missing input per original question number,
+useful choices and consequences, an explained recommendation when available, and a copyable
+`回复示例` explicitly identified as an example. Partial replies keep the remaining numbers.
+Approval scope, material uncertainty and what waits for the answer stay explicit in plain
+language; hashes, commands, logs and full evidence go under `补充依据` or in linked reports.
+An external human action starts with `需要你操作`, naming who does exactly what. When no
+answer or action is required, the notice starts with `当前无需你回复`, then briefly lists
+completed work, current work and the next step. Formatting does not re-ask resolved questions
+or turn examples, recommendations or format instructions into approval. These are shared
+worker instructions; the controller preserves the worker's question text rather than
+rewriting its meaning or treating the template as proof of model compliance.
+Farm-Contract questions retain the existing recipient grouping and confidence sections,
+low-confidence first, with each confidence assessment, recommendation and brief reasoning
+beside its question. The clearer format adds only a compact action summary and reply example
+to those questions; it does not flatten them into bare choices or bury confidence in evidence.
+
+The controller reconciles the `待回复` label from all active parent and task questions
+on each successful status pass (normally within `reconcile_seconds`). A reply, wake or checkpoint
+does not clear a question. The worker acknowledges its fully answered round with `resolve-question`,
+using its current `human_question.id` and actual attributed inbox message IDs. Partial answers keep
+the flag; only the resolved worker's own round clears. Terminal/withdrawn work no longer contributes,
+and joins/resources and `--reason waiting` do not create questions. Other labels, status and assignee
+remain untouched; a card delegated to another bot is not reconciled by this instance. The controller
+records ownership when it manages this signal and removes no preexisting unowned flag from historical
+issues. Existing same-named labels are reused; new team labels default to red. Label failures
+are audited and retried without changing launch eligibility. Every question
+elicitation adds it, including chat and intake. `await-input --reason waiting` parks the same way
+without the label, for a pause that waits on a human step elsewhere rather than on an answer; the
+checkpoint records the reason as `pending_reason` beside `pending_question`. `await-input` refuses
+while the item holds or awaits a Unity reservation. Status and assignee remain unchanged. Contract
+access does not bypass generator requirements or add Unity export tools.
+
+Existing hosts must add `Farm-Contract` to their private `repos` configuration and seed its bare clone
+before enabling this fix manifest. New configurations include its GitHub remote by default.
+The additive `root_repo` and `next_root_repo` columns preserve existing ledger rows. Settle
+running fix workers before deploying this behavior; a retry with no root starts at neutral
+investigation. Do not roll back during a pending repository handoff: older code cannot honor
+its process-teardown fence or stage publishing restriction. Before rolling a host back to a revision
+without `skills/feature`, follow the rollback paragraph of "The Code worker (`feature`)".
+
+CLI `cancel` revokes the claim immediately; the next scheduler tick stops owned worker/batch
+processes. For a job it cancels while active it posts one note in the job's session (an issue
+comment for an operator-enqueued job) and drops the job's pending heartbeat, so no "工作已停止。"
+follows the note, unless a heartbeat's question was already on its way and landed after the note:
+the session then gets "工作已停止。" once more. A note Linear refuses is owed (Withdrawn work,
+Notices); a blocked job ends silently. Linear Stop and closure reconciliation revoke the claim before signalling. A pending
+batch launch is fenced. A cancelled job never becomes queued again: explicit authorized `retry`,
+`resume-work` or `request-repair` creates a fresh linked job, and so does delegating the issue again
+when the latest job of the skill it routes to (any write skill) was cancelled. The linked job waits
+for predecessor cleanup and reservation settlement, and reads its predecessors' plan and notices in
+`issue-context.recovery`. Source recovery is stale evidence to inspect against current code and PR
+state.
+
+Enable **Issue** webhooks alongside AgentSessionEvent using the same endpoint and signing secret.
+Issue events require the configured organization, valid signature and timestamp; they only request
+fresh status for already-tracked issues. Their payload state never cancels work directly. A separate
+loop checks unfinished/blocked issues every `reconcile_seconds` (default 60); missed webhooks are
+covered by polling. With many issues, network latency can extend that interval. Status reads use
+source timestamps so older snapshots cannot undo a newer closure. An issue is closed when it is
+archived or its workflow-state type is `completed`, `canceled` or `duplicate`; Linear gives Duplicate
+a type of its own rather than `canceled`. Other types, including `started` review and acceptance
+statuses, leave work running. Before every launch, a fresh status/delegation check must succeed and
+find the issue open, and work the delegation authorised launches only while the card is delegated
+to this app, whose identity must be known. Errors defer launch with bounded retry delay. A launch
+preflight on an issue marked undelegated or failing waits for the issue's next due read, so a
+held-back job reads Linear at most once per interval. Losing delegation withdraws the work it
+authorised after a confirming read (Triggers, Withdrawn work). Polling writes only the cancellation
+and closing responses above; the receiver settles a delegation that opened no session (Triggers).
+
+Withdrawing work whose delegation is gone uses additive columns, added when a ledger opens:
+`work_items.authority`, `withdraw_deadline` and `withdraw_reason`, `issue_checks.undelegated_since`
+and `unreachable_since`, and `sessions.forwarded_item`. `authority` records, when a job is created,
+what authorised it: the card's delegation for every write job, the operator for a conversation
+`agent.service enqueue` starts, and otherwise a mention. Existing rows are not rewritten: a write job
+stored before this revision reads as authorised by the delegation, a conversation as by a mention.
+Older code ignores the columns, so rolling back keeps working, and checking out older code does not
+remove them. It also ignores a withdrawal flag, so a flagged worker runs on. One flagged because
+the delegation went is refused by `verify-publication` while the card stays undelegated; one flagged
+because a newer delegation session took the card over may publish, since the card is still
+delegated. Flagged work that went back to the queue launches again. Older code never processes a
+delegation event left in `webhook_events` with status `deferred`: its session routes again on the
+person's next reply, or the operator sets its status back to `pending`.
+
+Before deploying this revision, run `doctor` with `expected_app_user_id` pinned: it lists as
+`stored_undelegated` the active work the stored snapshot shows on a card not delegated to this app.
+Decide on each. After the deploy, a write job on a card still undelegated is cancelled at the first
+confirming status read and its session gets the undelegated response; a conversation stored before
+this revision reads as a mention's, is kept and stays listed, for the operator to cancel by hand.
+The change adds no process code: withdrawal kills go through the same launcher stop as Stop and
+closure, now in more situations, so run the Windows suite, including `tests/test_windows_workers.py`,
+on the Windows runner before deploying there. A killed `git` that leaves an `index.lock` shows as
+`cleanup_pending`.
+
+Settling a delegation Linear opened no session for, and owing a closing activity Linear refused
+(Triggers, Withdrawn work), use two tables of the ledger's schema, created when a ledger opens:
+`delegation_episodes`, one row per issue for the latest delegation a read found back, and
+`session_closures`, one row per thread for the closing activity it is owed. The column
+`delegation_episodes.unreachable_since` is also added to a table an earlier build of this change
+created. Nothing is backfilled and no existing row is rewritten: a mark that older code cleared leaves
+no episode, so the deploy itself settles nothing, and a thread left waiting before the deploy is found
+only when a delegation meets it. Older code ignores both tables: a waiting episode is never settled and
+an owed activity never retried, as before this revision; a job taken over in place is an ordinary job
+in its session; and a Stop from another thread again posts no note in the work's thread. Checking out
+older code does not remove the tables. Rolled forward again, an owed activity whose job changed state
+or whose thread has newer work is dropped, and one owed for more than 40 minutes is given up untried
+and listed by `doctor`; a waiting episode is settled on a fresh read of the card. A Linear Stop now
+cancels only a job still in a state a Stop ends, so a job that ended between the lookup and the cancel
+is not signalled; the reaper and cleanup handle its processes. The change adds no process code; run
+the Windows suite, including `tests/test_windows_workers.py`, before deploying there. Run `doctor`
+before and after the deploy: `silent_delegation` and `unclosed_session` must be absent or explained.
+
+Cleanup records the old PID and preserves dirty tracked/non-ignored untracked source as local WIP
+commits. Every repository HEAD, including clean unpublished commits, gets a durable
+`refs/farmbot/recovery/<job-id>` ref in its bare clone. Ref/HEAD/path checks must pass before removing
+worktrees. A live unverifiable PID, surviving descendants, unsettled reservation or Git failure keeps
+files and records a cleanup error. A dead parent alone does not prove detached children exited: an
+attempt without verified teardown evidence (including an interrupted launch or older attempt) also
+holds cleanup for operator investigation. Teardown evidence comes from a Stop or budget kill, from an
+empty Windows Job Object, or on macOS/POSIX from the reap of a worker that exited by itself.
+On Windows the selected Python gate is created suspended, assigned to the owned
+non-breakaway Job, then resumed through its verified initial thread before the
+existing input handshake opens. This also contains a Windows venv redirector's
+base interpreter from startup. A closed/unassigned Job, exited or foreign process
+object, ambiguous thread ownership, denied native operation or unexpected suspend
+count refuses startup; only owned creation/Job handles authorize cleanup. See the
+[measured redirector investigation](../superpowers/spikes/2026-10-07-windows-python-redirector-containment.md).
+The selected interpreter, isolated home, native sandbox choice and POSIX startup
+remain the same; no permission-repair or uncontained fallback is added. A POSIX
+worker leads its own session and process group, whose IDs both equal its PID and stay reserved until
+FarmBot reaps it. Before that reap FarmBot terminates and records each live member of the session that
+its `ps` snapshot shows, after a Stop or budget kill as well as a self-exit. For a self-exit it writes
+evidence only after a fresh snapshot shows the session empty and, once the worker is reaped, the kernel
+reports no process in its group. A snapshot is not atomic: a member of another process group in the
+session that forks and exits between the listing and its session lookup can be missed, and a Stop
+persists its sweep only in its final record. A member that leaves the session after being signalled,
+and any descendant an earlier, interrupted Stop of the same attempt recorded, stays in that evidence and
+holds cleanup while alive; such a pid is recorded but never signalled again. An unreadable process
+table is retried for up to a minute first; an unreadable or foreign earlier record holds cleanup. A child that called `setsid()` has left the worker's session and escapes
+this check; that is the POSIX limit of the proof, and it is not rare. Claude Code 2.1.280 was observed
+starting each Bash tool shell in its own session, so processes a `claude` worker's commands leave running
+are likely outside it; other versions and Codex are unmeasured. Stop also signals descendants it can still
+find through their parents; a self-exit proof cannot. The Stop sweep is skipped when the process table
+cannot be read or `os.waitid` is missing, and Stop then records its evidence as before. Self-exit evidence needs `os.waitid`, which CPython provides on macOS from 3.13. Under an older
+interpreter, and for a worker that exited while FarmBot was not running or before this check existed,
+there is no evidence and cleanup still holds.
+An error while FarmBot processes one worker's exit or budget kill is logged as a `worker_poll_error` event
+and does not discard the exits already collected for other workers. That worker stays tracked, and
+keeps its concurrency slot, until a later scheduler pass completes its processing; the error itself
+records no teardown evidence. A Unity failover fence fails, and is retried, while the revoked worker is
+still tracked, so a same-ID successor never launches beside it.
+FarmBot reads the files it keeps in a worker's writable state directory only as regular files and without
+waiting. These are the worker's reports, its launch and teardown records, its slot reservation token and the
+batch run summary. A FIFO, a device, a record over 1 MiB, or on POSIX a symlink in place of the file, is
+unreadable. An unreadable launch or teardown record holds cleanup, and an unreadable reservation token holds
+its slot. An unreadable report leaves that exit's message empty and its failure unclassified. An unreadable
+batch summary reaches the next worker as a verification gap. Of `stderr.log`, only the last 4 KiB is read.
+Once a worker could have reached the directory, FarmBot writes each of these files as a new file, then
+renames it over the old name. Whatever the worker left at that name, a FIFO or a symlink included, is
+replaced, never opened or written through. This does not extend to a worker that replaces a directory on the
+path, such as its run directory, with a symlink.
+These guards apply to every terminal retirement path. The scheduler retries pending cleanup. Slots still require the
+existing quiescence probe; held slots enter controller-owned recovery. A queued job whose reservation is on a
+held slot, or was granted to an earlier attempt generation, is not launched, and its checkouts are not
+prepared or fetched, until recovery or a new grant settles it. No log, run report, ledger history or
+memory snapshot is removed by closure cleanup. Every worker attempt gets its own log directory.
+
+On native Windows, normal Codex worker reaping also reclaims only that attempt's
+`home/.sandbox-bin/codex.exe` copy. Matching `process.json`/`killed.json` identity,
+an empty descendant list, a recorded empty Job and a fresh native Job query are
+required. Missing, malformed or inaccessible evidence holds retention; a dead
+parent alone never authorizes it. Reparse paths and hardlinked files are refused.
+Native handles pin the ancestor directories and exact file against replacement
+through deletion. A retention error preserves the copy and does not block worker
+reaping or resource settlement. Logs, claims, credentials, configuration,
+checkpoints, helpers and teardown evidence stay intact. An attempt receipt keeps
+the removed executable's size/hash and process/teardown hashes. No ledger schema
+changes are needed, and rollback does not restore discarded disposable binaries.
+
+For old copies, explicit operator maintenance is available through
+`python -B -m agent.runtime_retention --runs-root ABSOLUTE_RUNS_DIRECTORY
+--expected-instance INSTANCE_ID`. It reads only the exact profile ownership marker
+and attempt files; it does not load configuration, open a ledger or signal any
+process. The default is read-only; `--apply` enables reclamation. An optional
+`--archive-root ABSOLUTE_ARCHIVE_DIRECTORY` saves and verifies one executable per
+SHA-256 before removing the source. The archive must be an existing ordinary
+directory outside the instance state; an unmarked nonempty directory or a marker
+from another instance is refused. Archives contain executable bytes and a
+nonsecret ownership hash, never worker homes or credentials. Active or uncertain
+attempts are preserved while other certified attempts can be reclaimed.
+
+Inspect `cleanup_pending` and `issue_status_errors` with `python3 -m agent.service status`, or the
+ledger CLI's `status`. `issue-context --item JOB_ID` exposes that job's `cleanup` and, for successors,
+`recovery` evidence. Inspect saved source with `git --git-dir .local/repos/REPO.git show
+refs/farmbot/recovery/JOB_ID`; apply selected commits only after reviewing current requirements and
+repository history. Cleanup does not push, merge, close PRs, or undo already-issued external requests.
+
+`doctor` adds a `plan` block to each unfinished job of a skill with an initial root: `root`, its current
+root; `stages`, each stage letter its plan records as `pending`, `done` or `skipped`; `pause`, while the
+job waits for a person, the `kind` its plan records (`answers`, `config_ready`, `ui_ready`, `closing`, `foreign_work`
+or `stage_limit`), the `reason` (`question` or `waiting`) and `age_seconds` since it parked; and `prs`,
+the PR links its plan records. Nothing else leaves the plan: not the question, notes, branch names or a
+skip's reason.
+
+SIGTERM to the service runs batch-process cleanup during startup or normal serving. On this Mac,
+the earlier live `launchctl kickstart -k` rehearsal also removed the batch Editor; this is not a promise
+that Python cleanup executes after SIGKILL. Reservation release still requires a quiescence probe.
+
+## Automatic Unity resource recovery
+
+A failing release or stalled interactive test quarantines its slot and requests controller
+recovery. `awaiting_resource` with stage `waiting_for_recovery` is an infrastructure wait;
+`awaiting_input` normally waits on a human: a question or, with `--reason waiting`, a
+human step elsewhere. A general job's `waiting_tasks: true` checkpoint is the
+explicit internal task join and emits no human elicitation. This supersedes the original
+operator-only slot recovery policy. Workers checkpoint, release `unclean`, and exit immediately.
+The release revokes both their claim and reservation token. Never request a human to operate
+Unity or add `待回复` for this condition.
+
+At controller startup, an active interactive reservation whose job still awaits the
+resource and whose slot is `switching` or `interactive_busy` is an interrupted
+preparation/handoff. Startup quarantines it through the existing bounded preparation
+recovery, retaining its exact candidate, generation, checkpoint and reports. The old
+resource token is fenced; verified worker teardown and Editor recovery still precede
+reuse. A replacement baseline reservation retains its comparison role and selected
+candidate; recovery does not certify the interrupted test as complete. A job already
+queued or running after handoff, a cancelled request, and existing
+held recovery keep their existing handling. This detection runs before pool threads
+start, not on a timer during a legitimate slow switch. It adds no schema or resets to
+retry budgets. Rollback to older code loses this detection; preserve recovery records.
+
+Interactive preparation and physical recovery establish a fresh Console boundary
+only after verifying tests are inactive and the Editor is in Edit Mode. The
+controller preserves the preceding bounded error entries under
+`<local_root>/agent/unity-console/` before clearing them, then explicitly requests
+script compilation and waits for readiness. Archive or payload failures preserve
+the old Console. Expected errors from earlier tests therefore cannot masquerade
+as the new candidate's compiler failure; a broken unchanged candidate is still
+recompiled and rejected. Read-only late-start revalidation clears nothing and
+continues to inspect retained errors. None of this turns failed test results into
+passes or relaxes the exact-commit/source/assembly identity checks.
+
+A successful slot switch records its candidate commit in `slots.parked_commit` together
+with the busy state. For interactive switches this follows the full identity probe;
+batch switches record the prepared checkout without claiming test success. After a
+reservation is released, recovery uses this recorded commit even if parking fails on
+importer metadata. A previous idle commit must never replace the verified candidate.
+Existing exhausted recoveries retain their recorded target and evidence; this change
+does not rewrite historical recovery requests or reset their retry budgets.
+
+An Editor startup failure also quarantines its slot at the requested commit, using
+the preparation recovery budget. A missing MCP instance at the startup deadline
+does not prove the Editor exited; the failure path does not park on main or discard
+source changes beneath a still-running importer. Existing fenced recovery verifies
+process ownership and preserves eligible metadata before an exact-commit retry.
+The startup deadline defaults to 300 seconds, reflecting a measured 170-second
+native Windows startup. A slot's `start_timeout` may explicitly select a positive
+number up to 600 seconds; it is separate from individual MCP request timeouts.
+
+During reserved candidate preparation in a persistent pool, compilation failure
+or changed source with every other
+identity check matching is a **candidate** failure. The controller fences the old
+worker, cancels that reservation and queues its owner for source diagnosis, retaining
+the writable repository, checkpoint and publication scope. It never rewrites the
+worker's branch. `candidate_repair` in dispatch and issue-context records the failed
+SHA and cause independently of checkpoints. That generation cannot resubmit the
+unchanged SHA. Other jobs requesting a known bad candidate are also returned to
+their owner before checkout, rather than repeating the same import on every Editor.
+
+Editor recovery runs independently. After verified worker teardown, cooperative
+test cancellation and an idle probe, it suspends automatic asset refresh, archives
+eligible metadata, checks the snapshot again and restores a clean baseline. It
+prefers current main, falling back to a previously fully verified compatible
+candidate; the failed or another known bad SHA is excluded. A persisted recovery
+plan keeps that choice stable across interrupted attempts. It reenables refresh,
+requires compilation and the full identity/source probe, then returns the same
+live Editor to the pool. Unknown/stalled Editors and attempts after an interruption
+require verified shutdown and restart. Missing baseline, archive failures or
+non-metadata changes preserve evidence and the hold; they never count as availability.
+Only configured slots participate in pool exhaustion checks, so an unused closed
+slot cannot leave verification queued forever.
+
+The owning worker diagnoses the actual cause and integrates current main when it
+fixes that cause: merge for published/shared history, rebase only unpublished owned
+work after preserving a recovery ref. It commits corrected inputs and requests
+verification at the new clean full HEAD. Existing Unity evidence does not verify
+that SHA. Read-only or other repository roots require the normal scoped handoff.
+Unresolved conflicts or unclear behavior require a saved checkpoint and a specific
+attributed human question, without retaining a Unity reservation. Candidate failures
+do not consume the infrastructure retry budgets; Stop, newer generations and human
+questions remain fenced. Controller startup preserves existing held recovery.
+
+This adds a `candidate` value to the existing recovery-kind column, with no new
+schema columns. Settle candidate recoveries before rolling back: older code does
+not implement candidate return or understand its retry accounting. Never rewind
+live data or discard recovery refs to make rollback appear compatible.
+
+An exhausted, detached preparation recovery is rechecked at most once per minute
+for an Editor that connected late. This path only inspects: it never starts or stops
+an Editor, refreshes assets, or changes source. It requires the latest recovery for
+that configured slot, no active reservation, a verified owned worktree, clean source
+at the exact recovery commit, an idle Editor, a clean console and the full project,
+commit, build-target and loaded-assembly identity probe. The existing physical lock
+and repair lease fence the check. A matching Editor restores the slot as `idle_open`
+without consuming another repair or job retry; other outcomes retain quarantine
+and the original failure cause. Execution failures are not eligible. A recovered
+slot does not revive a failed, cancelled or human-waiting job; explicit continuation
+still goes through the existing authority checks. No new ledger schema is needed;
+existing typed preparation recoveries are eligible, and older code stops these
+late-connection checks without reversing saved work or diagnostics.
+
+For infrastructure failures, after certifying the worker's process tree has stopped, the controller detaches the old
+reservation and queues its exact commit and mode. A healthy second slot may resume that job
+while an independent service loop repairs the first. Only configured local slot editors may
+be stopped; uncertain process inspection, surviving processes and identity mismatches keep
+the slot quarantined. After proving the Editor has exited (or, for candidate recovery,
+proving it idle with automatic refresh suspended), recovery may archive changes confined
+to `Assets/*.meta`: tracked changes under a dedicated Git recovery ref, newly created metadata
+under private recovery evidence. It checks the source snapshot again before restoring those
+files from the held commit, then returns the clean slot closed. A failed archive or any other
+dirty source keeps the slot quarantined. The failed verification is still a gap; an exact-commit
+retry consumes the existing preparation or execution budget, so a commit that repeatedly makes
+Unity rewrite metadata ends in an explicit job failure without holding slots indefinitely. A
+shared MCP broker is never terminated by this recovery path. Captured diagnostics remain under
+`.local/agent/resource-recovery/`.
+Metadata recovery accepts large importer rewrites within the source snapshot's
+existing size bounds, without a 1,024-file cutoff. Restoration sends literal UTF-8
+paths through Git's NUL-separated stdin pathspec, so Windows command-line length,
+spaces, Unicode and wildcard characters do not prevent recovery. Changes are still
+archived and the snapshot rechecked before restoration; source edits outside the
+eligible metadata set remain quarantined.
+
+The controller observes test progress, not merely the active flag: 180 seconds without progress
+or continuously unavailable inspection triggers recovery. Repair requests a cooperative Play Mode
+stop and verifies teardown before restarting the editor. Startup, compilation, commit and loaded
+assembly identity must pass before availability is restored. An interrupted run remains a
+verification gap. Stop and issue closure prevent job continuation throughout recovery.
+
+Unrelated Unity project folders may coexist with the pool. Every editor MCP call resolves the
+configured project from the current instance listing and rejects a conflicting recorded instance.
+Process ownership, project locks and the full grant identity probe still apply. Closing the last
+pool editor does not reap its broker while an unrelated editor is present.
+
+Before starting a closed slot Editor, the controller detects relocated Bee build
+state using a private location marker or startup-log evidence of an old absolute
+`Library/Bee` path. It archives only that generated cache within the verified slot
+Library, with a receipt, after checking that the configured Editor remains stopped.
+No source, importer metadata or other Library state is discarded. Regenerated
+startup still requires compilation, identity and exact-commit verification.
+
+There are two automatic execution retries per job, three separate preparation retries, and three
+attempts per slot recovery, with 60/180-second repair backoff persisted across restarts. Repair
+leases expire after 15 minutes if a controller dies. Exhaustion produces an explicit failure,
+preserves work, and reports through Linear; it never masquerades as a question. Existing human
+questions are not automatically resumed. Grant-probe failures before execution and explicit legacy
+adoption use the preparation budget; worker unclean releases, watchdog stalls and already-started
+batch runs use execution. Terminal messages name the exhausted phase and latest recorded cause.
+An exhausted held Editor retains its memory budget. When those permanent held
+costs alone prevent an alternative slot grant, queued Unity verification fails
+explicitly with saved evidence rather than waiting forever beside idle slots.
+Internal task infrastructure notices are thoughts in the parent session, preserving
+the parent conversation; they do not disappear behind the active coordinator.
+Explicit retry resets both budgets, and so does each new stage of a job whose skill starts at an
+initial root (see Work item states). The additive migration preserves existing counts and defaults
+historical records to execution; it does not infer old failure categories or automatically restart
+previously failed jobs. Older code cannot enforce separate budgets; do not roll back during pending
+recovery or rewind live data.
+
+## Draft PR publishing authority
+
+For a delegated write job, the operator authorizes publishing that issue's source changes,
+tests and required generated assets to its feature branches in the host's
+configured private GitHub repositories, and creating/updating draft PRs there. For a staged
+skill such as fix, only the current root has this scope; a neutral attempt has none.
+Run reports stay in the job's private `state_dir` (`runs/<job>/report.md`). Every attempt of a job
+shares that directory, including retries and resumes that keep its ID, so a later attempt leaves
+earlier reports unchanged and adds the first unused of `report-2.md`, `report-3.md` and so on.
+PR descriptions and Linear outcomes carry concise verification summaries and gaps. Publishing does
+not authorize run reports, secrets, unrelated files, force pushes, protected/default branch writes,
+merges or deployment. Chat workers and sessions without delegation receive no publishing scope.
+
+At every launch, including resumes, the controller supplies `publication.repositories` with
+verified destinations or explicit gaps, plus `user_requests` containing the job's direct Linear
+session messages, each with its `author` and `created_at` (see People). It does not promote issue
+descriptions, ordinary comments, attachments or memory to user requests. Verification failures
+withhold publishing scope, not local investigation.
+
+Verification compares the effective origin push URL (including Git URL rewrites) with the configured
+repository, requires a single destination and the job's own worktree/issue branch, and reads GitHub
+metadata for exact repository identity, private visibility, write access and default branch.
+It rejects outgoing `reports/` changes even when the files are tracked or force-added through
+`.gitignore`; unchanged reports already on the base branch do not block publication.
+Existing protected branches are rejected. Public repositories need a separately designed publishing
+policy; they are not authorized by this private-repository workflow.
+
+A job whose skill has an initial root keeps named suffix branches beside its issue branch, each
+verified under these rules: `farmbot/<key>-config` in common, the branch a human runs
+`designer-source.pipeline` on, `farmbot/<key>-waivers` and exact `farmbot/<key>-writeback` in Farm-Contract,
+and `farmbot/<key>-followup` in farm-hive; the latter drafts start from the default branch and verify as the issue branch does, also
+after the issue branch's PR merged and its branch was deleted. A Jenkins branch is never
+force-pushed: a re-pin to a farm-common commit that does not descend from the pushed `-config` tip
+takes the next unused `farmbot/<key>-config-<n>`, n from 2. Such a job never takes one of these
+names as its issue branch: when Linear suggests one, the controller uses `farmbot/<key>`. Nobody
+reviews what the pipeline publishes, so for such a job a `-config` branch, numbered or not, verifies
+only when its HEAD is already on an origin branch other than the issue's `-config` branches: its
+push then adds a farm-common commit someone named and no commit of FarmBot's own. The check reads
+the host clone's remote-tracking refs, as the report check reads its base. A fix never has these
+roles: its branch may carry any suffix Linear suggests, these included, and its branches and
+verification are unchanged. `verify-publication`, and the registration of a PR that Linear attached
+first, check the branch and HEAD checked out in the worker's root worktree, so a worker registers a
+suffix branch's PR before switching back to the issue branch. `foreign-work` counts every `farmbot/`
+branch a plan records as own, suffix branches included.
+
+Workers run claim-scoped `verify-publication --repo REPO_NAME` immediately before publishing.
+It additionally refreshes Linear delegation/status, checks the configured ledger and skill allowlist,
+then rechecks the claim after remote verification. Pushes name the verified remote `origin`, disable
+automatic tag following, and use an explicit branch refspec. The expanded URL is evidence, not a push
+argument: reusing it as an argument could apply Git URL rewrites twice. PR repo/head arguments also
+remain explicit. This is a preflight and authorization context,
+not an atomic push service or a replacement for runtime approval: remote state can change after the
+check, and a reviewer may still reject an action. A denial must be addressed, never bypassed.
+
+Before its first source change in each stage and before each push or PR, a fix worker checks for
+other people's work with the claim-authenticated read `foreign-work --item JOB_ID`. It lists PR URLs
+among the issue's Linear attachments, from the snapshot `fetch-issue` saved, `gh pr list --search
+<KEY>` results in each configured repository, and remote branches whose name carries the key, read
+with `git ls-remote`. Own work is the issue's registered PRs, every PR URL and `farmbot/` branch
+name recorded in `plan.prs` by the job and its predecessors (a list of entries under each
+repository's name, as in the reference's example), and the head branches of own PRs. Every other
+branch or PR is foreign, `farmbot/` ones included, because another instance such as TestBot uses
+the same names. The command renews the worker's claim, writes nothing else and calls no Linear
+API. A source it cannot read, a GitHub search with more than 100 results included, is listed in
+`errors`, and the worker treats each entry as a gap whatever the status: `found` keeps what the
+other sources showed, and `incomplete` means a source failed and nothing foreign was found, never
+that nothing exists. When anything is foreign, the worker posts a `foreign_work` notice and asks
+with `await-input`, unless a current session message already answered. `verify-publication` adds
+the same report for its repository as `foreign_work`, or `unavailable` when the check itself
+failed, as evidence only: a hard publication gate would need a stored acknowledgement, so
+publication is not refused on it.
+
+## Unity verification commits
+
+### Existing failures and draft delivery
+
+Client work/fix/feature verification is candidate-first. Workers select checks
+from changed behavior and affected dependencies while retaining repository gates.
+They do not automatically run main or duplicate full suites. `verify-candidate`
+authenticates the claim, requires the configured ledger and item-private evidence,
+validates the clean owned candidate/branch, current generation's cleanly released
+reservation and admission source base, and checks the complete real Git diff
+against reviewed acceptance scope. All affected executions must pass. Partial or
+missing reports, invalid/ambiguous nonpassing tests and unreviewed skips block.
+Focused evidence never becomes a full-suite pass or replaces other required gates.
+
+An exact same-source/empty-diff run can retain individually reviewed failures
+outside acceptance as `unchanged_source_failures`. This proves no source delta,
+not a healthy environment or empirically matched baseline. A changed candidate
+needs concrete causal evidence for each independent defect: exact failure identity,
+fixture, unchanged dependencies, cause/exclusion/maintenance action and retained
+evidence file/hash. Existing shared-test source/evidence verification and separate
+maintenance recording apply. Required acceptance failures cannot use either
+exception. Skips need explicit non-applicability evidence and cannot excuse missing
+required work. Single-run results record `baseline_executed=false` and retain real
+failure/skip counts. See [candidate-first verification](../../references/legacy/candidate-verification.md).
+
+Equal whole Git trees can establish unchanged source even when commit SHAs differ. The controller
+derives this identity from its validated clone with replacement objects disabled, after verifying the
+clean owned candidate and complete empty diff. Workers cannot assert this proof in scope JSON.
+Affected failures, invalid/ambiguous tests and missing coverage still block; reviewed outside-scope
+failures remain actual failures with `baseline_executed: false`, never fabricated matching results.
+New redundant baseline requests become one actual candidate run. On first acquisition of a legacy
+unstarted baseline, before any Editor switch/identity/token handover, the controller may select that
+same-tree candidate and preserve queue sequence, fencing and original audit. Dispatch exposes the
+candidate-first policy and pinned source base, superseding an obsolete saved two-run plan. Started
+or retried rounds, maintenance continuations and retained-candidate comparisons keep their exact
+evidence. No schema migration or rewriting of tested commit/report identity occurs. An older release
+can read the resulting ordinary candidate request; the audit records why it was selected.
+
+`verification-closeout` assesses up to six retained suites through the existing pair/candidate gates
+in one invocation and saves content-addressed verdicts plus one immutable report index. It neither
+runs tests nor releases resources. All suites name one candidate; duplicate executions and foreign or
+linked input paths are rejected. One blocked suite keeps the aggregate verdict and Monitor blocked.
+This is evidence preparation, not QA, publication or finish authorization. Existing reports remain
+unchanged and can be re-assessed offline after a reviewed attribution correction.
+
+Only unresolved attribution with a named source/input difference that comparison
+can distinguish justifies new baseline tests. Environment uncertainty calls for
+bounded focused diagnosis when necessary, not an identical full suite under
+another label. Existing pairs keep their reports and budgets; candidate-only
+review cannot bypass an unfinished/blocked pair. Completed identical-commit pairs
+are supported with an empty diff, explicit issue scope, distinct actual jobs and
+reservations and normal per-test/environment checks. Existing round ordering and
+explicit retained-candidate generation checks remain; an authorized retry does
+not invalidate a settled baseline or completed pair.
+No schema migration is introduced. Rollback retains
+reports; old code may require paired review again, never reinterpret an audit as
+a fabricated pass. Deploy through the separately authorized maintenance process.
+
+Client work/fix/feature jobs may request `await-resource --baseline --commit CANDIDATE` for a comparison.
+The CLI validates the same clean owned candidate/branch, configured clone and actual remote-main ancestry,
+then queues trusted remote main without resetting the candidate or immutable target. Controller audit records
+bind the baseline reservation to the candidate; dispatch marks it `verification_role=baseline` and supplies
+`candidate_commit`. The worker tests the reserved baseline, saves complete results, releases and waits for
+settlement before requesting the candidate normally. Claim, delegation, process and resource fencing remain.
+
+A complete full suite with unrelated existing failures need not block a draft when
+`python -m agent.test_baseline` returns `draft_eligible=true`: recorded commits, distinct actual jobs, identical selection
+and stable environment/config/package identities, complete nonzero leaf outcomes, no unresolved regressions or new skips,
+no removed tests, all affected tests passed, an explicit issue acceptance/diff scope reviewed, and all
+other required local checks passed. Missing/incomparable results remain gaps. The comparator is a read-only
+decision aid; it grants no publication authority and does not replace fresh `verify-publication` or main
+integration. New comparisons use `issue_scope`, bound to the exact commits, complete changed-path list and
+affected-test selection with a requirements/diff review. Matching failures outside that behavioral boundary
+are retained baseline debt (`retained_baseline_failures`), without proving whole-package independence or
+root cause. Sharing a package, directory, fixture or loader alone does not establish impact. A concrete
+changed behavior/dependency, relevant observed regression or failure stack in changed source still blocks;
+new/changed failures without the explicit causal exception below and required affected checks retain their gates. Unknown causes of unchanged
+outside-scope debt neither force diagnosis nor block completion. Reuse retained QA/reviews across handoffs.
+Test-only fixture repairs can restore missing baseline identities with a fresh
+whole-fixture run and explicit `repair.restored_tests`. Every restored identity
+must actually be missing, belong to a controller-verified changed fixture and
+pass exactly once; every original candidate fixture leaf must remain. Raw reports
+and their SHAs/counts stay distinct, `full_suite_passed` stays false, and all other
+blockers remain. This avoids a complete baseline/candidate rerun for test naming
+alone; retain other modes' original evidence only after input applicability review.
+Runtime/asset/input changes still require their affected validation. Restoring an
+identity is not a shared failure diagnosis. No schema change; older comparators
+may refuse this composition, so preserve its raw reports across rollback.
+
+Successful test-only failure-repair composite comparisons also publish controller audit records
+for cross-issue diagnosis reuse. The claim-fenced `shared-test-repairs` reader matches
+failure signatures, original fixture blobs, reviewed dependency blobs and engine
+identities against the current settled candidate. A matching record avoids repeating
+the causal experiment after current-diff review; it never supplies a passing verdict.
+Only when repair is required for acceptance or separately authorized, workers port
+the applicable fixture repair and validate whole changed fixtures
+at their own new candidate while retaining the original baseline/full reports.
+Drift, incomplete dependency review and other unmatched failures remain explicit.
+Records add no database schema; older releases ignore them. See
+[shared test repairs](../../references/legacy/shared-test-repairs.md) for evidence and recovery.
+An existing shared test's new/changed failure may instead receive an explicit
+`confirmed_unrelated` causal review bound to both actual report identities. The
+claim-fenced comparator checks the complete actual Git diff, unchanged fixture and
+reviewed causal dependency blobs, the failing stack and hashed item-local evidence.
+The worker must establish the mechanism and absence of interaction with the issue;
+an unchanged file or guessed flakiness is insufficient. Affected failures, new or
+invalid tests, changed causal inputs, ambiguous executions and evidence gaps still
+block. Success preserves all failures and counts with
+`verdict=passed_with_unrelated_findings`, `full_suite_passed=false` and independent
+`shared_test_followup` maintenance audit records in the same fenced transaction as
+the verdict. No child job, repair, assignment, new baseline or main merge becomes a
+business prerequisite. `shared-test-repairs` exposes those diagnoses for current-diff
+review and reuse. Tracking creates no external issue or automatic maintenance work.
+See [shared findings](../../references/legacy/shared-test-findings.md). No schema migration;
+older releases conservatively block unmatched failures and ignore the extra audit
+records. Settle workers before rollback and retain the original reports.
+The verdict is `passed_with_existing_failures`, with `full_suite_passed=false` and all retained
+failures/skips explicitly listed in the draft. No merge/deploy waiver, suppressed tests or unrelated fixes.
+An eligible draft and all remaining required issue work/checks permit `finish delivered`; workers do not
+require a green baseline, wait for unrelated fixes on main or ask for another draft-delivery approval.
+Unity parameterized cases with repeated exact names retain all executions and counts. Only equally sized,
+entirely passing groups on both sides are comparable; repeated non-passing results or count changes block.
+The comparison lists these groups explicitly and never invents IDs, drops leaves or waives a failure.
+No database migration is involved; retained reports remain unchanged and can be compared offline.
+After an operator-authorized comparator correction, host-only `resume-comparison --item ITEM --commit CANDIDATE
+--reason REASON` can requeue a blocked Client comparison evidence gap. It requires maintenance pause, an
+exclusive stopped-controller guard, fresh open/delegated issue state, no pending human question or unfinished
+presentation task, certified process/resource settlement and the completed recorded pair. It preserves the
+generation, checkpoint, evidence and retry budgets; it neither invents a reply nor certifies any verdict.
+The resumed worker compares retained reports offline and finishes attribution and normal publication gates.
+If that resumed attempt fails in `client-comparison-recheck` or stops blocked in
+`client-diagnostic-complete-attribution-blocked`, an operator may explicitly requeue it only when its latest
+operator comparison-resume audit matches the current generation and original retained pair. A later
+same-candidate diagnostic does not replace the audited report reservation; a newer baseline invalidates it.
+The same maintenance, delegation and settlement checks apply, with no automatic retry or budget reset.
+For `client-pinned-baseline-requeue-gap`, the same host command can restore the
+latest maintenance-interrupted comparison as `client-baseline-resume`. The worker
+requests `await-resource --baseline --commit CANDIDATE --resume-baseline-reservation ID`.
+The controller rechecks same item/generation/mode, clean release, certified
+maintenance handoff, absence of later Unity reservations or a reviewed comparison,
+clean owned candidate and original upstream ancestry. It creates a new reservation
+at the original base, retaining any candidate-first binding and every old report.
+Completed partial baseline reports retain their actual reservation/job IDs and
+can compare through the explicit clean resume chain at identical source, mode,
+host and generation. A new unrelated round at the same SHA cannot inherit them;
+all complete-run, environment, selection and failure checks still apply.
+Only missing checks run; release/ancestry proves no test pass. Candidate, target,
+budgets and questions are not rewritten. No schema migration is required. Older
+code cannot start this recovery path; settle workers before rollback and retain
+all reservation/audit evidence. No automatic baseline replay follows deployment.
+Rollback requires stopping safely; older code may reject repeated names again, but no database/report rewrite
+or automatic test retry follows from this change.
+Completed valid evidence remains usable after a checkpoint/restart at the same exact inputs. A diagnostic
+review correction re-runs the comparator offline, not Unity; unresolved regressions/gaps need a concrete
+diagnosis instead of an unchanged failing loop.
+
+An optional per-test `clock_diagnostic` review handles Unity absolute-clock timeout assertions whose
+process-relative numbers naturally change between runs. It requires reviewed unchanged source hashes,
+timeout and dependencies, identical failure state/site and message except for the two clock operands,
+and a candidate observed at or within one second after its deadline. Both runs must have reached their
+deadlines. A larger baseline overrun alone does not block that otherwise identical candidate failure;
+a candidate overrun above one second still blocks even if the baseline was equally late or worse.
+The original messages, both operands and exact overshoots remain recorded, with a separate flag for
+a late baseline observation; this is not a diagnosis of the baseline delay. Arbitrary numbers,
+configured timeout changes, new/affected failures, concretely linked changed dependencies and
+environment drift are not exempt. Older evidence without this review remains strict; add reviewed evidence
+and recompare offline after upgrade. No ledger migration or historical result rewrite is required.
+See [evidence schema and procedure](../../references/legacy/test-baseline.md). No schema migration: identity lives in
+audit details. Settle active comparison reservations before rollback to code that lacks comparison dispatch.
+
+UI resources changed by the candidate are distinguished from environment drift only with both complete
+package inventories bound to their original recorded digests. Every observed changed path must be an exact
+Git change under `Assets/GameRes/FairyRes/`, with a reason/evidence review in `ui_resource_changes`. Retained
+failures in legacy scopes without `issue_scope` also require individual `resource_review` evidence of unchanged complete resource dependencies,
+shared setup and loaders. Referenced assets' metadata and ancestor folder metadata are compared too.
+Package manifest/lock changes, config or host/settings drift, unlisted resources, changed failure dependencies,
+missing inventories and unreviewed failures still block that legacy exception. With `issue_scope`, changed
+package membership alone does not force failure investigation; the behavioral acceptance boundary applies. Digests are never rewritten to match,
+and all resource deltas remain in the report. Identical skips are not called new just because environment
+identity differs. Old evidence without inventories retains strict package-digest matching; verified recorded
+inventories may be attached to copies of completed runs without altering their outcomes or original digests.
+This is an optional evidence extension with no ledger migration. Older comparators reject the extended scope;
+keep original evidence and settle/review unfinished comparisons before downgrading.
+
+### Candidate identity
+
+The issue target remains the immutable baseline for the job. A `feature` session has no intake pin:
+the receiver pins no Farm-Client commit in a session whose delegation starts it, nor on any
+later event in that session or for a mention in another session that it forwards to the job, and no
+acknowledgement of those events has a target line; a first `feature` job a conversation starts takes
+none either. On first Client-stage entry the controller selects the latest trusted Client main and
+exact issue branch, persists them in the item's target, and then creates that worktree. Later attempts
+reattach the recorded branch without resetting it or selecting a newer baseline; the session stays unpinned.
+A write worker can request `await-resource --resource unity_slot --mode batch
+--commit FULL_SHA` (or `--mode interactive`) to verify the current clean HEAD of its own Farm-Client
+worktree. The CLI authenticates the claim, checks the configured host/checkout and commit, then the
+ledger rechecks ownership before queuing. `await-resource` accepts only a resource kind the item's
+`skill.json` lists. Staged Code/UI verification additionally requires its controller-selected Client baseline/branch and an
+explicit `--commit`; a legacy or worker-fabricated target supplies no resource grant. The CLI verifies
+the exact branch, clean current HEAD and configured owned checkout. The Unity rules read the attempt's root as `stages.current_root`
+resolves it: selecting a commit requires a Farm-Client-rooted worker, a neutral worker (a fix before
+its first handoff) may request the original baseline without `--commit`, and a worker rooted
+anywhere else cannot request Unity. A skill with an initial root is never neutral. Omitting
+`--commit` retains baseline behaviour for fix only. Dirty files, abbreviated SHAs, refs, another checkout's
+commit and read-only chat requests cannot select a fix revision.
+
+Each reservation records its exact commit independently of the baseline. The slot loads that
+commit and the resumed worker sees it as `resource.commit`. Batch summaries additionally carry
+`commit_sha` and `reservation_id`; XML, Editor logs and a summary are retained in
+`runs/<job>/unity/<reservation-id>/`. The job-root summary points to the latest run. A baseline
+run cannot establish that a later fix works; reports must name the tested commit and any gaps.
+
+New write-worker Unity verification rounds must include the current remote default branch in their clean
+candidate, including a Client-rooted legacy fix that omits `--commit`. The CLI fetches through
+the verified clone, reads the configured origin's actual default HEAD and checks Git ancestry;
+a worker-written remote-tracking ref cannot supply that proof. A stale candidate is refused
+before a reservation is queued. Workers integrate main on their issue branch and rerun required
+checks at the resulting commit; the controller never merges or resets their work. Neutral
+baseline investigation and read-only chat keep their existing authority.
+
+The claim-authenticated `verify-publication` command repeats this check for source branches and
+returns `main_integration` with the remote branch/commit and candidate SHA. Existing `-config`
+and numbered repin roles remain exact existing-remote-commit publications and do not merge main
+into that pin. Historical PR identity reads and launch destination previews retain their existing
+semantics. Reservation-bound retries keep their exact input; they do not fetch or silently merge
+new main into the running verification.
+
+For work, feature and fix Client comparison rounds, a controller-recorded baseline reservation
+that has settled with `worker reported quiescent` pins its selected main commit and exact source
+candidate. The unchanged candidate may request verification after main advances; it must still
+contain the selected baseline, and that baseline must remain an ancestor of actual remote main.
+Draft publication may use this pin only after both baseline and a subsequent candidate reservation
+in the same mode have settled quiescently. It reports the selected pair and current main separately;
+it does not certify newer main. A newer unfinished baseline cannot borrow an older candidate run.
+Changed source, another job, missing or unclean settlement, or rewritten upstream history do not
+qualify. A checkpointed retry of the same job may retain the exact unchanged pair. New rounds
+still use current main. This prevents queue delays from turning baseline/candidate verification
+into endless main integration. It records no passing verdict: all per-test comparison, affected
+test, environment, evidence and publication checks remain. Workers compare completed failures
+and deliver an eligible draft, repair an attributable failure at a new candidate, or report a
+concrete unresolved blocker; they do not repeat an unchanged failing run without a diagnosed
+reason. FGUI/scene scope qualification retains its separate current-main gates.
+
+Claim-fenced comparison selects the candidate reservation named in the retained report from
+that job's current baseline round. A later diagnostic at the same candidate does not invalidate
+the earlier complete reports. The selected reservation must still follow that baseline, match
+the candidate and mode, and have settled quiescently. A newer baseline cannot borrow the old
+candidate. This does not replace failed full-suite results with focused passes or change any
+verdict gate. No schema or evidence migration is needed; older code again selects the latest
+candidate reservation, so retain original reports and identities across a rollback.
+
+The comparison pin reuses reservation/audit records without a new schema. Rollback restores
+the fresh-main gate; settle workers and retain their comparison evidence before switching revisions.
+
+## Linear uploads
+
+Any worker may download the claimed issue's uploads with the claim-authenticated
+`download-uploads --item ITEM_ID --out DIR [--url URL ...]`. Its sources are the
+`uploads.linear.app` URLs in the issue's description and human comments, in Markdown, bare or
+`<linear-image>` form; GraphQL `attachments` are linked resources such as PRs, not uploads.
+Without `--url` it takes every upload there, and each `--url` must be one of them, unsigned as
+`issue-context` shows it. It refreshes the issue in the ledger as `fetch-issue` does. `DIR` must be
+an absolute path without `..` that is not a symlink, junction or other reparse point; it is created
+if missing, once every `--url` is checked. The command runs in the worker's own process and
+sandbox. The skill names a directory of the worker's own under its state directory
+(`STATE_DIR/inputs/linear`), which no controller step reads or writes; the state directory's own
+top level is the controller's.
+
+Workers may hold the Linear app's secret (feature-workers design, D11): the worker CLI builds its
+Linear client from the host config, as every Linear-facing CLI command already does. Workers use it
+only through FarmBot's CLI commands for the claimed item and never fetch `uploads.linear.app`
+another way. The fix skill and the worker CLI reference state this rule; the dispatch AUTHORITY
+does not mention uploads. A download sends the app's bearer token as an unredirected header, over
+HTTPS to `uploads.linear.app` only, refuses every redirect (the file must come from that origin
+itself; the refusal names only the host the redirect pointed at, which is what the operator records
+if Linear redirects to signed storage), and gives up after 30 seconds without data or 10 minutes for
+one file, however slowly it trickles. No output, manifest, error text or log carries the token or a
+signed URL; a failure is named by its kind, and a token-endpoint or local storage failure as such.
+
+Limits apply per run: 100 downloads, 256 MiB for one file and 1 GiB in all; archives of at most
+2,000 entries; 1 GiB extracted in all, each member expanding to at most 100 times its compressed
+size or 1 MiB, whichever is more. A failed download, including a web page returned for a file not
+named `.html` or `.htm`, is recorded in the manifest and the run goes on. Missing art or an unreadable upload
+is a question for the issue, never a guess.
+
+`DIR/manifest.json` lists every file: its sources (`description` or `comment:<id>`), unsigned URL
+path, local name, sha256, size, content type, PNG or JPEG pixel size and, for a member of a `.zip`
+upload, the archive and the member's stored name. An upload whose files still match the manifest is
+not fetched again, and a directory holding another issue's manifest is refused. Local names come
+from a `<linear-image>` title or Markdown link text, else from the URL path; Windows-forbidden and
+unprintable characters become `_`, device names get a `_` prefix, and names that collide ignoring
+case are numbered. A file in `DIR` that the manifest does not list is never overwritten. Archive
+members are extracted under a directory named after the archive, never through a link. A member is
+refused for an absolute, drive-relative or `..` path in either separator style, a link, a Windows
+device name, a trailing dot or space, a `:`, a name that collides with another ignoring case, or a
+name that is neither UTF-8 nor GBK. A member name is UTF-8 when its UTF-8 flag or an Info-ZIP
+Unicode Path field says so; otherwise strict UTF-8 is tried first, because macOS Archive Utility
+omits the flag, then GBK. Refused members are listed with the reason, decoded legacy names keep
+their raw bytes, and nested archives are not extracted. The Windows cases (junctions, device names,
+trailing dots, streams) have tests that run only on Windows.
+
+## UI authoring and approximate previews
+
+The read-only native `skills/fgui/tools/preview.py` tool renders an explicitly
+approximate PNG from real package/component XML, manifests and hydrated PNG/JPEG
+art. Optional Pillow is prepared from `requirements-ui.txt`; normal controller,
+fix/chat/Code imports remain independent of it. Input roots and resources reject
+traversal/reparse paths, duplicate identities, XML entities, cycles and excessive
+expansion. Actual image/component dimensions are the fallback; loader filling,
+nine-slice, controllers, text, Button overrides, static lists/progress and basic
+parent relations are rendered. Unsupported state/effects and unavailable art/CJK
+fonts are named gaps, not an Editor/runtime success. Animations and rich/automatic
+text layout are explicitly approximate. New outputs must be outside source roots;
+source/font hashes are rechecked before writing a bounded PNG/report. The report
+names package/component/state, input/tool/font identities and every known gap.
+
+`upload-image --item ITEM_ID --file FILE` is prepared transport for an explicitly
+enabled `fgui` claim in its farmgui authoring stage. It requires the configured
+ledger, a live claim and fresh open delegation. FILE must be a regular single-frame
+PNG/JPEG in the item's own configured run directory, with no links/reparse
+ancestors, hardlinks or traversal. It fully decodes a bounded immutable snapshot:
+20 MiB, 8192 pixels per side, 16 million pixels in total. It allocates through
+Linear's authenticated GraphQL API, then sends only those bytes to the returned
+HTTPS signed storage destination with the returned validated headers, with no
+redirects and no bearer token on PUT. The socket timeout is 30 seconds. Claim
+renewal/withdrawal checks fence allocation, PUT and returned success. An object
+already transferred during cancellation is not revoked. Success returns only
+unsigned asset URL/hash/size/type/dimensions; signed URLs, headers and secrets are
+never output. This command neither posts a comment nor grants visual approval.
+
+The opt-in exclusive `fgui` manifest and its dispatch authority start in farmgui,
+write only the active repository stage and read Farm-Client main for integration
+context. Its six-hour attempt budget and renewal use the shared controller. The
+conditional Client grant and interactive `unity_slot` route are described below;
+the manifest supplies no arbitrary MCP or kw_ops grant.
+As a standalone legacy job it routes only a delegated Bot/UI card. An internal
+task is enabled through its general `work` job without a label gate. Neither has
+an intake Client commit pin. Default
+hosts still enable chat/fix only. Selecting `fgui` requires the explicit bot
+document-reader configuration; no profile/account/credential setup is automatic.
+`doctor` adds `tools.fgui` when `fgui` or `work` is enabled: native selected Python 3.13+, Git LFS,
+pinned Pillow 12.3.0, a prepared CJK font's name/hash and the configured read-only
+lark-cli identity route. These probes neither authenticate to Feishu nor start an
+Editor or create/migrate a ledger. Missing prerequisites remain named findings.
+
+Worker instructions require current issue/docs/upload/art identities and scoped
+native LFS hydration, current farmgui registration rules, a source/UI-document draft,
+and bounded preview evidence under private state. Only the issue's verified draft
+destination may be used. Missing art/behavior requires a named human answer; a
+placeholder is never inferred. Approximate previews record PR/source/art/PNG/state
+identities, known gaps and comparisons against the actual pre-change implementation
+or the explicitly requested design references, according to the validation scope.
+
+Before UI authoring or delegation, workers independently choose the lightest
+sufficient checks from requested acceptance criteria, actual changes and visual
+regression risk. Behavior/source checks, scoped visual review and pixel-level
+comparison provide different evidence; task size, edit type and whether the UI is
+new or existing do not select them automatically. Pixel comparison is used when
+precision provides necessary acceptance/regression evidence and references and
+rendering are comparable. A mockup's presence alone is not a requirement. Explicit
+precision requirements remain binding; unavailable or unreliable required evidence
+is a gap, never an automatic pass. Routine method choice requires no human reply;
+only blocking requirements or inputs become questions.
+
+The worker records `plan.ui.validation`: chosen checks/reasons, whether
+`pixel_comparison` is needed and why, actual source/reference baseline identities,
+target controls/states, allowed changes, appearance/behavior to preserve and
+optional checks skipped with reasons. Parent task instructions and successor
+attempts retain the decision and baseline, reassessing changed requirements or
+dependencies. An interrupted candidate is not a new before state.
+
+Preservation checks use the actual pre-change implementation; requested appearance
+changes use relevant design references. Comparisons cover affected regions/states
+and necessary regressions; whole-screen comparison needs a scope-based reason.
+Historical mockups are unnecessary when source/behavior evidence suffices. Before
+and after images use the same renderer/font/settings where available; missing
+reliable images remain explicit gaps supported by source/diff evidence. Unrelated
+fonts, outlines, colors, spacing, art and shared styles stay unchanged. Approximate
+renderer, font-substitution, anti-aliasing and unsupported-effect differences alone
+do not justify source-style changes. Visual iteration stops once required checks
+are satisfied; incidental differences are recorded without repair or a request to
+expand the issue.
+
+These are worker instruction limits, not an automatic pixel or source-diff scope
+validator. Mandatory repository checks still run. Method selection keeps the same named
+human visual approval, certified export/installation, dependency guards, exact-commit
+loading, behavior and publication gates; the fix worker retains its existing
+separate export authority. No CLI flag, plan top-level key or schema migration is
+added. Existing jobs re-evaluate visual scope on their next instructed attempt
+without resetting candidates, review identities or prior approval evidence.
+
+Native hydration is verified from actual file OIDs/sizes. An already supplied
+verified process filter may restore explicit scoped committed pointer files from
+their verified local cache through native index checkout into a new private
+directory, with smudge enabled for that command. Staged OID/size, the unchanged
+disk pointer and live claim are checked before replacing only committed originals;
+paid export outputs still require the installer. HEAD and the indexed tree remain
+unchanged; scoped stat
+refresh must produce clean status. Real edits, absent cache/filter capability,
+unexpected bytes or identity drift refuse this route. Exit zero alone is not
+hydration evidence, and this route installs/configures nothing or expands no root.
+
+Each visual round posts one durable waiting notice and parks with
+`pause.kind="visual_approval"`. Comments alone do not resume; an explicit session
+reply does. Instructions require attributable human user/message/time and the
+unchanged round for approval. Changed source/art/states/PR head invalidate it and
+require a new round. The controller preserves requests, checkpoints and outbox
+identity; it does not infer visual approval or judge a model's interpretation.
+The notice names Farm-Client, its validated same-issue branch and changed package
+paths, and explains that confirmation includes export and scoped Client
+continuation. An unqualified confirmation of that unchanged current round supplies
+both approval and the export request from one human reply; an explicit visual-only
+approval or hold leaves export pending. Older notices without that meaning need
+an actual combined request or clarification. Initial scope approval, corrections
+and ambiguous replies do not authorize a later round. An attributed export request
+is retained as a distinct audit event; absent native publisher
+selection or another host prerequisite, the worker parks with
+`pause.kind="stage_limit"`. The certified export/Client/package-loading route
+does not establish complete UI visual/runtime acceptance. Stop and
+successor recovery use the existing containment and durable branch/plan recovery.
+
+No state schema changes. Before rollback, settle/cancel UI jobs and their recovery
+work; older instructions do not understand unfinished UI plans. Offline fixture
+evidence does not certify real app-token uploads, live visual approval, licensed
+export or final-host release readiness. Enabling/deploying remains separate authority.
+
+The prepared `agent.fgui_export.snapshot_export` helper reads an explicit private
+staging root and selected package-name/manifest-ID map into immutable bytes. It
+accepts only the reviewed plain Unity v7 descriptor layout, checks bounded block,
+string, item, sprite and hit-test records, identities and dependency closure/cycles,
+and requires the exact declared atlas/sound/misc inventory. Atlas PNGs are fully
+decoded and their dimensions match the descriptor. Unknown container versions or
+disk-bearing types, LFS pointers, missing/orphan files, portable-name collisions,
+links/reparse paths, hardlinks, read-time changes and excessive inventories refuse
+acceptance. Limits are 100 packages, 1,000 files, 64 MiB per file, 16 MiB per
+descriptor, 512 MiB aggregate and 16 path levels. Inherited repeated resource names
+are reported as ambiguous; package/resource IDs remain unique. This read-only
+foundation runs no publisher, grants no export/Client write authority and does
+not establish Unity's interpretation of opaque component/animation/font payloads.
+Installation, attributed export approval and actual Client/Unity verification
+remain separate Phase E work.
+
+`agent.fgui_install` prepares an immutable installation plan for an explicit
+changed-package subset of that snapshot. It reads only Client inputs during
+planning, requires hydrated selected artifacts, keeps existing metadata bytes/GUIDs,
+and creates new folder/TextScript/Texture/Audio importer metadata from complete
+live sibling templates with fresh GUIDs checked against all Client Assets metadata.
+Unknown metadata/artifact models, affected duplicate GUIDs, missing templates or
+existing metadata, file/directory replacements and stale inputs refuse planning.
+Only those packages are mirrored; stale files, orphan metadata and empty folders
+leave them. The watcher's safety limits remain 200 removed files and 80% of a
+package's existing files, including metadata; an excessive removal requires a
+scope ruling rather than silently leaving a partial mirror.
+
+Applying a prepared plan requires an explicit claim/Stop fence and a new private
+recovery root outside Client. Before the first Client mutation it rechecks selected
+bytes and the global GUID inventory and preserves old bytes with a durable journal.
+Every directory/file mutation is fenced; replacements use exclusive temporary files,
+stale deletions recheck old bytes, and directory removal refuses nonempty folders.
+Late destinations, unexpected files or global GUID drift refuse success. Interrupted
+work retains before bytes, completed operations and uncertain temporary artifacts;
+there is no automatic rollback or directory-atomic success claim. The caller must
+ensure exclusive ownership/quiescence of Client. These helpers are prepared
+foundations with no worker CLI or authority change; actual scoped export approval,
+controller Client entry, draft/delivery and Unity orchestration remain pending.
+
+`agent.fgui_publisher.publish` prepares the native Windows execution helper without
+adding a worker command or licensed-export grant. The caller must establish owned
+clean source, scoped hydration, attributed approval/export authority and trusted
+Git, and supply both live claim/Stop and complete source-identity callbacks. The
+helper checks an explicit absolute executable plus four exact EXE/DLL hashes,
+Unity project/package identities and explicitly disabled code generation. It
+refuses watched `output/`, existing/overlapping staging and inherited FarmBot,
+model and Feishu credential selectors in the publisher environment. It neither
+selects configuration nor inspects or configures a license, credential or account.
+
+Execution uses native argument lists from the executable directory, fresh private
+staging/logs, a machine-wide Windows publisher mutex, refusal of existing/competing
+FairyGUI processes and a nested owned Job. The selected Python gate is created
+suspended, assigned through its retained creation object and resumed through its
+verified initial thread before any redirector/gate startup or input handshake.
+The timeout is at most 180 seconds; logs are bounded to 4 MiB each. Stop, timeout,
+assignment failure or lingering descendants refuse success and terminate only the
+owned Job. A brief bounded drain handles delayed descendant accounting; observed
+Job emptiness is still required. A process snapshot is a refusal signal only,
+never authority to kill another Editor. Failure preserves private staging and
+process/attempt receipts; uncertain teardown never establishes quiescence.
+Success requires proved assignment before startup/export, exit zero, empty
+containment, unchanged selected tool/full source
+identities, the selected completion count, no license-failure marker and the
+immutable exact export inventory. Client installation and Unity acceptance remain
+separate checks. This helper supports native Windows only and has no shell or
+permission-repair fallback.
+
+`agent.fgui_source` and `agent.fgui_approval` ground the certified export route. Source
+identity requires the exact owned issue branch/full commit, matching committed
+index, no untracked changes and a stable bounded hash map of every tracked file.
+Git reads retain clone/config/entry checks, disable hooks/fsmonitor and LFS clean
+programs, and use native text normalization. Unknown filters, links, hardlinks,
+case collisions, malformed pointers and mismatched materialized LFS bytes refuse
+success. Selected package/dependency pointers must be hydrated; unrelated LFS
+inputs may remain verified pointers. The changed set comes from the committed
+source diff against a caller-verified current main, including shared packages;
+other source paths remain explicit evidence. Missing history, removed package
+manifests and a diff without a package remain pending for fetch/scope resolution.
+
+Approval authority binds the current source commit, full byte digest, retained
+review-image hash, round and every actually changed package to distinct
+`visual_approved` and `export_requested` events. Each event must match an actual
+named human session message (including canonical stored messages from the same
+issue's retired attempts) or a human comment in the complete current inventory,
+including its timestamp. Combined confirmation uses the same actual message/comment
+id and timestamp for both events; this does not require two human operations.
+The export request must be at or after approval; stale events, bots, quotes,
+fabricated attribution and missing evidence supply no grant. Understanding the
+person's explicit intent remains the scoped worker's duty, not a text heuristic
+in this helper. Controller integration verifies the actual draft, source,
+retained image and current delegation before using this authority.
+
+The review, publisher result and immutable controller export receipt use the same
+canonical SHA-256 of the complete tracked-file hash map. The exact full source
+commit is bound separately; hashing the combined `{head, files}` object does not
+match that digest and cannot certify a receipt. Full before/after source-identity,
+claim and native process-ownership checks remain required. Earlier helper-only
+attempt evidence is retained for diagnosis and cannot replace a fresh successful
+controller export; this correction adds no ledger migration or approval grant.
+
+The UI worker retains private exact-byte copies of its authored non-LFS source
+and UI-document files before parking or leaving farmgui. A clean reattached Git
+checkout can convert LF, CRLF or mixed endings while retaining the same commit;
+its different raw digest is still refused. Within its existing claimed farmgui
+write scope, the worker may preserve current bytes and restore only the proven
+original reviewed bytes. The unchanged full controller source/export checks must
+actually pass before Client handoff. Private recovery manifests supply no approval
+or export grant; missing originals stay a gap, and changed inputs require a new
+review. No source digest, receipt, Git setting or permission boundary is relaxed.
+
+The controller's Client baseline mechanism supports the scoped UI Client stage with
+the same immutable main/issue-branch selection and generation/claim/Stop fences as
+Code. Its existing Code-only entry points remain restricted to Code. UI intake and
+authoring stay unpinned; Client entry requires the actual retained controller
+export before handoff. First Client entry uses the issue branch recorded for farmgui
+in the validated plan, including a fresh branch when an older UI run retains the
+canonical name. An existing Client target keeps its recorded baseline and branch;
+it is never repinned from the source plan. These helpers alone supply no export or
+runtime grant.
+
+`review-ui`, `export-ui`, `install-ui` and `verify-ui` require an explicitly enabled
+UI job and the scoped Client/Unity manifest. The UI worker starts in farmgui and
+uses these controller commands after actual named visual approval and the export
+request, including one combined confirmation under the current round's notice.
+Farmgui's conditional owner grant is recorded in
+[#142](https://github.com/Kuaiwa-Network/farmgui/pull/142). Default chat/fix host
+enablement is unchanged. Missing publisher selection permits authoring but leaves
+export pending; an older authoring-only manifest still refuses these commands.
+
+`upload-image` now records the actual immutable transfer in controller audit
+state after its final claim fence. Review/export records also live in
+that state, outside worker checkpoint authority; no database migration is added.
+A review binds the real same-issue image upload, owned clean farmgui draft/head,
+full materialized source digest, actual changed package IDs and numbered round.
+Export additionally requires a confirmed visual notice naming the asset and HEAD,
+and separately attributed current human visual approval and export request.
+Canonical inbox timestamp precision is retained for same-second ordering.
+Stop, withdrawal, new input, altered source/image or uncertain publisher ownership
+cannot produce a success receipt. Staging and interrupted recovery remain private.
+
+The Client handoff requires its real controller export receipt. Installation
+uses the immutable controller baseline/branch and the exact staging inventory,
+touches only changed packages and preserves the installer's per-write claim
+fences and journal. A second approved round may build on clean committed certified
+output at the same baseline. Before writing, the controller records a checksummed
+installation plan bound to the receipt, source, branch, baseline and initial HEAD.
+If final certification fails after every write completed, retrying `install-ui`
+with the same receipt validates that plan, the exact complete journal, every old
+backup, current installed bytes/GUIDs, unchanged HEAD/index and absence of unrelated
+Client changes, then repeats current source/approval and claim/Stop checks before
+recording success. Recovery does not rewrite files or replace the baseline.
+If no writes remain and the clean checkout exactly matches the recorded before
+inventory, directories and global GUID digest, the controller retires the unused
+plan in audit and prepares a fresh one, preserving the earlier recovery files.
+For a single complete legacy journal without a pre-write controller record,
+the controller can independently reconstruct a first installation at its original
+pinned HEAD, or the exact commit saved by that task's successful controller cleanup.
+The cleanup commit must descend from the pinned baseline and change only the
+exported existing artifacts; unrelated committed work is refused. Retry may reset
+the cleanup completion flag but cannot replace its recorded commit. No worker
+checkpoint or arbitrary clean commit supplies this authority. Every retained backup must match the full selected-package Git tree
+or its LFS OID/size; unchanged Unity metadata may retain native CRLF. The certified
+export must replace exactly the existing artifact set, with no added/deleted files,
+directories or metadata. The exact journal, backups, installed bytes, baseline
+global GUID inventory, HEAD/index, unrelated-change checks and current authority
+are rechecked before success. The installation proof records the reconstruction
+method and journal hash; no pre-write audit is backdated and no Client or recovery
+file is rewritten. Multiple journals, corrections, partial writes, structural or
+metadata changes, changed evidence and unrelated Client work still refuse this
+legacy path and retain recovery evidence.
+This adds audit records, not a schema migration; older code cannot finalize
+these interrupted writes, so retain their records and journals across rollback.
+New packages require Common. `verify-ui` checks the
+clean exact committed candidate and installed bytes/GUIDs. New verification
+requires ancestry of the actual configured remote default HEAD. The immutable
+task baseline and installation proof remain unchanged: scope compares the
+candidate to that controller-verified main commit to distinguish imported files
+from worker changes. Internal tasks may retain parent implementation, tests and
+earlier presentation files only when byte/mode-identical to their controller-pinned
+Client entry. The controller proves target-to-entry-to-candidate ancestry and uses
+the unique merge base of that entry and qualified main to identify subsequent
+upstream changes. Main changes already integrated before entry do not disqualify
+retained parent code; subsequent overlapping paths, new child edits, changed modes
+and ambiguous ancestry still refuse inheritance. No checkpoint can substitute an
+entry or a merge base. Existing candidates, approvals and installation records can
+be rechecked without a schema migration, resetting evidence or re-exporting. Older
+releases may reject this retained scope again; keep its candidate and evidence on
+rollback. The global GUID inventory must be
+unique and exactly match the committed candidate; ignored or assume-unchanged
+metadata cannot qualify as upstream. Certified package files/directories remain
+byte-exact. The controller records the main commit, scope base and GUID digest in
+checksummed scope evidence. An intact completed guard proof fixes the exact
+receipt/source/candidate's qualified main through queueing, resumed attempts,
+Unity loading, resource release and delivery. Main moving alone does not require
+a new candidate or another test round. A changed candidate or receipt still needs
+current-main qualification. Existing active exact-commit reservations retain
+their qualified snapshot too; legacy reservations retain only their original
+certified scope.
+After a host correction, `agent.service resume-ui-scope --item ID --reason TEXT`
+may requeue one internal FGUI `client-scope-stage-limit` technical wait. It requires
+maintenance pause, exclusive stopped-controller ownership, fresh open delegation,
+no human question, retained certified installation, settled resources and proven
+teardown of every worker on that issue. It preserves generation, checkpoint,
+approval, candidate, installation and test records; creates no human reply; and
+resumes at `client-scope-recheck` with ordinary verification still mandatory.
+It is an operator command, never a worker command or an automatic retry loop.
+A completed same-receipt installer retry may record this normal scope qualification
+without rewriting assets or replacing its original installation proof.
+Only certified outputs/metadata and literal changed-package dependency-guard
+entries are ordinarily allowed. `authorize-ui-guard-repair` adds one bounded
+engineering recovery for missing registrations already present in unchanged
+baseline packages. The worker supplies audited reference/lifetime reasons; the
+controller verifies hydrated descriptor bytes against the immutable Git/LFS
+baseline, derives the exact existing edges, and records exact proposed literal
+entries in checksummed audit evidence. It changes no checkout itself. A worker
+may apply only that proposal to the existing guard and commit normally. Scope
+checks account for those precise entries while retaining the original entry HEAD,
+approved assets and all other guard/test restrictions. No baseline reset, edge
+removal, persistent registration, runtime/source edit or guard waiver is added.
+Both actual guards and Unity loading must run on the final exact committed head.
+The coordinator owns this supported recovery; it must not wait for an unnamed
+engineer or ask the issue owner to invent hashes or controller procedures.
+This adds audit evidence, not a database schema migration. Keep that evidence on
+rollback: an older controller cannot certify the additional repaired entries.
+Main integration adds scope audit fields without a schema migration. Preserve
+integrated worktrees and scope evidence across rollback; older controllers may
+refuse imported files/GUIDs rather than certify them. Source/visual conflicts
+still need their actual human decision and fresh review, not a baseline reset.
+It must remain parked rather than reset the baseline or discard the repair.
+This scope proof does not establish hydrated
+dotnet guard success or Unity loading.
+
+`verify-ui-guards` runs the selected native `dotnet` executable against only
+`FguiDependencyGuardTests` and `FguiOrphanAtlasGuardTests`, with fresh private
+results, a 600-second timeout, bounded logs and suspended-before-Job assignment.
+The actual complete TRX must identify both expected methods as Passed: missing,
+skipped, duplicate, foreign or Inconclusive results remain pending. Claim/Stop,
+current input, exact source/candidate and executable identity are fenced before
+recording the controller audit proof. Uncertain cleanup preserves logs/results;
+only owned process descendants may be stopped.
+
+The guard command reuses its original complete proof for the same receipt,
+source HEAD, installation, committed candidate and selected executable hash after
+fresh authority/scope/claim checks. Changed inputs require actual guards again;
+damaged records are refused. `ui-verification-status` exposes retained guard and
+loading proofs and the next required action. Completed loading goes on to draft
+publication after resource settlement rather than requesting another Editor.
+
+If current verified farmgui main is absent locally, the UI CLI records a
+claim/generation-fenced history request and waits at most 45 seconds in its
+current repository stage. The host scheduler services at most 16 pending requests
+per tick with at most one configured-origin fetch, using the validated owned clone,
+hooks/fsmonitor disabled and a 60-second fetch timeout. It writes bounded result
+audit, never source bytes, HEAD/index, checkout, merge, LFS hydration or worker
+grants. A stale/withdrawn claim cannot continue. A pending wait can retry the
+same command once; failure remains a named host prerequisite gap, not an
+authoring handoff or permission to repeat tests. This adds audit kinds, not a
+schema migration. Older releases ignore pending requests; retain their evidence
+and use the settled deployment/recovery workflow when rolling back.
+
+The UI CLI's `await-resource` accepts only interactive Unity at the explicit
+certified committed Client head after the current guard proof. Existing slot
+preparation, reservation tokens, ownership and quiescence rules apply. The shared
+Editor remains outside worker containment. `verify-ui-loading` uses the reserved
+slot's pinned MCP session and fixed bounded package-loading probe, with matched
+Editor/source identity before and after. Each reservation fence reads the actual
+slot HEAD through its validated owned Client clone and worktree entry. The
+slot's `parked_commit` remains the last idle park; it is not evidence of an
+active switch. A different actual commit, foreign Git pointer or unverifiable
+clone refuses loading and cannot record success. It compares imported descriptor
+bytes
+to actual committed Client hashes and loads every export/dependency package and
+its declared atlas/sound/misc assets. Already registered packages refuse the
+probe. Cleanup removes only newly registered probe-owned wrappers and uses
+`DestroyMethod.None` for imported assets shared by the Editor. Missing assets,
+identity drift, incomplete results or uncertain cleanup cannot record success.
+This establishes package loading; it does not instantiate gameplay, render the
+target panel or establish human visual/runtime acceptance.
+
+Full UI `finish --outcome delivered` requires no unsettled resource, the current
+export/install/guard/loading audit proofs and exactly both actual open drafts at
+their unchanged source and tested Client heads. The CLI verifies actual GitHub
+repository/destination/draft metadata and injects a controller delivery identity;
+the ledger fences it to the current claim generation/fingerprint and PR pair.
+Worker prose/checkpoints cannot substitute for a guard/loading pass. An ordinary
+no-change investigation has no PR and does not certify a delivered UI package.
+After corrections, a new receipt/commit requires fresh checks at the same pinned
+baseline. Old audit records/journals remain recovery evidence, with no added
+schema migration or promise that older code can service new in-flight UI work.
+The worker publishes drafts only; human merges, approved live-card acceptance
+and separately authorized host release remain required.
+
+Optional private `fgui_export` selects an absolute native `FairyGUI-Editor.exe`,
+exact SHA-256 pins for it, `UnityPlayer.dll`, `GameAssembly.dll` and `baselib.dll`,
+and an optional positive finite timeout of at most 180 seconds. No discovery,
+credential, license or preference configuration occurs. `tools.fgui.export` in
+doctor separately reports sanitized selected-binary findings without executing
+the publisher; missing selection does not disable authoring. An older release
+rejects this new config key: remove it from that release's private config as part
+of an authorized rollback, rather than assuming a code checkout reverses config.
+
+## UI source ownership
+
+For UI fixes and changes, inspect the relevant farmgui source before choosing an implementation.
+When the problem or the change is in the authored hierarchy, layout, relations, controllers or
+reusable components, change that FGUI source first, then adapt client bindings and behaviour as
+needed. Prefer one clear source of truth over runtime reparenting, hard-coded offsets, duplicate
+components or per-screen patches that compensate for an incorrect UI definition. Keep changes
+scoped to the issue and check other consumers of any shared component you change.
+
+Keep gameplay rules, data binding, event handling and genuinely dynamic UI behaviour in code.
+If the FGUI structure is already correct and the defect or change is in that logic, change the
+code; do not rewrite FGUI just to satisfy a source-first preference. Record the chosen layer and
+its reason in the checkpoint and PR. Optimise for correctness, explicit ownership and
+maintainability for both humans and AI, rather than whichever tool is easiest for the current
+worker to use.
+
+The operator's standing instruction of 2026-09-21, widened on 2026-09-28 (D18 h), authorizes
+direct FairyGUI CLI export during an authorized FarmBot fix job, a UI bug fix or a small change to
+existing UI. `fix`'s part of the dispatch AUTHORITY states it; farmgui's owners record the widening
+in its `AGENTS.md` before any instance runs this revision. Resolve the executable and host-specific
+license observations from local configuration or shared memory, and verify current batch-export
+availability. Do not wait for human intervention or ask for a separate export approval. This
+supersedes the earlier unpaid-license GUI handoff and export-approval gate, including historical
+design documents. Follow the tested command, staging and validation workflow in
+`references/repo-map.md`, then integrate the generated assets into the issue's authorized client
+worktree and verify them. Never hand-edit generated `.bytes`/atlases or claim runtime verification
+against stale outputs. Missing or failed export tooling calls for diagnosis, not a code workaround
+for a structural defect or change. If the intended UI is unclear, ask in Linear using
+`await-input --reason question` (which adds `待回复`).
+
+## The Code worker (`feature`)
+
+`feature` runs only on an instance whose `enabled_skills` names it. One work item and one Linear
+session carry a delegated Bot/Code card through repository stages, one fresh Codex worker per root:
+the Farm-Contract change (stage A, the initial root), farm-common declarations (stage B), config
+verification (stage C), the farm-hive server (stage D), UI readiness evidence (stage E), the Client
+(stage F) and the closing steps (stage G). The worker follows
+each repository's own rules and `skills/work/code-stages.md`; the `feature` part of the dispatch
+AUTHORITY states its grants (see Authority).
+
+- It reads the 策划案 itself with lark-cli as FarmBot's read-only Feishu app (`lark-cli --profile PROFILE docs
+  +fetch --as bot`, the host's configured profile), only from links in the card, its human comments and the
+  session, and never with a `LARKSUITE_CLI_` variable set.
+- For a linked wiki Word attachment it first resolves `data.obj_type` and `data.obj_token` with
+  `wiki +node-get --as bot`, then downloads the file with `drive +download --as bot` using that
+  object token. The wiki node token cannot download the file; `docs +fetch` rejects a `file` node
+  without returning its object token. Native `docx` pages continue through `docs +fetch`.
+- A linked `sheet` resolves to its spreadsheet object token, then uses only read-only
+  `sheets +workbook-info` and `sheets +cells-get` as the configured bot. The worker retains complete
+  values/formulas/comments, source tab/row/column identities and hashes for all tabs, hidden and empty
+  ones included. It checks truncation and actual coverage, and one unchanged workbook revision before,
+  during and after the reads. Incomplete or changing reads and required unread embedded objects are
+  questions; they never become a contract from a sample or mixed revisions. The app needs the actual
+  read-only spreadsheet scope and access to that document; workers never enable permissions or write,
+  export, import, search or run scripts in Feishu. This grant belongs only to `feature`.
+- At its first attempt it records each write repository's issue branch in its plan, after checking that no other
+  instance's or person's work is on it; later attempts and successors re-attach to those branches. A cleanup commit
+  (`wip(…): preserve ended work`) that the controller left on a branch is inspected and replaced before anything is
+  pushed, and others' commits are merged, never overwritten.
+- It posts one start comment per job (the plan records it); grouped question rounds (`question` notices
+  `questions-1`, `questions-2`, …) that mention the owner and, when they ask 策划, the card's creator; `stage`
+  notices when a stage is skipped, stage C passes, or D/E/F finishes at a human stage limit; and `merge_request` notices that ask the owner to merge a
+  named PR. It merges nothing. A notice asked again takes the next number (`config-needed-2`).
+- It records a ruling only from a named person's comment or session message, under that person's Linear name, and
+  applies no default: Farm-Contract's rules that let high-confidence gaps stand once posted and medium ones after
+  three working days of silence do not apply to FarmBot.
+- A person may ask, in the delegation text or a session message, that the job stop after a stage. The worker then
+  finishes that stage, says so in the stage's last notice, and parks (`await-input --reason waiting`) until a later
+  message asks it to go on.
+- Stage A writes the OpenSpec change, proto and their bookkeeping, reading Farm-Client and farmgui only in
+  read-only checkouts of their default branches for the client half of the gap list; runs Farm-Contract's twelve
+  gates with CI's pinned tool versions; opens the contract draft PR; asks the owner to merge it; and hands off
+  without waiting for the merge. FarmBot's `handoff-repository` is the handoff (交棒) Farm-Contract's rules
+  describe; it creates no other task or issue. It posts a question round only for necessary unresolved
+  human decisions, inputs or approvals; already applicable rulings need no duplicate question. Required
+  Farm-Contract review remains, and unreviewed gaps cannot back proto fields or server behavior.
+- Stage B declares the change's tables, columns, fields and enums in farm-common's definition layer, regenerates
+  its inventory and updates its count constants, never data rows or global-key values, and opens the declarations
+  draft PR. It then posts the config-needed comment, which mentions the owner and the creator, and parks with
+  `await-input --reason waiting` until someone names the farm-common commit or branch that holds 策划's data.
+- The plan records the stages, the pending pause, the change, the declared columns, every branch and PR by role,
+  the closing steps and who reported each human step.
+- A worker that sees `delegated: false`, `withdrawn: true`, a closed card, or `delegation withdrawn`
+  publishes and asks nothing, saves its plan, runs `withdraw` and exits. The command cancels the job and
+  posts its notice, preserving the plan for a later delegation; it does not finish blocked.
+- Stage C runs when the resumed common-rooted worker finds a named commit or branch: it resolves it to a full SHA,
+  makes a detached checkout of that commit in its state directory, checks each declared header in the SpreadsheetML
+  cells, that every new header is declared and that both profiles generate there, then publishes
+  `farmbot/<key>-config` at that commit, adding no commits, for the Jenkins designer-data publish. A re-pin to a
+  commit that does not descend from it gets `farmbot/<key>-config-2` (then `-3`, …), never a force push. A failed
+  check is reported and asked again. Each new verification round has its own stage notice (`stage-C`, then
+  `stage-C-2`, `-3`, …); the plan saves its id and exact body before preparing it, so a retry reuses them and
+  an already-posted predecessor notice is not duplicated.
+- Stage D implements and verifies the server change. When its consumer inputs require protocol changes, it
+  syncs snapshots from the item's unmerged Farm-Contract worktree (marked `-unreachable`) and registers new
+  messages. For required config work it pins designer data to the config commit with a locally computed digest
+  and placeholder archive checksum, and generates `config/pb`. It runs the required change-scoped gates and opens
+  the hive draft PR. It follows farm-hive's own instructions for the designer-data
+  mechanism (the three `DESIGNER_SOURCE_*` values on 2026-09-28) and says in the PR which one it used. That PR's CI
+  stays red or incomplete until required contract re-sync and published-pin work passes. A server change needing
+  no protocol-input update retains its verified snapshots and records why sync is unnecessary. A server
+  lease is needed only for required service-backed evidence that is missing or invalid, not merely because
+  the pool is configured. Service-independent checks run locally; valid same-candidate/input reports are
+  reusable. Required service-skipped checks remain gaps; coverage and race requirements are preserved.
+- Stage E first checks the current UI requirements against artifacts and retained approval/verification
+  evidence. It verifies actual farmgui main component identities and Client main exports/dependencies,
+  recording full main SHAs, paths and why reused evidence remains applicable. A task status, existing
+  folder or old ready message alone is insufficient. When all required evidence and approvals are valid,
+  it continues without a new UI-ready question. Only concrete missing decisions, approvals, inputs or
+  external actions cause a scoped question/wait; partial replies do not clear other gaps. No-UI changes
+  record E skipped. Named visual approvals, export/provenance, loading and Client behavior gates remain.
+  Legacy feature gains no access to unmerged task outputs; general `work` uses its certified task join
+  instead. The worker never authors or exports farmgui, and honours limits before Client entry.
+- Stage F lazily receives the owned Client branch and controller baseline. When generation is required, it uses
+  supported headless network and config commands with clean committed inputs and complete atomic metadata;
+  otherwise it retains the actual existing input identity and skip evidence. It implements client behavior.
+  A configured Client slot outside all worker write roots supplies only a read-only typecheck reference under
+  `tools.client_typecheck`; it reserves no Unity and grants no slot writes or Editor command. Missing generated
+  projects/references are measured host gaps. Full typecheck, unit tests and reservation-based Unity checks must
+  identify the owned committed HEAD; typechecking test assemblies does not execute them. Draft bodies retain
+  unmerged Contract input, common commit/digest, unrelated generated changes and merge preconditions.
+- The closing comment asks the owner to merge the contract PR, and the declarations PR if it is still open, and,
+  when D ran with config work, someone to run the Jenkins publish on the `-config` branch and paste its three pin lines; it asks for no UI step
+  because E already handled UI readiness, and warns that Done or Canceled cancels the job. FarmBot polls nothing:
+  each reply or mention makes it check GitHub and do what became possible, in this order: remove stale
+  BREAKING_WAIVERS on `farmbot/<key>-waivers`; perform required Client re-export/verification and farm-hive re-sync,
+  write its required published pin; then create the Contract write-back draft. Consumers requiring re-sync
+  use one recorded, verified Contract
+  main commit containing the actual merge, from a clean detached snapshot under worker state. Merge and squash
+  histories follow this same rule; an unmerged issue HEAD supplies no main provenance. Missing merge input parks
+  for a reply. A newer main tip alone does not invalidate the selected verified snapshot; when required inputs/gates
+  necessitate a new SHA, redo the consumers requiring re-sync and their checks together. Retained inputs keep their
+  own provenance and evidence-based skip reasons; docs-only work does not wait for unrelated compatibility changes.
+  When D was skipped, hive closing steps
+  are satisfied without a hive PR or Jenkins publish; the verified config commit remains the Client input.
+  A hive PR merged too early gets a `farmbot/<key>-followup` draft PR. Every later hive closing attempt,
+  including a successor, selects that recorded followup before editing and reuses its PR; the plan records the
+  active branch and PR. A closed or merged followup with work still remaining needs the owner's decision.
+- A fresh Contract-rooted attempt creates exact `farmbot/<key>-writeback` from main, records it before publication
+  and reuses its draft on retries. Acceptance/archive updates complete only measured tasks and preserve client
+  requirements, unresolved decisions, decision counts and unmerged/unaccepted human work. It uses the installed
+  pinned native OpenSpec CLI and all twelve gates, returns to the issue branch before sibling reads, and never merges.
+- Delivery lists every draft/state, exact Client/main/config verification evidence, UI readiness or skip reason,
+  write-back and every remaining human merge/acceptance or untested check. Local completion is not a release.
+
+The controller's part in a Code job. A host whose `enabled_skills` names `feature` must also name the lark-cli
+authentication its workers use (`lark_cli`, Host configuration); `serve` and `enqueue` refuse one that does not. A
+`feature` job gets no intake Farm-Client target, whether delegation, conversation or `enqueue` made it; none of its
+session's acknowledgements carries a target line. Only Client-stage entry pins its item, with no reservation until
+an explicit committed verification request (Unity verification commits). Besides each repository's issue branch, a job may
+publish `farmbot/<key>-config` (`-config-<n>` for a re-pin) in common, `farmbot/<key>-waivers` in Farm-Contract and
+`farmbot/<key>-followup` in farm-hive and exact `farmbot/<key>-writeback` in Farm-Contract (Draft PR publishing authority). The issue branches its plan records are where
+a successor's worktrees, and a cleaned-up continuation's, start (Authority); `checkpoint` refuses a plan that records
+one the publishing policy would refuse, or two for one repository, so a recorded name never stops a later launch.
+Every attempt also gets read-only checkouts of the default branches of Farm-Contract, Farm-Client and farmgui beside
+the item's worktrees (`reads` in the launch message), refreshed at each launch except a publication retry's and
+removed with the worktrees. The automatic-retry allowances count per stage: a completed repository handoff and a
+resume from a pause reset them (Work item states).
+
+The job pauses with `await-input`: `--reason question` for its grouped questions, `--reason waiting` for the
+config-ready, UI-ready and closing pauses and for a stage limit. A reply in the session or a mention resumes a paused job; a
+comment alone never does, and nothing times out. At most one attempt of an exclusive skill (today `feature`) runs at
+a time, which leaves the other worker slot to `fix` and `chat`; a waiting Code job keeps its place in the queue
+(Resource execution limits). Two successful status reads at least an interval apart confirm a removed
+delegation. The confirming
+read cancels queued or parked delegation work with one response, preserving its branches and PRs;
+a running claim is flagged with a grace period so its worker can checkpoint and run `withdraw`
+(Triggers and Withdrawn work). The worker also withdraws when its own fresh card read finds the
+delegation gone, without publishing or asking. A later delegation resumes from the saved plan.
+A closed status cancels the job as it cancels any work; a merge moves a 农场 card only to 待验收,
+which stops nothing.
+
+This revision supplies E/F/G instructions and controller Client entry/verification. Offline controller evidence
+and delivered native export tools are distinct from real later-stage acceptance, which remains a release check.
+A step the worker cannot run in its runtime is named in the PR as not run, with its
+error. Host tool detection is separate from actual worker acceptance. On 2026-10-06,
+a scoped native Windows TestBot audit of unchanged Farm-Contract main runs all twelve
+gates: nine pass, while gates 3, 9 and 12 fail creating temporary directories; gate 3
+also refuses object alternates in the read-only snapshot. The [measured gate record](../superpowers/spikes/2026-10-06-native-contract-gates.md)
+preserves each failure and coverage limit. Farm-Contract #327 subsequently fixes
+native temporary access and replaces buf's Git baseline transport with verified
+raw Git blobs in an owned directory. Its final candidate and merge have identical
+trees, all 28 CI checks pass, and the configured native unelevated worker passes
+12/12 gates and 169 focused regressions. The [final native measurements](../superpowers/spikes/2026-10-06-native-contract-gates.md#merged-native-baseline-transport-acceptance-2026-10-06)
+preserve the earlier failures and separate the unresolved packaged-runtime
+rename comparison from configured 0.156.1 acceptance. A genuine changed-contract
+draft-PR/stage-limit check remains pending. Earlier scoped generator
+and containment probes remain separate evidence, not production certification.
+On a host that enables `feature`, `doctor` reports whether it has the toolchain its
+workers need; on any host it shows each unfinished Code job's root, stage states,
+pending pause and PR links (README, "AI/operator diagnostics").
+
+Phase C adds no database columns or migration. The bounded checkpoint plan accepts Client evidence, and
+the item's existing target JSON stores the controller's Client branch/baseline. Old Phase B checkpoints
+remain readable: on an authorized continuation, the worker rechecks the accepted change and later scope,
+adds E/F states from actual UI/client requirements, and retains existing human limits and notices. An old
+G/delivery or a server-only test does not certify Client verification or write-back. Do not retroactively
+run later work on a cancelled/limited card without that scope being authorized.
+
+Before rolling back from Phase C, settle or cancel feature jobs and reservations, complete cleanup and
+disable feature on that host. Older instructions/manifests cannot safely resume E/F or interpret Client
+verification/write-back evidence; checking out older code does not undo an item's stored baseline/plan.
+
+Rolling back: before moving a host to a revision without `skills/feature`, cancel its unfinished `feature` items
+(Stop in Linear, or the operator's `cancel`), queued, running, parked or between stages alike; let their cleanup
+finish, which also removes their read-only checkouts (`doctor` then lists no pending cleanup for them); and take
+`feature` out of `enabled_skills`. An older revision never launches a `feature` item, yet replies still resume it,
+queued ones keep getting progress heartbeats, and the one-active-item rule blocks every other job on its issue; and
+an `enabled_skills` naming a skill the checkout lacks stops `serve`. A cancelled job's branches, PRs and notices stay.
+An older revision does not remove a `<worktrees>/<item>.reads` directory an unfinished cleanup left; delete it by
+hand once that item's cleanup record is done. Older revisions ignore the `lark_cli` key, withhold no lark-cli
+variable from workers, and read the new notice kinds like any other.
+
+## Isolated server integration resources
+
+The optional `server_slots` pool is controller-owned. `work`, `fix` and `feature` may
+request `server_slot` in batch mode only from their farm-hive write stage, after
+checkpointing and committing the exact candidate. The item-authenticated CLI
+verifies its clean managed worktree and configured host ledger; the scheduler
+rechecks HEAD before launch. The existing generation, token and unique active
+resource fences apply. A skill manifest does not grant Docker administration.
+
+Every lease creates four pinned services with fresh data on its own internal
+Docker network. A fixed, pinned, nonroot/read-only relay supplies loopback-only
+ingress through a separate network. Service containers retain internal isolation;
+the relay exposes four fixed destinations, not arbitrary worker commands. No
+host filesystem mount, production endpoint or credential is supplied. This
+uses Docker's [internal/ingress network pattern](https://docs.docker.com/compose/how-tos/networking/)
+and [explicit loopback publishing](https://docs.docker.com/engine/network/port-publishing/).
+The native worker receives reservation-bound endpoints and required-service
+flags. Its game processes remain in the existing Windows Job Object or POSIX
+containment. Multi-node tests may run several candidate processes against one
+lease; workers never choose another lease or shared/live data as fallback.
+
+Resource requests checkpoint and retire their worker claim, freeing model-worker
+capacity after exit. One item holds at most one open reservation: server tests
+release and exit before Unity/stage handoff or another resource request. The
+implementation grants no simultaneous server/Unity bundle. Heavy-resource
+admission serializes both pool threads, counts nonclosed/held resources and idle
+Editors, and checks actual host physical/Windows commit headroom. Its estimate
+budget is per instance, not a host-wide atomic quota. Operators sharing a PC
+must divide that budget across bots. Missing observations leave work queued.
+Server requests persist a bounded test selection (`packages`, exact `tests`,
+`race`), verified at the existing clean committed farm-hive boundary. The host
+derives focused (one package, 1–8 named tests, no race), targeted (up to four
+explicit non-race packages), or full (race, recursive/larger scope, and measured
+heavy `./server` packages) admission. With a full 8192 MiB cost, the default
+focused/targeted costs are 4096/6144 MiB. Optional ascending overrides are
+`server_focused_mib` and `server_targeted_mib`; defaults clamp to an older lower
+full cost. Active/held leases count their persisted scope across restarts; unknown
+scope counts as full. The same exact queued reservation is fenced at acquisition,
+so Stop cannot substitute a higher-cost successor after admission. FIFO remains.
+Workers receive the journal-bound selection and canonical Go argv, and preserve
+required coverage/race. Broadening scope or separate multi-node commands requires
+release and a full lease. An estimate is not an enforceable native memory limit.
+Hosts may independently tune `server_min_available_mib` and
+`server_min_commit_mib`; omitted values inherit the global floors, preserving
+existing admission behavior. A server request requires its scope cost plus these
+floors. Editor startup/reuse continues to use the global floors. These settings
+are operator-owned, never accepted from worker plans. Monitor reports the same
+required headroom used for the exact reservation's admission.
+
+Calibrate a host with the actual candidate, Go toolchain, package concurrency,
+services and descendant-process memory. A `-run ^$` initialization probe measures
+startup only, not the full race suite or multi-node peak. Retain that distinction,
+then observe a single selected issue's real run before restoring concurrency.
+Change configuration only at a settled maintenance boundary; restart controller,
+workers and Monitor against the same pinned config. Rollback restores the saved
+config and launch manifest at the same boundary; no schema migration is needed.
+
+Monitor wait observations list the actual physical, commit or shared-budget
+shortfall, FIFO, capacity, or worker teardown; stale observations are labeled.
+
+Migration adds nullable `reservations.server_test_plan` and `wait_detail`; no
+existing row, source pin, checkpoint or journal is deleted. An unleased queued
+legacy request resumes once after verified teardown to declare actual scope,
+without a human answer; its replacement joins FIFO normally. Already leased
+requests retain full cost and normal settlement. Before rollback, settle all
+server leases and retain the ledger backup/journals: older code ignores the new
+columns and resumes full-cost admission, which does not reverse this migration.
+
+Headroom is checked before admission; these estimates do not impose process
+memory limits or continuously stop a running workload. Cold Unity imports and
+multi-node race tests include descendant processes whose peaks must be measured
+on the intended host before promoting concurrency settings.
+Only verified idle Editors may close to reclaim headroom. Cheap work remains
+independent of the heavy pools; slot counts are ceilings, not guaranteed full
+concurrency on a 32 GiB host.
+
+Quiescent release does not immediately free server data. All worker attempts must
+have verified teardown before the controller deletes that lease's exact Docker
+identities and matching labels. A bounded lease timeout cancels the item through
+the scheduler's normal contained-worker path. Other leases remain independent.
+Journals survive controller restart under `local_root/server-slots`, outside
+worker write roots. Partial setup/uncertain cleanup holds the slot and preserves
+evidence. Unity settlement and automatic Unity recovery ignore server leases.
+An interrupted handover fails explicitly rather than stranding awaiting work.
+Trusted `recover-server-slot` takes the controller lock and repeats the same
+ownership and teardown gates; legacy `recover-slot` refuses server resources.
+Neither worker nor operator recovery uses global Docker prune/force removal.
+
+Server slots are opt-in and default off, and require explicit admission budgets,
+an absolute Docker CLI, a local Linux backend and installed digest-pinned images.
+Server write-stage workers see configuration availability in `tools.server_tests`;
+the CLI refuses disabled pools instead of queueing an impossible request.
+Doctor probes backend capacity and image prerequisites read-only; a listener's
+health response does not certify Docker, game tests or all heavy slots. Images
+are shared, writable data is per lease. Docker's VM disk location is independent
+of the FarmBot state root. See the README for config, memory caps, relay packaging
+and operator recovery. No schema migration is introduced; settle server leases
+and preserve journals before rolling back to code without this resource kind.
+
+## Shared memory
+
+Workers share bounded recall notes in the ledger, with an immutable Markdown index and topic files
+under `.local/agent/memory/` for each launch. Both chat and fix may save corrections, operational
+lessons and source pointers using `memory-list`, `memory-read`, `memory-save`, and `memory-forget`.
+All worker commands check a live claim. This is an explicit memory-only exception for chat, not
+permission to edit repositories or shared files. See `references/memory.md` for the input schema.
+
+Notes are fallible context. Gameplay rules belong in Farm-Contract, and memory never authorizes
+work, changes repository access, or overrides contracts and skills. Sources and build references
+are attributed evidence, not independent verification. Notes are not automatically extracted from
+old runs. Keep secrets, tokens, personal account details and raw issue transcripts out of memory.
+
+Updates and forgetting require the current revision; concurrent writes cannot silently overwrite
+one another. Creates use an item-scoped request ID for retries. Limits: 200 active notes, 120-character
+titles, 8 KiB bodies and 1 KiB sources. Forgetting removes current recall and clears active content;
+old run snapshots, already-loaded contexts and backups may retain it. It is not secure erasure.
+
+The trusted host uses `memory-admin` to inspect, correct and forget notes; workers must not use it.
+Like other operator commands, this is a convention, not a security boundary against direct DB access.
+Snapshot pruning requires stopped service and no queued/running work; retained run prompts retain
+their snapshots. Ordinary launches never prune. An unavailable snapshot is reported in the launch
+payload and does not block work; claim-authenticated CLI recall remains available.
+
+Native runtime memory is explicitly disabled: Codex `features.memories=false`, Claude
+`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`. Isolated runtime homes and authentication remain unchanged;
+FarmBot does not import the operator's personal memories. Saving is optional and must happen before
+a claim ends; memory operations do not renew the lease.
+
+## Work item states
+
+queued → running → delivered | blocked | failed; running ↔ awaiting_input (human gate);
+running → awaiting_resource (Unity slot); any active state or blocked → cancelled (Stop or issue closure);
+queued, awaiting_input or awaiting_resource → cancelled when the delegation that authorised the job is
+withdrawn, it is superseded by a newer delegation session or, in its own delegation thread, by a
+delegation Linear opened no session for, or the issue is unreachable; running →
+cancelled by the worker's `withdraw`, or by the controller when the withdrawal grace ends (Withdrawn
+work).
+A waiting item has no process. A repository handoff is queued with its retired worker PID retained;
+it cannot be claimed or launched until the controller certifies teardown and clears that PID.
+An item in awaiting_resource holds a queued reservation; only the pool's grant turns
+it back into queued work. A launched worker must claim its item within 10 minutes or it is stopped and the item fails. A confirmed terminal Codex model-capacity error returns the same queued or running item to the queue after 60, 180, then 600 seconds, with at most three automatic retries. The old claim is revoked; worktrees, checkpoints, model settings and reservations are retained. Retry timing is durable and all normal concurrency/delegation checks still apply. Cancelled, completed, waiting and deliberately stopped work is not automatically retried. Other pre-claim exits fail the item; a worker that dies with an expired lease requeues the item once for a fresh worker. A queued item whose skill is loaded but not in `enabled_skills` fails before launch.
+
+Capacity classification reads only the bounded stderr tail, accepting the exact terminal
+capacity diagnostic or `ERROR: exceeded retry limit, last status: 429 Too Many Requests`
+after removing the token-count footer and Codex's timestamped
+`failed to record rollout items: thread <UUID> not found` shutdown diagnostic.
+Other trailing errors, quoted capacity messages and successful exits do not qualify.
+
+The automatic-retry allowances (three capacity retries, three publication retries, and the
+Unity execution and preparation budgets of Automatic Unity resource recovery) last a fix's
+whole job; `retry` and a requested continuation reset them for any skill. For a skill that
+starts at an initial root (`feature` and `fgui`) they bound one stage instead
+(feature-workers design §5.8): a completed repository handoff and a resume from a human gate
+(a reply or a forwarded mention that resumes a paused job, or an answer already waiting when
+the pause is recorded) reset them, with an `audit` row `stage_allowances`, and the stage's
+first launch then fetches its repositories as a job's first launch does. A message to a
+running attempt, a recovered lease and a slot the pool grants continue the same stage. Older
+code never resets them this way and keeps the counts it finds.
+
+The Linear session follows the item: `finish` posts the final response that completes the session (a chat
+answer is its own response); a worker that dies or never starts leaves an error activity naming 重试 as the
+way back, and a requeue leaves a thought. A final response or error Linear refuses is owed to the session
+and posted again (Withdrawn work, Notices). A worker asks a question only with `await-input`, which parks
+its job; `activity` refuses `--type elicitation`.
+
+The host posts session progress every ten minutes for queued, running and resource-waiting
+work. It reports the recorded state and checkpoint age without extending the worker's lease
+or claiming new results. A queued job's heartbeat names what holds it back, the first of a retry
+delay, its predecessor's cleanup, a failing status read and, for work the delegation authorised, a
+card no longer delegated here; a worker told to withdraw reports that it is saving its progress and
+stopping. Withdrawal flags take priority over ordinary active-state content,
+including a coordinator parked while children save and stop. Pending content is
+rechecked when that flag changes; a saved stale question is replaced by a thought,
+and a question already in flight receives a correcting thought. A parked general
+coordinator with queued, running or resource-waiting children keeps the same
+ten-minute progress cadence for their states and recovery. This neither renews
+claims nor replaces the parent's actual pending human question. Withdrawal stops
+that periodic child reporting. Other awaiting-input, terminal and synthetic local sessions receive no
+regular heartbeat. Timing and pending activity IDs survive restarts; a failed send retries
+after sixty seconds, and each further failure in a row doubles the wait, up to the ten-minute
+interval, until a send succeeds. A state change while an activity is in flight is followed by a durable
+correction so completed or waiting sessions do not remain active, except after a cancellation that
+posted its own notice, which drops the job's pending send; when that send was the job's question and it
+landed after the notice, the session gets the job's terminal text once more, so the question is not its
+last activity. The same loop posts the closing activities Linear refused (Withdrawn work, Notices), one
+per pass, before any heartbeat. Reporting uses its own
+loop and connection; slow Linear requests do not hold the scheduler lock.
+
+At service startup the progress publisher creates the additive `session_progress` table, and adds
+its `failures` column (the failed sends in a row) to a table an older revision created; existing
+rows start at zero and work-item rows are not rewritten. Pending sends and their retry timing remain
+in that table across restarts. Rolling back to older code stops periodic reporting and
+leaves the table unused; it does not reverse or delete saved work. A revision that reports progress
+but predates `failures` ignores the column and retries a failing send every minute. Deploy or roll back
+the host code and worker skill files together after the service has been settled.
+
+## Withdrawn work
+
+This section states the rules of `docs/superpowers/specs/2026-09-29-withdrawn-work-design.md` as
+implemented; that design's Appendix C lists where the implementation departs from its text. The Stop
+note in another thread, sessions, notices and the `silent_delegation` and `unclosed_session` findings
+follow `docs/superpowers/specs/2026-09-30-silent-delegation-design.md`, whose Appendix E lists its own
+departures.
+
+**Authority.** Each job records, once, when it is created, what authorised it (`work_items.authority`):
+
+| Authority | Given to |
+|---|---|
+| `delegation` | every write job, wherever it is created; a conversation a delegation opens, or a reply in a delegation session routes again, while the card is delegated to this app; a conversation that replaces such a one while the card is still delegated |
+| `mention` | a conversation an @mention opens, or a person's message while the card is not delegated to this app |
+| `operator` | a conversation `agent.service enqueue` starts |
+
+It changes in one case: a person answering a delegation's parked conversation on a card no longer
+delegated to this app turns it into a mention's, so the answer is not cancelled a minute later.
+`issue-context.coordination` shows `authority`, and `withdrawn` while the job is flagged.
+
+**Withdrawal.** Work is withdrawn when the delegation that authorised it is gone, confirmed by two
+reads; when a newer delegation session takes the card over; or when the issue is unreachable. Only
+an unreachable issue withdraws a mention's or the operator's conversation.
+
+| State | On withdrawal |
+|---|---|
+| queued (launched or not, delayed, or with a repository handoff pending), awaiting_input, awaiting_resource | cancelled at once through the scheduler's stop, which kills a spawned or retiring worker and cancels or settles the job's reservation; one response in its session (none when the issue is unreachable) |
+| running | flagged with a deadline of twice the skill's `renew_minutes` (20 minutes for `fix`, 10 for `chat`). `fetch-issue` prints `withdrawn: true`; `verify-publication`, `handoff-repository`, `await-input` and `await-resource` refuse with `delegation withdrawn`. The worker saves a checkpoint and runs `withdraw`, which ends its claim as cancelled and posts the response; at the deadline the controller cancels and kills it as Stop does. A flagged worker that finishes blocked is recorded cancelled, so a later delegation continues its plan. Flagged work that goes back to the queue never launches |
+| blocked | unchanged; closure, or an unreachable issue, cancels it silently |
+
+A general job is reconciled as one group: a parked coordinator and its queued or
+waiting tasks share claimed workers' grace. A coordinator's voluntary `withdraw`
+retires its claim while running children save progress, without a closing response
+or human elicitation. It clears obsolete pending-question and task-join fields;
+task join logic does not relaunch it during withdrawal. The group ends
+when claimed children stop or the deadline expires. Quick re-delegation clears the
+flags and resumes a coordinator parked by `withdraw`; a later genuine human wait
+keeps waiting. Read authority/time guards cover every unfinished child, and work
+outside those guards defers the group to the next deciding read. Explicit Stop
+still cancels the entire owned job immediately.
+
+**Confirmation.** The first status read that finds the card not delegated to this app records
+`issue_checks.undelegated_since`. A later read, started at least `reconcile_seconds` after that,
+that finds the same withdraws the delegation's work. Any read that finds the delegation, including
+the receiver's fresh read at each agent-session event and a worker's `withdraw`, clears the mark
+and the flags the lost delegation set. A read never withdraws work created after it began, nor
+older work that a conversation handed over to after it began. Without this app's identity nothing
+is withdrawn, but no delegation work launches. A worker's `fetch-issue` that finds the card
+undelegated asks for a status read now; a worker never cancels other work.
+
+Observed on 2026-10-03 in one authorized TestBot check on macOS: withdrawing
+delegation from the parked FARM-1419 Code job cancelled it after two reads, in
+65.65 seconds. Linear displayed one withdrawal response and a Finished session;
+cleanup completed with owned-worktree recovery refs preserved. This observation
+does not verify running-worker withdrawal or native Windows live behavior.
+
+Observed separately on 2026-10-06 in an authorized native Windows TestBot check:
+removing delegation from the parked-question FARM-1346 Code job cancelled it in
+about 63 seconds. Linear displayed the response once and marked its session
+complete. The owned Job was empty; selected worktrees were removed and the
+recovery ref preserved. This used separate development state on the Windows
+host and does not establish running-worker withdrawal or production readiness.
+The [measured record](../superpowers/spikes/2026-10-03-native-windows-offline.md#windows-signed-intake-and-long-path-checkouts-2026-10-06)
+retains the scope and timing.
+
+Observed later on 2026-10-06 for the exact native Windows FARM-1435 stage-A
+limit: delegate removal cancelled the parked item in 65.183 seconds from
+request start, 62.995 from acknowledgement. Linear displayed the response once
+and the session Finished; a second read found no later post. Cleanup completed
+without errors, removed owned worktrees/read snapshots and retained exact
+Contract/common/hive recovery refs, the real draft PR, branch and notices.
+TestBot restarted with chat/fix only. The two-read confirmation was preserved;
+this is not a 60-second action-to-cancellation guarantee, running-worker test
+or production-readiness claim. See the
+[stage-limit cancellation record](../superpowers/spikes/2026-10-06-windows-stage-a-acceptance.md#exact-parked-stage-limit-cancellation-2026-10-06).
+
+**A new delegation owns the card.** A delegation's `created` event, or a reply that routes a
+delegation session again, while the card is delegated here and work is active in another session:
+
+- unclaimed work, or any conversation, is cancelled and continued in the new session in one
+  ledger transaction, with its messages; a write job of the same skill links it as its
+  predecessor. The new session is acknowledged first, with a note that the earlier work moved
+  here, and the old session then gets one note (an issue comment for an operator-enqueued job);
+- a claimed write worker is flagged; the new session is told the earlier work is saving and
+  stopping, and its event waits until that worker no longer runs, then runs as a delegation. Past
+  the worker's deadline and 5 more minutes it says once that the earlier work has not stopped, and
+  a reply there starts it; when the card lost its delegation meanwhile, it starts nothing and says so.
+
+A mention, or a reply in another thread, that answers a waiting conversation moves it to that thread
+in the same way; the old thread is told only that it moved. A job's session never changes.
+
+**Stop** in a session stops the first of: the session's own active job; the job its messages were
+forwarded to; the card's work the delegation authorised, when this is the card's latest delegation
+session. It also cancels a delegation event waiting in that session. Otherwise it answers that the
+work moved to a new delegation session or another thread, that it has already stopped, or that
+nothing runs. When the work it stops lives in another thread, the Stop's thread is told that the work
+there was stopped, and the work's own thread gets one closing response that says it was stopped with
+Stop in another thread (an issue comment for an operator-enqueued job); the work's pending heartbeat goes
+with the cancel. A Stop whose work ended between its lookup and the cancel answers that the work has
+already stopped, and signals nothing.
+
+**Unreachable issue.** Three status reads in a row that Linear answers "not found" (a GraphQL error
+whose message says so, or no issue), over at least 15 minutes, while the host's other Linear calls
+succeed, cancel the issue's unclaimed and blocked work silently and flag its running workers. A
+forbidden, rate-limited (HTTP 400 `RATELIMITED`) or unauthenticated answer, or any other error, only
+backs off. The receiver ends a delegation it is settling (Triggers) by the same rule, applied to its
+own reads of the card, and posts nothing. A trashed issue reads as archived, in the status reads and
+in the full reads of the card, which is closure.
+
+**Sessions.** Linear opens a session for a delegation only while none of FarmBot's threads on the
+card waits for an answer (observed 2026-09-30), and never for a delegation through its API; it then
+sends only Issue updates. So FarmBot does not leave a thread waiting when the work there ends or
+moves: every cancel, Stop (also one pressed in another thread), takeover, move and failure ends with a
+response or error in the work's own thread; a job resumed from another thread gets a note in its own;
+a question posted after its job ended is withdrawn by a response; and a worker asks only through
+`await-input`. A read that finds the card delegated again after one found it not delegated starts an
+episode; if no delegation session of the card is recorded within 90 s, the receiver settles it
+(Triggers). FarmBot reads agent-session state only then, and only for its own recorded sessions on that
+card, at most ten; a thread whose state it cannot read is neither closed nor taken over. Removing the
+delegation, or archiving or dismissing a session when Linear also removes the delegate, is seen by the
+status reads. If Linear lets a session be archived while the card stays delegated, its work is kept:
+a mention reaches it, a Stop in the mention's thread stops it,
+removing the delegation withdraws it, and `doctor` lists it after 7 days of waiting.
+
+Ending a thread with a response does not guarantee that the next UI delegation opens a new session.
+The October 1 live checks observed no fresh session after No agent and re-delegation while completed
+sessions remained unarchived; archiving them allowed a fresh session. The notes and doctor include a fallback:
+if re-delegation still opens no session, archive this bot's completed sessions on the card and try
+again. Keep sessions Linear shows working or needing input intact. FarmBot now opens a session when the
+90-second episode has no thread that can take the delegation; it does not archive sessions. See the
+[original measured record](../superpowers/spikes/2026-10-01-silent-delegation-live-checks.md) and the
+[recovery validation](../superpowers/spikes/2026-10-01-silent-session-recovery.md).
+
+The receiver records `session_openings` before sending the mutation, one attempt per issue and episode.
+A unique non-secret link back to the issue identifies the resulting session. On restart or a lost response,
+FarmBot searches the issue's sessions (including archived ones), verifies the app and issue, and accepts
+only one matching unarchived session without a source comment. Missing, unreadable or ambiguous results
+leave the episode waiting and eventually appear in `doctor`; they never cause a blind creation retry.
+If a crash happened before the request reached Linear, an operator must remove and re-add the delegation,
+allowing the controller to observe the removal, to start a new episode. Do not delete the attempt record.
+
+The confirmed session queues a synthetic `created` under the same key as Linear's webhook. It waits
+five seconds for the signed webhook to supply guidance and people. A duplicate can enrich guidance,
+including after routing, but starts no second job. A reply arriving before creation is routed as delegation
+only if the app's own opening verifies the previously unrecorded session and the episode is still valid;
+without that proof it remains a mention, and an existing mention is never promoted. Without a webhook
+the synthetic event has no human creator and no guidance. Routing reads the card again: a closed card, removed delegation or replaced
+episode starts no work. Stop received during creation cancels the pending event. Late independent Linear
+sessions still use the normal takeover and claim-fencing rules.
+
+`session_openings` is an additive receiver table; existing episodes and jobs are not changed at upgrade.
+Older code ignores this table and does not remove it. Rolling back does not undo an already-created
+Linear session or cancel its job; settle those through the normal cancellation path before rollback.
+
+**Notices.** A cancellation posts one response, into the job's own session or, for an
+operator-enqueued job, as an issue comment; a conversation's never mentions branches. The job's pending
+heartbeat is dropped in the same transaction. A response or error that closes a thread and that
+Linear refuses (a notice, a Stop's reply, the note a takeover or a move leaves in the old thread, a
+final response, a failure's error, a note that closes a thread for a delegation Linear opened no session
+for, or the error an event was answered with) is owed to the thread: the progress loop posts it again
+1, 2, 4, 8 and 16 minutes apart, about 31 minutes in all, each time under a new activity id, and gives it
+up at the sixth refusal, or untried once it has been owed for more than 40 minutes because the
+controller was down; `doctor` lists one it gave up. An owed activity is dropped unposted once its job's
+state changes or newer work starts in its thread; the error an event was answered with, once Linear
+takes the answer to a later event of the thread; and a response owed for no job, such as a Stop's reply
+that found nothing to stop, once the thread reaches active work. Such an error or response does not
+take the place of what closes the thread for a job that ended there. A thought and an
+operator-enqueued job's comment are not owed.
+FarmBot never closes a PR, deletes a branch, removes other labels, delegates to itself or changes status or
+assignee because work was withdrawn; branches, draft PRs, checkpoints, plans, messages and cleanup
+evidence stay.
+
+**Doctor.** These findings are read only from a ledger that has their columns or tables:
+
+| Finding | Condition |
+|---|---|
+| `undelegated_work` | work the delegation authorised is active on an issue a status read marked undelegated more than 3 × `reconcile_seconds` ago, except a flagged worker still running, which `withdrawal_overdue` covers |
+| `withdrawal_overdue` | a flagged worker still runs more than 300 s after its deadline |
+| `long_parked` | a job has waited for an answer (`awaiting_input`) for more than 7 days |
+| `deferred_delegation` | a delegation event has waited for another session's worker for more than 45 minutes |
+| `outside_prefix` | an active job's identifier is outside `issue_prefix`, for example after a move to another team, which FarmBot does not detect |
+| `stored_undelegated` | with `expected_app_user_id` pinned, the stored snapshot of an active job's card is not delegated to that app: the delegation's work, and conversations delegation sessions opened before authorities were recorded |
+| `silent_delegation` | a read found the card delegated to this app again, no agent session followed within 90 s, and FarmBot found none of its threads on the card open (listed for 7 days, or until a delegation session of the card is recorded); or the settle has been failing for more than 600 s after the 90 s ended. Most likely a delegation through Linear's API, or a thread FarmBot cannot read still waits: open the card, answer or archive a waiting thread, or ask the person to choose No agent and delegate again |
+| `unclosed_session` | FarmBot gave up a thread's closing activity: Linear refused it six times, or it was still owed 40 minutes after the first refusal. Listed for 7 days, and not once its job's state changed or newer work started in its thread; never the activity's text. The thread may still show FarmBot waiting and block the card's next delegation: check it in Linear and archive it if it waits |
+
+## People
+
+An issue read keeps the group of each label that belongs to a label group (`label_groups`,
+beside the bare `labels`), the assignee, the creator and, for each comment, its own Linear link, the
+comment it replies to and, for a human comment, its author. The receiver also records each agent
+session's creator (Linear's `agentSession.creator`, unset when automation or an agent started the
+session) and each session message's author: the user who wrote a session reply, or the creator of
+the mention session whose comment opened it. A person is always the Linear user's ID, name and
+profile URL (`{id, name, url}`), never an email. A user without a UUID or an `https://linear.app/`
+profile URL is stored as null, as is one whose name is blank, longer than 256 characters, holds a
+control, format (a bidirectional mark or an invisible character, other than the joiners emoji
+sequences use), private-use or line-separator character, or contains an email address, and so is a
+comment link outside `https://linear.app/`. An app user, which Linear marks with `User.app`
+(FarmBot itself, another FarmBot instance, Codex or Linear's integration user), is never a person
+in an issue read: its comments are a bot's, with no author, and it is never the issue's assignee
+or creator. A webhook names its users without `User.app`, so a session creator or message author
+is judged by the other rules only. None of this is issue input: a claim covers the title, the
+description, attachments other than the job's own PRs, and the IDs and bodies of the comments that
+are neither a bot's nor FarmBot's own, so reassigning or relabelling an issue neither requeues its
+work nor refuses a handoff.
+
+Issue snapshots stored before this revision lack the issue-read fields above, which reads as
+unknown, and older revisions ignore those fields.
+`issue-context` shows each message's author and the time FarmBot received it (`created_at`, ISO
+8601 UTC; an event processed later, for example after a restart, keeps its arrival time) on
+`session_messages` and on `conversation_history` messages, and a chat's messages keep both when a
+repair takes them over. The nullable `sessions.creator_json` and `inbox.author_json` columns are
+added when a ledger opens. Existing rows are not rewritten: they read as unknown (null), as do
+operator-enqueued sessions, and their messages keep the time they were stored, which for a copy an
+older revision's repair made is that repair's time. Older code ignores the columns, so rolling back
+keeps working; what it records meanwhile names nobody.
+
+`issue-context` also gives workers an `owner`: the issue's assignee, else the human who delegated
+the issue most recently (the creator of its latest delegation session in Linear, even for an item
+started under an earlier one; an operator `enqueue` delegates to nobody, so its `local-` session is
+skipped), else nobody (an issue only ever enqueued, or a delegation whose creator is unknown). Its
+`creator` is the issue's creator when that is a person other than the owner. Fix workers record a
+human ruling as `[DECIDED:<Linear user name>@<date>]` under the full Linear name (`User.name`) of
+the author of the comment or session message that gave it, dated by the calendar date of its
+`created_at` in UTC+8, the team's time zone, and linked to the comment's own `url`; only for a
+comment without one do they build the link from the issue URL and the comment id. They attribute
+no ruling to anyone else or to a comment a FarmBot instance posted, record none that nobody gave
+and write no silent-consent default. A blocker, a delivery's request to review and merge, a
+question notice and an `await-input` question mention the owner by profile URL, which Linear
+renders as a mention; without an owner nobody is mentioned in the owner's place. A question for
+策划 also mentions the creator. FarmBot asks the owner to merge, cannot enforce who does, and
+never merges. One live check on 2026-09-27 found that a profile URL in a comment posted with the
+app's token renders as a mention and notifies the person (spec §14.1); reliability beyond that
+one observation is unmeasured.
+
+## Comments
+
+Chinese, concise, one marker line `[farmbot:<id>]` appended by the ledger. Kinds: started (once
+per claimed issue input and generation, so a job requeued after the issue changed posts it
+again), blocker, delivery. Templates: `references/comment-templates.md`; `<bot_name>` there is the
+instance's `expected_bot_name`, passed to workers as `bot_name`, and `<owner.person.url>` is the
+owner's profile URL from `issue-context` (see People).
+
+Notices are a second family, for comments a job may repeat: `question` (a grouped question round),
+`waiting` (a pause on a human step elsewhere), `foreign_work` (other people's branches or PRs),
+`stage` (a stage skipped, or stage C passed, with its reason) and `merge_request` (asking
+the owner to merge a named PR; stage A ends with one for the contract PR).
+The ledger keeps one per work item and worker-chosen request id rather than per claimed input, so a
+retried attempt of the same item reuses it and a new round needs a new request id; a successor of
+cancelled work starts with none and reads its predecessors' under `recovery.notices`. `post-notice`
+reconciles the marker against live comments before creating one, and creates none on an issue that
+has left scope. The bodies of FarmBot's own comments and notices never count as issue input. Notices live in the additive `notices` table; a rollback leaves it unused and
+any unposted notice unsent. An older revision still lists `stage` and `merge_request` notices but
+refuses to prepare new ones.
+
+## Resource execution limits
+
+- Interactive Unity requests acquire only when a worker seat is available. The scheduler's launch lock
+  serializes that capacity check with the pool's short reservation acquisition; project switching,
+  compilation and MCP calls remain outside the lock. An active interactive reservation reserves the seat
+  for the exact checked request; cancellation cannot substitute the next FIFO job without a new check.
+  It retains that seat through preparation and hand-over, so another queued job cannot take it. Seats are reconstructed from
+  the existing ledger on restart and stop counting when the grant is cancelled, released or held for
+  recovery. A retiring worker must exit before its successor acquires Unity. Legacy controller-run batch
+  tests retain their independent slot capacity and do not reserve a worker while executing.
+  The monitor and Linear progress distinguish waiting for a worker (without Unity ownership), preparing
+  Unity, a ready grant awaiting worker launch, and a launched/claimed worker. Controller hand-over, launch
+  and claim replace the old waiting stage without changing the saved worker checkpoint. Interactive slot
+  ownership is labelled as allocation to a verification task, not proof that a test is currently running.
+  No schema migration is required; older code ignores the new stage strings. Deployment still requires
+  a separately authorized settled release, and rollback does not remove existing reservation fences.
+- Each configured host owns its Unity slots. Items that need Unity queue for a free slot;
+  a worker holds at most one slot and releases it after its own quiescence check with
+  `release-resource --outcome quiescent`, or `--outcome unclean` to hand it to controller recovery.
+  batch tests can execute concurrently in different reserved slots, up to the configured slot count.
+  The controller serializes slot preparation, hand-over and parking, gives each executing batch its
+  own ledger connection, and keeps its slot reserved until execution and evidence writing finish.
+  Stop targets the selected job's owned process. Service shutdown fences new launches and joins
+  batch executions before closing state or releasing its controller lock; uncertain quiescence holds
+  the affected slot for recovery. A switch's git step that fails, outlives its timeout or meets a
+  filesystem error returns the slot to the pool and requeues the job once; a second failure is a
+  verification gap. A park that cannot return the slot to main holds it, and a switch or park that
+  cannot remove a dead Editor's `Temp/UnityLockfile` holds it too.
+  **A worker never starts a Unity process**: the Editor does not work inside a
+  worker's sandbox, so FarmBot performs a batch run itself, outside that sandbox, between the request and
+  the worker that reads its results — one grant is one run. A failing probe, and an unclean release, hold
+  the slot until controller repair verifies it healthy. No slot is ever released on a timer. A slot runs Edit Mode
+  and PlayMode fixtures and never a player build: the budget is an import-only `Library/`, and a player
+  build adds several GB of `Bee` and `BuildCache` to it. The receiver and the tunnel run as launchd agents
+  and restart at login; while the host config names no named tunnel, the public hostname changes whenever
+  the tunnel restarts and must be re-entered in Linear, and until it is, work is created with
+  `python3 -m agent.service enqueue --issue <id> --skill fix`. An enqueued item has a local session that
+  Linear does not know about, so it reports through issue comments and posts no session activities;
+  `enqueue` still refuses a write-capable skill on an issue that is not delegated to FarmBot now, because
+  the rule of authority is not what the missing webhook excuses. It also refuses a skill the instance does
+  not run (`enabled_skills`), and `fgui` or `feature` unless the card's one Bot child is Bot/UI or
+  Bot/Code respectively, as a delegation requires; it reads no label for `fix`. An enqueued `feature` job,
+  like a delegated one, has no intake Farm-Client target; Client-stage entry selects its item baseline.
+  `python3 -m agent.service slots` is the
+  operator's view of the pool: slot states, parked commits and the open reservations behind them.
+- A fix that finds nothing to change (already fixed, duplicate, does not reproduce, or the requested
+  change is already on the target branch) delivers with an empty PR list and a `no_change` reason,
+  and FarmBot's session response says 无需改动. Blocked stays for work that a human must unblock.
+- Delegate from the Linear UI. Setting the delegate through the API creates no agent session: on a card
+  FarmBot never observed nothing happens, and on a card it tracks the delegation is settled as one Linear
+  opened no session for (Triggers), including automatic session creation when no thread can take it.
+- Two concurrent workers by default (`max_concurrent`), configurable independently of Unity slots.
+  Increasing worker capacity does not increase Unity capacity. At most one worker runs an attempt of an exclusive skill,
+  one whose `skill.json` sets `"exclusive": true` (spec §5.8, D16; `feature` sets it):
+  while one runs, including an attempt that is being retired for a repository handoff, a queued item of
+  any exclusive skill waits in its place in the queue, and `fix` and chat items still launch up to
+  `max_concurrent`. Run-time budget, lease and renewal cadence are per skill, from its `skill.json`
+  (`max_hours`, `lease_seconds`, `renew_minutes`); the launcher records the lease on the work item and the
+  launch message tells the worker its own numbers.
+- Worker runtime: Codex CLI (`codex exec --approve-for-me`, with `sandbox_mode = "workspace-write"` in its isolated home and automatic approval review), one isolated `CODEX_HOME` per work item seeded with `auth.json`; Claude Code remains a chat fallback pending an equivalent fix sandbox and isolated-auth recipe. Details: `docs/superpowers/spikes/2026-09-18-runtime-spike.md`.
+- Receiver: HMAC-SHA256 and 60 s timestamp window. AgentSessionEvent matches client, app user and organization; Issue events match organization. Each delivery the receiver rules on, signed or not, adds one JSON line to the service log with its status, result, `type` and `action`, never the body; `type` and `action` appear only as words of 1 to 40 ASCII letters, anything else as null. Each settle of a delegation Linear opened no session for adds one `delegation_episode` line: the issue, the outcome (`kept`, `in_place`, `told`, `unseen`, `heard`, `dropped`, `changed`, `retry` or `unreachable`) and, for each thread whose state it read, the session, its status and whether it is archived (null for a read Linear refused); never a body. An event whose routing decision the receiver has no action for fails, and its session gets the error activity.
+
+## Publication transport recovery
+
+Publication verification retries only transient read/authentication transport errors, never
+push/PR mutations. Each of three attempts (2/5 second delays) renews the claim and fetches fresh
+delegation, destination and branch evidence. After temporary exhaustion, the host revokes the
+claim and durably queues the same job after 60/180/600 seconds, preserving checkpoints and files.
+Only `status: verified` authorizes publication. `retry_queued` and `retry_exhausted` require worker
+exit; the latter records a failed infrastructure attempt after the three delayed retries.
+Permission/destination mismatches and certificate errors remain fail-closed and do not requeue.
+Missing initial Unity target pins remain recorded verification gaps, not publication blockers.
+Publication retries reuse preserved worktrees without an origin fetch. Their allowance counts
+launched attempts; a failed host Linear delegation preflight keeps the job queued under the
+existing lifecycle backoff without consuming another worker attempt. Outside a publication retry,
+preparing a worktree fetches its FarmBot clone with `--prune`, a worktree that already exists
+included, except a worktree outside the Client stage restarted from the item's recovery ref, which
+is made from that commit without a fetch. A launch makes that fetch at most once per clone: a second
+checkout of the same clone in that launch (a Client stage's baseline and its worktree, a clone made by
+that launch) uses it.
+
+## Status monitor
+
+`python3 -m agent.service monitor` serves a read-only Chinese status page and `/api/status` JSON for one
+instance, as a separate process on the host running `serve`. It binds the config's `monitor.bind`
+(default `127.0.0.1`) and `monitor.port` (default 8780, never the receiver's port). It serves only `GET`
+and `HEAD`, answering other methods with 405, and only when the `Host` header is an IP literal,
+`localhost` or a configured `monitor.hostnames` entry; other hosts get 421, and a request without a
+`Host` header gets 400. There is no authentication. Exposing it beyond loopback is an explicit
+configuration choice, and anyone who can reach it can read issue identifiers, titles, job, worker and
+slot states and PR links. Only the monitor and `install-launchd` validate the `monitor` block; `serve`
+and workers neither read nor validate it. `install-launchd` writes a monitor agent only for a non-empty
+block that passes that validation, and never removes one. That agent restarts an exited monitor at most
+once a minute (`ThrottleInterval` 60), so a monitor that keeps refusing to start adds one line a minute
+to its log.
+
+At startup the command prints one JSON line, `monitor_ready`, once it listens. Any startup problem
+instead makes it exit 1 with one `monitor_failed` JSON line: an unreadable config, an ownership
+mismatch, a `monitor` block it cannot use, a port equal to the receiver's or already in use, or any other
+error.
+
+After startup, a status build that fails for a reason other than an unreadable ledger (shown as 未知)
+answers `/api/status` with 500 and the security headers every reply carries. As a good build does, it
+answers every request for the next two seconds without another build, so the status is built at most
+once every two seconds however many pages poll; it replaces the last good build, which is never served
+again. The first failure of each run of failures prints one `status_failed` JSON line. The page counts
+the 500 as a failed poll and shows 连接中断, although the monitor is running. The `status_failed` line
+tells this apart from a monitor the page cannot reach, which leaves no such line. A client that
+disconnects before or during its reply is not logged, by the monitor or by the receiver.
+
+The page accepts only a status document of `schema_version` 1 and keeps no other body. Any other body is
+a failed poll, and one of another version, from a monitor upgraded under an open tab, makes the banner
+read 监控已更新，请刷新页面。 and the header and tab title read 需要刷新. The page never reloads itself. If
+rendering a document throws, the header and tab title read 页面显示出错 and the content is dimmed until a
+render succeeds, so the page never keeps showing an earlier verdict.
+
+The monitor opens the ledger with SQLite `mode=ro` and `query_only`, never constructs `Ledger` and never
+takes the controller lock. It writes no FarmBot file or ledger row; SQLite can leave its `-wal`/`-shm`
+side files beside a ledger whose service is stopped, which is why the monitor runs as the same account as
+`serve`. It signals and inspects no processes, and makes no request other than
+`GET http://127.0.0.1:<port>/health` with proxies disabled, following no redirect. Only a 200 counts as
+answering; a 3xx, any other status and a failed request count as not answering. The JSON is an allowlist.
+It carries a job's stage name, clamped to 120 characters, but no checkpoint contents, descriptions,
+comments, questions, inbox or worker messages, evidence prose, logs, paths, PIDs, tokens, config values
+other than the instance's environment, ID, bot name and host and the applied public capacity described
+below, or raw stored errors. Older ledgers without optional tables or columns are read without migration.
+
+The heartbeat's optional `capacity` contains `max_workers`, `unity_slots`, optional `server_slots` and `enabled_skills`,
+copied from the serving controller's applied configuration at startup. It never rereads those values
+from the monitor's config. The JSON exposes them as `service.capacity`, with `workers_used` counted
+from the launcher's tracked workers only when the heartbeat is fresh and `serving`. This includes
+launched workers that have not claimed a job. Starting, stopped and stale heartbeats, or an unavailable
+worker list, leave usage unknown. Older heartbeats omit capacity and the page shows 此版本未提供.
+Worker and Unity limits are independent; reaching the worker limit reads 已满载 and raises no attention.
+The page separates the 任务/对话 workflows, UI/场景表现 task capabilities and
+legacy standalone 修改/Code/UI profiles. With `work` enabled, new delegations use
+the general workflow regardless of Bot labels; UI and scene tasks read 可委派 even
+when their standalone profiles are disabled. This describes task admission, not
+host-tool readiness or approval. Legacy profile flags remain visible for existing
+jobs, and other explicitly enabled standalone profiles remain visible separately.
+
+Each failed `recent` result carries a `failure_code`, one of `worker_launch_failed`,
+`worker_start_failed`, `worker_claim_timeout`, `worker_exit_failed`, `model_capacity_exhausted`,
+`skill_disabled` or `job_failed`. It is classified from the latest failed audit reason and emits no
+stored error text; a missing audit table or unrecognised reason reads as the generic failure. Other
+outcomes carry null. The page supplies a fixed Chinese explanation and handling hint for each category.
+Independently of the thirty most recent results, the monitor raises attention for up to thirty failed
+items updated in the last 24 hours, newest first, unless a successor or a later job of the same skill
+has taken over their work. Retrying the same item also removes its failure attention as it is queued.
+A conversation does not resolve a failed fix. A failure outside that window can still appear in the
+seven-day history without raising current attention. These records indicate failed work, not proof of
+an ongoing host outage. The additions need no ledger migration; older monitors ignore the added
+heartbeat fields, and newer monitors tolerate older heartbeat and ledger schemas.
+
+`serve` writes `<local_root>/service-heartbeat.json` by replacement:
+- when it starts, with phase `starting`, before slot preparation;
+- every five seconds, with phase `serving` once its loops run;
+- on clean shutdown, after its loops have stopped, with phase `stopped`.
+
+The heartbeat records each loop's work timing and consecutive errors, the revision, in-memory webhook
+outcome counts, the applied public capacity, and the worker processes the launcher is managing, as
+start and budget-deadline times only. A failed write is skipped and never affects serving. The first failure
+of each run of failed writes prints one `heartbeat_error` JSON line naming the exception class, and the
+final `stopped` beat, which no
+later beat repairs, is retried once after 0.1 seconds. The monitor reads the file as untrusted data (a
+regular file, at most 64 KiB, validated) and treats it as stale once it is 60 seconds old. It judges
+loops as idle, busy, stalled or erroring only from a fresh heartbeat that is not `stopped`; a stale or
+stopped heartbeat's loops show only their last recorded times, in a neutral tone. A read refused with
+`PermissionError`, as on Windows when it collides with the replace, is retried once after 0.1 seconds. A
+worker able to write the state root could forge the heartbeat, so `/health` remains an independent
+signal.
+
+A revision that writes no heartbeat never replaces the file. After rolling back to such a revision,
+delete `<local_root>/service-heartbeat.json` once the newer `serve` has stopped. Otherwise its last
+heartbeat stays, and while the older `serve` answers `/health` the page shows 需要关注
+(`heartbeat_stale`) indefinitely.
+With no heartbeat file, a healthy `/health` still shows 需要关注 (`heartbeat_missing`): it cannot distinguish
+an older service revision from a failed initial heartbeat write. An older revision's loop rows show
+此版本未提供.
+
+A running job's worker is shown with the first state that applies:
+
+| State | When |
+|---|---|
+| 租约已过期 | The job's lease has run out |
+| 未被服务跟踪 | A fresh `serving` heartbeat lists no worker for the job, more than 30 seconds after its claim |
+| 续约逾期 | More than 1.5 times its skill's `renew_minutes` have passed since its last lease renewal or claim |
+| worker 状态未知 | No fresh serving heartbeat can confirm tracking, or the claim is within its first 30 seconds and the heartbeat has not listed the worker yet |
+| worker 运行中 | A fresh serving heartbeat lists the worker, and none of the above applies |
+
+Expired, untracked and overdue states raise attention; unknown is neutral.
+
+The verdict is the first that applies:
+
+| Verdict | Meaning |
+|---|---|
+| 未知 | The ledger cannot be read |
+| 已停止 | A stopped heartbeat and no `/health` |
+| 正在启动 | A fresh heartbeat with phase `starting` |
+| 无响应 | No `/health` and no fresh heartbeat |
+| 需要关注 | A half-alive service, erroring or overlong loops, recent webhook rejections, held or orphaned slots, expired leases, overdue or untracked workers, cleanup still pending 10 minutes or more after a job finished, repeated Linear status failures, a reservation cancellation unsettled for 5 minutes or more, or unresolved failed work from the last 24 hours |
+| 正常 | None of the above |
+
+A verdict is evidence about these checks only, not proof that Linear, the tunnel or Unity work.
+
+Without a heartbeat time to use, the monitor dates a `/health` failure from the first status build that
+saw it. If more than 30 seconds pass between builds, so that no page was polling, the next failure starts
+a new date: a failure seen long ago never dates a new one.
+
+`scripts/redeploy-farmbot.ps1` stops the Windows receiver with `Process.Kill()`, so no `stopped`
+heartbeat is written and Python cleanup does not run. During a redeploy the page shows 需要关注
+(`receiver_unreachable`) while the last heartbeat is still fresh, then 正在启动 once the new `serve`
+writes its `starting` heartbeat, then its usual verdict, normally 正常. If 60 seconds pass without a
+heartbeat in between, it shows 无响应 until the `starting` heartbeat arrives. It never shows 已停止: only a
+clean shutdown writes the `stopped` heartbeat. A clean shutdown closes the receiver first and writes
+`serving` heartbeats until its loops have drained, which can take minutes, so it shows 需要关注
+(`receiver_unreachable`) for that whole time and then 已停止. Under launchd, `launchctl bootout` sends
+SIGKILL once the job's exit timeout has passed. The plists do not set it, so the system default applies.
+A drain longer than that ends without a `stopped` heartbeat, so the page shows 无响应 instead of 已停止
+once the last heartbeat is 60 seconds old.
+
+## Cooperative maintenance pause
+
+The operator commands `agent.service maintenance-pause --config CONFIG --reason TEXT`,
+`maintenance-status --config CONFIG` and `maintenance-resume --config CONFIG` select
+the same absolute host config as the running service. Pause and resume validate
+instance ownership before opening the ledger; status and doctor use read-only
+snapshots and never migrate it. Pause is durable and idempotent. It does not stop
+the receiver or suppress incoming Linear events, manufacture human answers, change
+issue status, kill workers, or deploy code.
+
+The scheduler stops admitting ordinary workers and the ledger's transactional
+resource acquisition gate refuses both Unity and server grants. Slow preparation
+which was already admitted can finish; its resource worker may start solely to
+collect existing results and settle the reservation. No new tests are authorized
+in that drain attempt. Idle Unity warmup and new Go dependency preparation pause;
+an admitted batch whose process has not started writes `deferred_maintenance`
+evidence instead of starting tests, with its exact commit and no pass/fail verdict;
+resource settlement and recovery continue. Running workers learn the request in
+`claim`, `renew` and `checkpoint` responses. Dispatch authority requires a renew
+before new expensive work/tests, completion of in-flight tools/tests, preservation
+of their real reports, quiescent resource release, a current validated checkpoint
+handoff and `maintenance-handoff`, followed by immediate exit. Ordinary finish or
+resource/repository handoff can also settle an attempt. This is not `await-input`.
+
+`maintenance-handoff` authenticates the live claim and refuses outstanding resource
+reservations or a missing/rejected/stale-claim handoff. It atomically retires the
+claim and lease while retaining the old worker PID as a teardown fence. It preserves
+the generation, repository root, stage, candidate, checkpoints, reports, human gates
+and retry allowances. The scheduler never treats this intentional exit as failure.
+Only the controller, after `Launcher.assert_quiescent` proves worker/descendant
+teardown, removes that fence. After restart the same proof runs immediately without
+waiting for the retired lease. Resuming scheduling early cannot bypass the pending
+fence; cancellation or a material issue change is never undone by maintenance.
+
+`maintenance-status`, doctor and Monitor distinguish draining from ready to stop.
+They require a fresh serving controller's completed scheduler observation, no running
+claims or pending worker handoffs, proven teardown for the observed attempts, no
+active/cancelling reservations, settled slot states, and no unfinished/erroring
+resource/dependency controller operation. The pool independently probes idle-open
+Unity Editors through the existing quiescence predicate and confirms idle-closed
+projects have no Editor. The scheduler consumes that bounded, request-specific
+observation without doing slow MCP calls under its lock. A slot flag alone is
+insufficient; stale/missing/failed quiet probes remain a blocker. Missing, stale or
+pre-restart evidence never reports ready. Blockers identify workers, resources and controller loops;
+ordinary queued tasks and queued reservations may remain. Operators must wait for
+`ready_to_stop: true` before the separately authorized shutdown and full release
+replacement. A hung or uncooperative worker remains a blocker; this mode does not
+extend budgets indefinitely or force-clean shared Editors.
+
+The pause survives restart. Verify the complete installed release and then explicitly
+run `maintenance-resume`; this only opens scheduling, leaving human-paused and failed
+tasks alone. Saved verification rounds continue against the same candidate and exact
+valid reports; maintenance itself is not a reason to merge newer main or repeat a
+baseline. `supervisor.pause` still only suppresses new controller launches and does
+not implement this drain. The legacy Windows redeploy helper retains its older
+empty-ledger requirement; use the installed host's release workflow after a ready
+maintenance drain rather than bypassing that helper's checks.
+
+Migration adds `maintenance_control`, `maintenance_handoffs` and
+`maintenance_attempts`; existing job/claim/resource schemas are unchanged. An older
+controller does not honor these tables. Roll out this capability through an already
+settled upgrade first; existing workers launched with old dispatch instructions may
+need to finish normally and are never presumed cooperative. Before rolling back to
+a version without maintenance support, settle every pending handoff, keep the host
+stopped under operator control, and explicitly clear maintenance with the supporting
+version. A source checkout rollback does not reverse the new tables or grant safe
+process/resource cleanup.
+
+An operator may first resume a single known issue with `maintenance-resume
+--config CONFIG --only-issue IDENTIFIER`. The paused instance must have settled
+other workers and active/cancelling resources. Scope selection and pause removal
+are atomic. The recorded issue ID includes its parent job and every internal
+task, and fences scheduler launch, worker claim and both resource pools; other
+queued requests retain their immutable sequence, commit and reports. Their
+Monitor rows say which issue's acceptance is pending, rather than reporting
+capacity/FIFO waits. This restriction persists in the `maintenance_issue_scope`
+operator audit record, adds no schema, and survives controller restart. An unknown
+issue or damaged scope refuses admission. Ordinary explicit `maintenance-resume`
+clears the restriction; acceptance completion never clears it automatically.
+Before rolling back to code without this scope gate, keep the host stopped and
+settle the selective run: older code does not honor this audit record.
+
+## Optional host controller guard
+
+`agent/supervisor.py` runs independently of the controller and never opens its
+ledger, modifies ownership markers, kills processes, or releases resources. On
+Windows the installer copies it outside the release checkout and registers a task
+under the current interactive user, with a logon trigger, unlimited runtime,
+single task instance and restart-on-failure.
+An additional indefinite one-minute trigger restores an exited guard even when
+Task Scheduler's restart-on-failure does not relaunch the terminated action.
+`IgnoreNew` leaves a running task alone, and the guard lock fences other launches.
+Disable the task during settled replacement so this trigger cannot race the update.
+The task uses `pythonw.exe`, and child controllers use the separately selected,
+hash-pinned `python.exe` without a console window. Console closure therefore
+does not stop the guard. Captured child output remains in the private log directory.
+Installation is an explicit operator action, separate from a controller code upgrade.
+Replace an older receiver restart
+loop during settled maintenance; do not run competing supervisors.
+
+The guard respects `.controller.lock` before starting `serve`; `serve` acquires
+the lock again and retains API identity and pre-ledger checks. An already running
+controller is left alone. Child exits, including exit zero, trigger delays of 10,
+20, 40, 80, 160 and at most 300 seconds; five minutes of child uptime resets that
+backoff. A regular `supervisor.pause` file suppresses new launches, without stopping
+an existing child. `.supervisor.lock` excludes a second guard. `receiver.pid` is a
+diagnostic hint only and never establishes ownership.
+
+`python -m agent.codex_runtime prepare` installs a separate npm Codex candidate
+into a fresh absolute directory outside checkouts, with `latest` selected at
+installation time or an explicit release. Its receipt records the resolved
+version, native executable/PATH directories and the complete package hashes.
+Linked package files and directories are refused; `verify` checks receipt metadata
+and package hashes without running a CLI. Preparation runs only npm and the
+native version probe: it loads no host config or ledger, copies no authentication
+and activates no service. Promotion follows [the runtime upgrade procedure](../codex-runtime.md)
+during separately authorized settled maintenance, retaining the previous runtime
+and sealed launch inputs for rollback. No controller schema or worker authority
+changes are introduced by candidate preparation.
+
+Config and optional private environment are hash-pinned. Legacy profiles require
+an absolute state root and a sealed launch manifest binding the config, private
+environment, accepted source commit/tree and tool file hashes. The accepted source
+must be clean before a launch. A changed pinned input refuses a launch until an
+operator completes settled maintenance and replaces the installation. This does
+not migrate an existing profile or relabel its state. Fake workers and Linear stub
+selectors are rejected. Errors log their type without private values; events append
+to `agent/logs/supervisor.jsonl` under the state root.
+
+After an accidental controller exit, the restarted `serve` reconciles durable
+work through its existing lease, owned-process, Windows Job Object and resource
+quiescence checks. The guard does not require an empty ledger to start that recovery
+and does not certify workers or Unity slots itself. It does not detect or kill a
+hung controller: heartbeat/loop diagnostics remain the monitor's responsibility.
+
+
+### Fixed server verification rounds
+
+A server request qualifies the clean owned farm-hive candidate against its single merge
+base with the controller-fetched actual default branch. The controller records that base,
+candidate, generation and initial reservation in the existing audit ledger atomically with
+the request. Subsequent requests for the same candidate reuse the base; upstream rewinds
+that remove it fail closed. Workers finish the selected candidate rather than merging main
+on every resource resume. Actual requirement changes or necessary candidate/input repairs
+must state a concrete cause and retain the prior evidence; tip movement alone is insufficient.
+
+After a matching quiescent server release, draft publication verifies the pinned base's
+ancestry in both the exact candidate and freshly fetched main. Configured repository,
+branch, delegation, private/write permissions and report exclusion guards still apply.
+This is no test verdict or merge authorization; all required verification and finish gates
+remain, with newer main explicitly untested. Generation/candidate changes cannot borrow
+another round. Legacy leases without a pin retain the old publication gate; a new request
+records its base without forcing an unrelated main merge. No schema migration is required.
+Rollback retains audit/evidence but older code may demand current-main integration again;
+settle workers and reservations before changing releases.
+
+
+### Change-scoped server acceptance and deadline recovery
+
+Server issue verification uses complete changed packages, directly affected consumers and relevant
+shell/input gates; full repository CI is not the per-issue default. The host checks coverage against
+the fixed base/candidate diff and requires a concrete explanation for broad local, named-only, or
+narrow shared-change coverage. Race memory admission remains conservative and independent of scope.
+
+Service startup no longer consumes the verification budget. After readiness, explicit selections
+get the configured budget per four packages and recursive suites four budgets, capped at 7200
+seconds. Existing journals retain their deadlines. Expiration is a technical blocked state with
+claim revocation and quiescence-before-cleanup, not cancellation intent or an automatic retry.
+
+After authorized host inspection, `resume-server-evidence` can reuse complete package pass events
+from a timed-out larger run at the same candidate and inputs. Maintenance/controller, delegation,
+claim, resource and cleanup guards apply. A host-reviewed hashed manifest records provenance and
+required acceptance names; the checker rejects missing/skipped required tests, failures, incomplete
+selected packages and report changes. Publication revalidates the manifest and fixed ancestry.
+The original interrupted full run remains disclosed, and all normal delivery gates remain.
+No database migration is needed; old release journals/evidence are retained. Rolling back code
+does not erase the new audit records; an older release cannot interpret retained-evidence publication.

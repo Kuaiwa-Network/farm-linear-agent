@@ -188,7 +188,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(run(args, ledger, lambda: api)["branch"], "farmbot/farm-1-config")
             ledger.connection.execute("UPDATE work_items SET skill='feature', root_repo='Farm-Client' WHERE id=?",
                                       (args.item,))
-            skills = {**load_skills(ROOT / "skills"), "feature": staged_skill(self.root / "fixture-skills")}
+            skills = {**load_skills(ROOT / "skills", replay_legacy=True), "feature": staged_skill(self.root / "fixture-skills")}
             with patch("agent.skills.load_skills", return_value=skills):
                 with self.assertRaisesRegex(PublicationError, "adds no commits"):
                     run(args, ledger, lambda: api)
@@ -221,7 +221,7 @@ class CliTests(unittest.TestCase):
         from test_skills import staged_skill
         item, token, _, _, _ = self.verification_fixture(skill="feature")
         staged = staged_skill(self.root / "fixture-skills")
-        skills = {**load_skills(ROOT / "skills"), staged.name: staged}
+        skills = {**load_skills(ROOT / "skills", replay_legacy=True), staged.name: staged}
         config = load_config(self.env["FARMBOT_CONFIG"])
         for name in staged.writes:
             config.repos[name] = f"https://github.com/Kuaiwa-Network/{name}.git"
@@ -1001,7 +1001,7 @@ class CliTests(unittest.TestCase):
         candidate = git("rev-parse", "HEAD", cwd=path)
         base = git("rev-parse", "HEAD^", cwd=path)
         self.root_item(args.item, "Farm-Client")
-        skill = load_skills(ROOT / "skills")["fix"]
+        skill = load_skills(ROOT / "skills", replay_legacy=True)["fix"]
         token = args.token
         if comparison:
             ledger.await_resource(args.item, token, "unity_slot", "interactive", skill=skill,
@@ -1188,7 +1188,7 @@ class CliTests(unittest.TestCase):
         ledger.observe_issue(issue(id=issue_id, labels=["Bug"]))
         ledger.ensure_session(session, issue_id, delegation=delegation)
         item = ledger.create_work_item(issue_id=issue_id, session_id=session, skill=skill, target=target,
-                                       authority=authority)
+                                       authority=authority, execution_contract='staged-v1')
         ledger.close()
         return item["id"]
 
@@ -1467,6 +1467,7 @@ class CliTests(unittest.TestCase):
         from agent.__main__ import parser, run
         args = parser().parse_args(["--db", str(self.db), *argv])
         with patch("agent.__main__.load_config", side_effect=OSError("no private config")), \
+                patch('agent.__main__.enabled_skill_names', return_value={'chat', 'fix'}), \
                 contextlib.redirect_stderr(io.StringIO()):
             return run(args, ledger, lambda: api)
 
@@ -1707,10 +1708,16 @@ class CliTests(unittest.TestCase):
         self.assertEqual(posted[-1][1]["type"], "thought")
         self.assertEqual([row[0] for row in self.closures(ledger)], ["mention"])
 
-    def test_resume_work_refreshes_delegation_and_hands_message_to_original_fix(self):
+    def test_resume_work_refreshes_delegation_and_hands_message_to_original_owner(self):
         from agent.ledger import Ledger
+        self.env['FARMBOT_CONFIG'] = self.json_file('current-profile.json', {
+            'client_id': 'test', 'client_secret': 'test', 'webhook_secret': 'test',
+            'local_root': str(self.root), 'enabled_skills': ['chat', 'work']})
         app = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
-        fix = self.seeded_item()
+        with closing(Ledger(self.db)) as ledger:
+            ledger.observe_issue(issue(id=ISSUE, labels=['Bug']))
+            ledger.ensure_session('session-1', ISSUE, delegation=True)
+            fix = ledger.create_work_item(issue_id=ISSUE, session_id='session-1', skill='work')['id']
         self.run_cli("cancel", "--item", fix, "--reason", "stopped")
         # A mention's conversation: a newer delegation session would itself receive the continuation (C7).
         chat = self.seeded_item(session="mention", skill="chat", delegation=False)
@@ -1726,7 +1733,46 @@ class CliTests(unittest.TestCase):
         resumed = self.run_cli("resume-work", "--item", chat, "--token", token, "--message-id", str(message))
         self.assertNotEqual(resumed["id"], fix)
         self.assertEqual((resumed["predecessor_id"], resumed["state"]), (fix, "queued"))
+        self.assertEqual(resumed['execution_contract'], 'single-worker-v1')
         self.assertEqual(self.calls()[-1]["content"]["type"], "response")
+
+    def test_current_chat_implementation_request_starts_one_main_owner(self):
+        from agent.ledger import Ledger
+        chat = self.seeded_item(skill='chat')
+        with closing(Ledger(self.db)) as ledger:
+            ledger.push_inbox(chat, 'Implement the requested display fix')
+            message = ledger.issue_context(chat)['session_messages'][-1]['id']
+        self.stub_card(delegate_id=STUB_APP)
+        token = self.run_cli('claim', '--item', chat, '--worker-id', 'chat')['token']
+        result = self.run_cli('request-repair', '--item', chat, '--token', token,
+                             '--message-id', str(message), '--summary-file',
+                             self.json_file('summary.json', 'Implement the display fix'))
+        self.assertEqual((result['skill'], result['execution_contract'], result['state']),
+                         ('work', 'single-worker-v1', 'queued'))
+        with closing(Ledger(self.db)) as ledger:
+            self.assertEqual(ledger.item(chat)['state'], 'delivered')
+            self.assertEqual([item['id'] for item in ledger.queue()], [result['id']])
+
+    def test_current_chat_refuses_historical_resume_before_retiring_its_claim(self):
+        from agent.ledger import Ledger
+        old = self.seeded_item(skill='work')
+        self.run_cli('cancel', '--item', old, '--reason', 'stopped')
+        chat = self.seeded_item(session='mention', skill='chat', delegation=False)
+        with closing(Ledger(self.db)) as ledger:
+            ledger.push_inbox(chat, 'Continue the existing work')
+            message = ledger.issue_context(chat)['session_messages'][-1]['id']
+        self.stub_card(delegate_id=STUB_APP)
+        token = self.run_cli('claim', '--item', chat, '--worker-id', 'chat')['token']
+        for command in ('resume-work', 'request-repair'):
+            extra = (['--summary-file', self.json_file('summary.json', 'Continue existing work')]
+                     if command == 'request-repair' else [])
+            refused = self.run_cli(command, '--item', chat, '--token', token,
+                                   '--message-id', str(message), *extra, success=False)
+            self.assertIn('settled host adoption', refused.stderr)
+        with closing(Ledger(self.db)) as ledger:
+            self.assertEqual(ledger.item(old)['state'], 'cancelled')
+            self.assertEqual(ledger.item(chat)['state'], 'running')
+            self.assertEqual(ledger.queue(), [])
 
     def test_retry_checks_current_status_and_delegation_before_successor(self):
         fix = self.seeded_item()
@@ -1850,7 +1896,7 @@ class CliTests(unittest.TestCase):
         ledger = Ledger(self.db)
         ledger.observe_issue(issue(identifier="FBTEST-7", branch_name="farmbot/fbtest-7", labels=["Bug"]))
         ledger.ensure_session("session-1", ISSUE, delegation=True)
-        item = ledger.create_work_item(issue_id=ISSUE, session_id="session-1", skill="fix")["id"]
+        item = ledger.create_work_item(issue_id=ISSUE, session_id="session-1", skill="fix", execution_contract='staged-v1')["id"]
         ledger.close()
         token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
 
@@ -2256,7 +2302,7 @@ class CliTests(unittest.TestCase):
                 raw = issue(labels=["Bug"], description=f"![一.png]({one}) ![二.png]({two})")
                 ledger.observe_issue(raw)
                 ledger.ensure_session("session-1", raw["id"], delegation=True)
-                item = ledger.create_work_item(issue_id=raw["id"], session_id="session-1", skill="fix")["id"]
+                item = ledger.create_work_item(issue_id=raw["id"], session_id="session-1", skill="fix", execution_contract='staged-v1')["id"]
                 ledger.set_worker(item, 4242, HOST, 60)
                 token_file = self.root / f"{label}-token"
                 token_file.write_text(ledger.claim(item, worker_id="w")["token"], encoding="utf-8")

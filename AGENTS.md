@@ -9,14 +9,11 @@ keep runtime authority and behavior changes in those sources and their tests.
 - [README.md](README.md): setup, commands and host diagnostics.
 - [Operating contract](docs/operating-contract.md): intended current behavior and
   authority boundaries. Check the implementation when documentation disagrees.
-- [Worker CLI reference](references/worker-cli.md): command authentication and
+- [Worker CLI reference](references/single-worker-cli.md): command authentication and
   checkpoint formats; consult when changing worker instructions or CLI behavior.
 - [Development workflow](docs/development-workflow.md): the TestBot test bot in
   the production workspace, working on real issues and repositories; setup,
   initialization and test scoping.
-- [Development and release proposal](docs/superpowers/plans/2026-09-22-cross-platform-development-and-release.md):
-  proposed Mac development and Windows release workflow. Unchecked phases are not
-  implemented capabilities or authorization to execute the whole plan.
 
 ## Project map
 
@@ -32,10 +29,10 @@ keep runtime authority and behavior changes in those sources and their tests.
 - `agent/slots.py`, `agent/unity.py`, `agent/unity_mcp.py`, `agent/identity.py`: Unity
   resource ownership, Editor discovery, MCP and verification evidence.
 - `agent/__main__.py`, `agent/dispatch.py`, `skills/`, `references/`: worker-facing
-  CLI, launch context and instructions; `skills/work` owns general issue jobs,
-  reusing `skills/feature` for code and `skills/fgui`/`skills/scene` for durable
-  presentation tasks. FGUI retains certified export/Client gates; legacy profiles
-  remain available during rollout.
+  CLI, launch context and instructions; `skills/work` is the single issue owner.
+  `agent/worker_dispatch.py` and `agent/worker_resources.py` provide its authority
+  and continuing-worker resource bridge. Legacy profiles and
+  `agent/legacy_dispatch.py` remain for historical state and offline replay only.
 - `agent/skills.py`, `agent/stages.py`, `agent/uploads.py`, `agent/foreign_work.py`: skill
   manifests (opt-in and exclusive skills included) and per-host enablement, repository
   stages, Linear upload downloads and the foreign-work report.
@@ -45,8 +42,8 @@ keep runtime authority and behavior changes in those sources and their tests.
   the heartbeat `serve` writes for it, and the read-only ledger snapshots it
   shares with `doctor`.
 - `tests/`: unittest suite, fake CLI, local Git fixtures and mocked integrations;
-  `tests/test_feature_journey.py` drives Code jobs through the whole controller offline;
-  `tests/test_fgui_journey.py` covers UI authoring, visual rounds and Stop/recovery.
+  `tests/test_single_worker_journey.py` covers the current issue owner end to end.
+  Feature and FGUI journey tests retain explicit offline replay of historical jobs.
 
 ## Development and production
 
@@ -73,7 +70,7 @@ keep runtime authority and behavior changes in those sources and their tests.
   unmarked production state to make a test profile start.
 - The two bots share one workspace and the same repositories. Mention or delegate
   only issues the operator chooses, never one issue to both bots (both use
-  `farmbot/<key>` branches, with `-config`, `-waivers` and `-followup` suffixes for Code jobs),
+  `farmbot/<key>` branches, with reserved suffixes for additional publishing destinations),
   and remember that test comments, labels, branches and
   draft PRs are real. The real repositories' default branches are unprotected, so
   FarmBot's publication checks are the only guard; test changes to them offline first.
