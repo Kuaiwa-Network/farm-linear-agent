@@ -51,6 +51,15 @@ index, UI receipt or technical closeout approval is required. A checkpoint is
 bounded progress data. Finish retains claim, input, resource and delivery checks.
 It means delivered draft work, not merged code, deployment or Linear Done.
 
+Monitor and session progress derive resource release/isolation and delivery
+preparation/confirmation from current-generation host records, even while the
+worker's saved checkpoint still describes an earlier wait. New resource requests
+override older delivery preparation; terminal job state remains authoritative.
+This is read-only display information, never a test pass, permission or finish
+gate. Missing historical schema falls back to the recorded stage. Workers keep
+their checkpoint summary current after collecting results and before delivery.
+No schema migration is required; rollback loses these display refinements only.
+
 ## Authority
 
 Webhook signatures, app/workspace identity, delegation, one active issue owner,
