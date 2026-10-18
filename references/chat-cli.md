@@ -18,6 +18,7 @@ All commands start with `PYTHON -m agent --db DATABASE`; they take `--item ITEM`
 | --- | --- |
 | `fetch-issue` | No token arguments; current Linear facts. |
 | `issue-context` | No token arguments; `--view resume` or `full`. |
+| `download-uploads` | Claim token file, `--out STATE_DIR/uploads`, optional repeatable `--url UNSIGNED_ISSUE_URL`; authenticated issue attachments for read-only investigation. |
 | `pop-inbox` | Claim token file; attributed current requests. |
 | `renew` | Claim token file; inspect maintenance and withdrawal flags. |
 | `checkpoint` | Claim token file and `--input FILE`; concise progress and handoff. |

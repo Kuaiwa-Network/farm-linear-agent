@@ -62,6 +62,57 @@ class UnityBridgeTests(unittest.TestCase):
             worker_resources.unity(self.args, self.f.ledger, Mock(), self.f.token, client_factory=lambda *a, **k: client)
         self.assertEqual(client._rpc.call_count, 1)
 
+    def result_command(self):
+        self.args.command = 'unity-test-result'
+        self.args.job_id = 'b' * 32
+        client = Mock()
+        client.call_tool.return_value = {'result': {'schema': 1, 'job_id': self.args.job_id,
+                                                   'available': False, 'reason': 'result_not_retained'}}
+        return client
+
+    def test_retained_report_keeps_candidate_identity_and_does_not_release_or_rerun(self):
+        client = self.result_command()
+        result = worker_resources.unity(self.args, self.f.ledger, Mock(), self.f.token,
+                                        client_factory=lambda *a, **k: client)
+        self.assertEqual(result['reservation_id'], self.grant['reservation_id'])
+        self.assertEqual(result['commit_sha'], 'a' * 40)
+        self.assertEqual(result['instance'], 'instance-one')
+        self.assertFalse(result['report']['available'])
+        self.assertEqual(self.f.ledger.reservation(self.grant['reservation_id'])['state'], 'active')
+        client.select_instance.assert_called_once_with('instance-one')
+        self.assertEqual(client.call_tool.call_args.args[0], 'execute_code')
+        client._rpc.assert_not_called()
+
+    def test_retained_report_fences_stop_release_withdrawal_and_held_resource(self):
+        for event in ('stop', 'release', 'withdraw', 'held', 'held-during-read'):
+            with self.subTest(event=event):
+                # Independent fixture for each transition, including the read's final fence.
+                f = UnityBridgeTests()
+                f.setUp()
+                try:
+                    client = f.result_command()
+                    def change(*a, **kw):
+                        if event == 'stop':
+                            f.f.ledger.cancel(f.f.key, 'Stop')
+                        elif event == 'release':
+                            f.f.ledger.release(f.grant['reservation_id'], f.grant['token'], 'worker reported quiescent')
+                        elif event == 'withdraw':
+                            f.f.ledger.connection.execute('UPDATE work_items SET withdraw_deadline=? WHERE id=?',
+                                                         (f.f.now + 60, f.f.key))
+                        elif event == 'held-during-read':
+                            f.f.ledger.hold(f.grant['reservation_id'], 'recovery during read')
+                        return {'result': {'schema': 1, 'job_id': f.args.job_id, 'available': False}}
+                    client.call_tool.side_effect = change
+                    if event == 'held':
+                        f.f.ledger.hold(f.grant['reservation_id'], 'recovery')
+                    with self.assertRaises(LedgerError):
+                        worker_resources.unity(f.args, f.f.ledger, Mock(), f.f.token,
+                                               client_factory=lambda *a, **k: client)
+                    if event == 'held':
+                        client.call_tool.assert_not_called()
+                finally:
+                    f.doCleanups()
+
 
 class ServerOwnerTests(unittest.TestCase):
     def setUp(self):
