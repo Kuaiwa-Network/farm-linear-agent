@@ -28,3 +28,9 @@ or claim no-change to pass it. A partly applied or completed legacy installation
 retains its old installation/recovery protocol and evidence. Preserve and report
 the exact unsupported recovery gap instead of re-exporting, re-asking visual
 approval or silently replacing the candidate.
+
+A new attempt after Stop can still be a legacy continuation: the controller
+records `presentation_legacy_client_recovery` when its predecessor retains an
+unfinished Client entry. Follow the retained installation recovery protocol in
+that case, including original baseline, journal, guards and loading checks.
+Changing the child key never hides that retained Client work.

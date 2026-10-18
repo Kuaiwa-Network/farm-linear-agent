@@ -251,6 +251,10 @@ from human replies. A source-only upgrade is an explicit host operation:
 workers/resources, current delegation, a technical wait without a human question,
 an unchanged clean Client entry and no outstanding installation journal. It
 requeues source verification; it never certifies delivery or fabricates an answer.
+After Stop, a successor whose controller ancestry retains an unfinished FGUI
+Client entry keeps the legacy installation protocol, even under a different
+task key. Original baseline, installation journals and teardown checks remain
+required; fresh tasks without that retained Client work use source delivery.
 
 Shared code-stage rules live in `skills/work/code-stages.md`. `chat` remains the
 read-only entry. New work uses `work`; the `feature` compatibility entry reads

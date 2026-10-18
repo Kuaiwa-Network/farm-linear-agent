@@ -121,6 +121,9 @@ run directory, not a mutable source working tree or a borrowed child claim.
 Before the first internal FGUI source worker can write, the controller records
 its immutable source entry commit and issue branch in audit state. Retries and
 successors retain that scope; worker checkpoints cannot replace it.
+Successors with an unfinished predecessor FGUI Client entry keep the legacy
+installation protocol. The controller records that recovery decision and the
+original entry remains the verification base; a new key cannot hide old writes.
 
 `resume-ui-source` is a host-only migration for a stopped, maintenance-paused
 instance. It checks current delegation, no human question, settled issue
@@ -134,8 +137,10 @@ columns. Old code cannot safely consume source-only child deliveries. Before
 rollback, settle these tasks on this release and preserve backups; do not relabel
 source delivery as legacy full Client delivery or reset job identities.
 
-Scene delivery verifies a clean owned Client HEAD and its exact open draft in the
-configured repository. A no-change result verifies zero diff from its original
+Scene delivery verifies a clean owned Client HEAD and its declared asset delta.
+Legacy tasks still require their exact open draft in the configured repository;
+new tasks may leave publication to the parent, and any supplied draft is verified.
+A no-change result verifies zero diff from its original
 task entry baseline. Worker prose and an unrelated PR cannot certify delivery or
 release a dirty candidate to another writer.
 Internal UI no-change tasks require clean source on the controller-recorded

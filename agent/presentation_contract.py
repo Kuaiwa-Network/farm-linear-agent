@@ -26,6 +26,29 @@ def current_claim(ledger, item_id, token):
     return row
 
 
+def legacy_client_predecessors(ledger, parent):
+    """Match pin_task_client_base's retained lineage before choosing a new contract.
+
+    Only controller ancestry can keep the legacy Client protocol. Its normal
+    baseline, installation, ownership and teardown validation still runs later.
+    """
+    previous, seen = parent['predecessor_id'], set()
+    while previous and previous not in seen:
+        seen.add(previous)
+        ancestor = ledger._row(previous)
+        if ancestor['issue_id'] != parent['issue_id']:
+            raise LedgerError('presentation recovery ancestry must belong to the same issue')
+        tasks = ledger.connection.execute("SELECT id,state,task_client_base FROM work_items "
+            "WHERE parent_id=? AND skill='fgui' ORDER BY created_at,rowid", (previous,)).fetchall()
+        unfinished = [task['id'] for task in tasks if task['task_client_base'] and task['state'] != 'delivered']
+        if unfinished:
+            return unfinished
+        if any(task['state'] == 'delivered' for task in tasks):
+            break
+        previous = ancestor['predecessor_id']
+    return []
+
+
 def validate_scope(value):
     if not isinstance(value, dict) or set(value) != {'assets', 'validation'}:
         raise LedgerError('scene scope requires exact assets and validation (source or unity)')

@@ -229,7 +229,10 @@ def delegate_task(ledger, item_id, token, request):
             if not ledger.connection.execute('SELECT 1 FROM work_items WHERE parent_id=? AND task_key=?',
                                              (item_id, name)).fetchone():
                 raise LedgerError('dependencies must name existing sibling tasks; forward references and cycles are refused')
-        request = {**request, '_contract': 'presentation-v1'}
+        from .presentation_contract import legacy_client_predecessors
+        legacy_recovery = legacy_client_predecessors(ledger, parent) if capability == 'fgui' else []
+        if not legacy_recovery:
+            request = {**request, '_contract': 'presentation-v1'}
         task_id, now = str(uuid4()), ledger.clock()
         predecessor = None
         if parent["predecessor_id"]:
@@ -242,6 +245,8 @@ def delegate_task(ledger, item_id, token, request):
             (task_id, parent["issue_id"], parent["session_id"], CAPABILITIES[capability], parent["priority"],
              now, now, item_id, key, _json(request), predecessor))
         ledger._audit(task_id, "create", "presentation task", {"parent_id": item_id, "key": key})
+        if legacy_recovery:
+            ledger._audit(task_id, 'presentation_legacy_client_recovery', details={'predecessor_tasks': legacy_recovery})
         ledger._audit(item_id, "task_delegated", details={"item_id": task_id, **request})
         return ledger._view(ledger._row(task_id))
 
