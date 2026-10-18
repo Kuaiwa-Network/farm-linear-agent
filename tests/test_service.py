@@ -49,6 +49,52 @@ def git(*args, cwd):
 
 
 class ServeTests(unittest.TestCase):
+    def test_service_automatically_sweeps_finished_worker_caches_and_keeps_recovery(self):
+        self.c.config.worker_retention = {'keep_hours': .000001}
+        launcher = self.c.launcher
+        # macOS temporary paths can contain /var -> /private/var. Retention
+        # deliberately refuses linked ancestors; select the canonical fixture.
+        launcher.runs_root = launcher.runs_root.resolve()
+        handle = launcher.spawn('retention-fixture', 'prompt', {}, 30, self.tmp.name)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and not launcher.poll():
+            time.sleep(.02)
+        self.assertEqual(launcher.running(), {})
+        cache = handle.run_dir / 'disposable' / 'build' / 'temporary.dll'
+        cache.write_bytes(b'compiled disposable fixture')
+        durable = handle.run_dir / 'checkpoint.json'
+        durable.write_bytes(b'preserved recovery fixture')
+        time.sleep(.02)
+        problems = []
+        def run():
+            try:
+                serve(components=self.c)
+            except BaseException as exc:
+                problems.append(exc)
+        with contextlib.redirect_stdout(io.StringIO()):
+            thread = threading.Thread(target=run, daemon=True)
+            thread.start()
+            try:
+                self.assertTrue(self.wait_for_health(), problems)
+                deadline = time.monotonic() + 10
+                receipt = {}
+                while time.monotonic() < deadline:
+                    receipt_path = handle.run_dir / 'cache-retention.json'
+                    if receipt_path.exists():
+                        receipt = json.loads(receipt_path.read_text())
+                    if not cache.exists() and receipt.get('status') == 'complete':
+                        break
+                    time.sleep(.03)
+                self.assertFalse(cache.exists(), problems)
+                self.assertEqual(durable.read_bytes(), b'preserved recovery fixture')
+                self.assertEqual(receipt.get('status'), 'complete', receipt)
+                self.assertEqual(receipt['total_files'], 1)
+            finally:
+                self.c.server.shutdown()
+                thread.join(20)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(problems, [])
+
     def test_maintenance_ready_requires_current_live_controller_and_keeps_queued_work(self):
         from agent.maintenance import Maintenance, read_status
         current = self.c.ledger

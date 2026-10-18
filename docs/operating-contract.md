@@ -135,6 +135,72 @@ Monitor distinguishes a live worker waiting for resources, project preparation,
 resource readiness and ordinary work. Readiness, stage names and released slots
 are never test success. Capacity details remain allowlisted public data.
 
+## Automatic worker cache retention
+
+`serve` runs a separate `worker_retention` loop. By default it starts a backlog
+pass at startup and another pass one hour after the preceding pass completes.
+The optional private configuration block is
+`"worker_retention": {"enabled": true, "keep_hours": 24, "sweep_seconds": 3600}`.
+The two durations must be positive finite numbers; `enabled` must be a boolean.
+Disabling it leaves the existing immediate Windows executable retirement intact.
+
+Only these regenerable paths are eligible inside a worker attempt:
+
+- `home/cache/remote_plugin_catalog`, `home/cache/codex_apps_tools` and
+  `home/plugins/cache`: downloaded Codex catalogs, tool descriptions and plugin bundles.
+- `disposable/go-cache`, `disposable/go-tmp` and `disposable/build`: attempt-local
+  Go compiler caches/temporary files and disposable build outputs.
+
+The launcher always supplies absolute `GOCACHE`, `GOTMPDIR` and
+`FARMBOT_BUILD_ROOT` paths under that attempt. Workers keep these paths instead
+of creating additional job-level caches. An external build-output layout is used
+only where the repository supports it; Client tests requiring in-tree `bin/obj`
+keep that layout, whose existing worktree retirement remains unchanged. Logs,
+results XML/TRX, screenshots, reports, source snapshots, checkpoints and anything
+needed for recovery must stay outside disposable paths under `state_dir`.
+Credentials, home settings, session history/databases, claims, process evidence,
+ledger history, memory and recovery refs are never retention targets.
+
+For older jobs the sweep also recognizes exactly the earlier controller-managed
+`<runs>/<item>/server-tests/go-cache` and `server-tests/tmp` paths. Every recorded
+attempt in the job must have verified teardown; shared job caches additionally
+wait until the newest teardown is older than the grace period. It does not infer
+other historical worker scratch/source directories from names or extensions.
+Global Go/NuGet/Unity/Docker caches, module sources, Unity slots, maintenance
+archives and arbitrary build folders are outside this sweep.
+
+The entire job must have no tracked active worker and every recorded attempt
+must have valid teardown evidence. Windows requires matching Job identity,
+recorded empty descendants and a fresh native empty-Job query. POSIX requires
+matching `posix_session` identity, `exited`/`empty` proof, empty recorded descendants,
+an absent leader and fresh readable empty-session/group checks. Older or
+uncertified attempts are held; a dead parent is insufficient. The existing POSIX
+limit for unobserved descendants that created new sessions still applies. Each
+attempt's teardown and each file's last modification/metadata-change time must
+be older than the grace period. Windows creation time serves as its second file
+age check. Recent files remain for a later pass.
+
+Each batch removes at most 500 regular, singly linked files. Reparse points,
+symlinks, special files and uncertain evidence are refused. Windows pins directory
+ancestors/evidence and deletes through exact locked file handles; POSIX traverses
+without following links and unlinks relative to opened directory descriptors.
+Only empty cache subdirectories are removed. A launcher lock serializes batches
+with fresh worker creation, including same-job resumes. Retention errors hold
+further removal and never prevent ordinary reaping or resource settlement.
+Shutdown cancels between entries and joins the loop; maintenance readiness
+includes an in-flight retention batch.
+
+Before deletion, an atomic `cache-retention.json` receipt records policy, allowed
+roots, time and process/teardown hashes. It is updated with batch status/counts
+and cumulative file/byte totals; an interrupted `started` receipt means the last
+batch's final count is unknown. Partial failures retain their counts and sanitized
+reason. The service emits `worker_cache_retention` events for removed data and
+held attempts, and includes the loop in its heartbeat. No ledger schema or state
+adoption/migration is required, including for a selected legacy instance. Existing
+profile ownership and controller locking still apply. Rollback stops the new
+sweep but cannot restore regenerable data already deleted; preserved source and
+evidence remain available for rebuild/recovery.
+
 ## Cooperative maintenance pause
 
 Maintenance blocks new worker/resource admission. Existing workers finish or

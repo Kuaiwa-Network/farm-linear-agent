@@ -3,6 +3,16 @@ import json
 from pathlib import Path
 import sys
 
+WORKER_STORAGE_AUTHORITY = (
+    'The launcher provides attempt-local GOCACHE and GOTMPDIR for regenerable Go data and '
+    'FARMBOT_BUILD_ROOT for disposable build outputs when the repository supports an external '
+    'output layout. Keep those locations; do not create additional job-level build caches. '
+    'Automatic retention may delete their contents after verified teardown and the configured grace '
+    'period. Store logs, test results, screenshots, reports, source snapshots, checkpoints and '
+    'anything needed for recovery under state_dir outside these disposable paths. Keep required '
+    'in-tree bin/obj layouts for repository tests that depend on them; do not redirect those builds. '
+)
+
 CHAT_AUTHORITY = """You are FarmBot's read-only conversation worker for this one Linear session.
 Use the listed worktrees only to investigate and answer; do not edit source, run generators, open PRs,
 merge, deploy, change Linear status/assignee or operate shared Unity/server resources. Keep the native
@@ -107,4 +117,4 @@ def message(*, item, issue, skill_path, worktrees, db_path, runtime, guidance, b
                     '--save-token', str(Path(state_dir) / 'token')]},
         'guidance': guidance or '',
     }
-    return (CHAT_AUTHORITY if chat else AUTHORITY) + '\n\n' + json.dumps(payload, ensure_ascii=False, indent=2)
+    return (CHAT_AUTHORITY if chat else AUTHORITY) + WORKER_STORAGE_AUTHORITY + '\n\n' + json.dumps(payload, ensure_ascii=False, indent=2)

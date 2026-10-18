@@ -414,10 +414,7 @@ class Scheduler:
         worker_env = {"FARMBOT_DB": str(self.db_path), "PYTHONPATH": pythonpath}
         if resource and resource["kind"] == "server_slot":
             worker_env.update(resource["environment"])
-            cache = Path(self.launcher.state_dir(item["id"])) / "server-tests"
-            for child in ("go-cache", "tmp"):
-                (cache / child).mkdir(parents=True, exist_ok=True)
-            worker_env.update(GOCACHE=str(cache / "go-cache"), GOTMPDIR=str(cache / "tmp"), GOMAXPROCS="2")
+            worker_env['GOMAXPROCS'] = '2'  # Launcher owns attempt-local build/cache paths.
         if self.config_path is not None:
             # Every attempt, including resumes, uses the controller's selected file.
             # Do not mutate os.environ: another controller/test may live in this process.

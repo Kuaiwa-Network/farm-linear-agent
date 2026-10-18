@@ -4,6 +4,7 @@ Never remove a worker home, credentials, logs, checkpoints or process evidence.
 Windows handles pin every ancestor and the exact file throughout deletion.
 """
 from contextlib import contextmanager, ExitStack
+from functools import lru_cache
 import hashlib
 import json
 import os
@@ -53,6 +54,7 @@ def _proof(attempt, empty):
     return {'process_sha256': process_hash, 'teardown_sha256': killed_hash}
 
 
+@lru_cache(maxsize=1)
 def _native():
     import ctypes as c
     from ctypes import wintypes as w
@@ -69,22 +71,26 @@ def _native():
 
 
 @contextmanager
-def _pin_directories(path):
+def _pin_directory(path):
     c, _, create, close, _ = _native()
-    handles = []
+    _ordinary(path, directory=True)
+    handle = create(str(path), 0x80, 3, None, 3, 0x02000000 | 0x00200000, None)
+    if handle == c.c_void_p(-1).value:
+        raise c.WinError(c.get_last_error())
     try:
-        for parent in [*reversed(path.parents), path]:
-            _ordinary(parent, directory=True)
-            # Permit ordinary reads/writes, but deny rename/deletion of ancestors.
-            handle = create(str(parent), 0x80, 3, None, 3, 0x02000000 | 0x00200000, None)
-            if handle == c.c_void_p(-1).value:
-                raise c.WinError(c.get_last_error())
-            handles.append(handle)
-            _ordinary(parent, directory=True)
+        _ordinary(path, directory=True)
         yield
     finally:
-        for handle in reversed(handles):
-            close(handle)
+        close(handle)
+
+
+@contextmanager
+def _pin_directories(path):
+    with ExitStack() as stack:
+        for parent in [*reversed(path.parents), path]:
+            # Permit ordinary reads/writes, but deny rename/deletion of ancestors.
+            stack.enter_context(_pin_directory(parent))
+        yield
 
 
 @contextmanager
