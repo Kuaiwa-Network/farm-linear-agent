@@ -50,9 +50,10 @@ foreach (var test in tests)
     string name = (string)read(test, "FullName") ?? "";
     string message = (string)read(test, "Message") ?? "";
     string stack = (string)read(test, "StackTrace") ?? "";
-    textTruncated |= name.Length > 512 || message.Length > 768 || stack.Length > 768 || (state ?? "").Length > 64;
-    details.Add(new { fullName = clip(name, 512), state = clip(state, 64),
-        message = clip(message, 768), stackTrace = clip(stack, 768) });
+    // Leave room for both MCP content and structuredContent, including escaped Unicode.
+    textTruncated |= name.Length > 384 || message.Length > 512 || stack.Length > 384 || (state ?? "").Length > 64;
+    details.Add(new { fullName = clip(name, 384), state = clip(state, 64),
+        message = clip(message, 512), stackTrace = clip(stack, 384) });
 }
 return new { schema = 1, job_id = jobId, available = true, status = status,
     mode = clip(read(job, "Mode"), 32), started_unix_ms = started, finished_unix_ms = finished,

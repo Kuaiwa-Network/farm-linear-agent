@@ -96,6 +96,9 @@ class NativeRetainedProbeTests(unittest.TestCase):
                         self.assertTrue(report['details_capped'])
                         self.assertTrue(report['text_truncated'])
                         self.assertEqual(len(report['details']), 50)
-                        # Include both nested MCP JSON envelopes and worst-case escaping.
-                        wire = json.dumps({'content': [{'text': json.dumps({'data': {'result': report}})}]})
+                        # MCP may duplicate the payload in text and structuredContent.
+                        # Account for both copies and worst-case Unicode escaping.
+                        payload = {'success': True, 'data': {'result': report, 'compiler': 'codedom'}}
+                        wire = json.dumps({'content': [{'type': 'text', 'text': json.dumps(payload)}],
+                                           'structuredContent': {'result': payload}})
                         self.assertLess(len(wire.encode()), 1024 * 1024)
