@@ -334,7 +334,12 @@ class ServerSlotPool:
             try:
                 lease, reservation = self._lease(slot["slot_id"])
                 item = self.ledger.item(lease["item_id"])
-                if item["generation"] != reservation["generation"]:
+                # finish() can queue a successor before this released lease is cleaned.
+                # Closed older reservations authorize only their own service cleanup;
+                # open or future-generation leases must never act on the current worker.
+                retired = (reservation["state"] in ("released", "cancelled")
+                           and reservation["generation"] < item["generation"])
+                if item["generation"] != reservation["generation"] and not retired:
                     raise ServerSlotError("server lease belongs to a different worker generation")
                 expired = self.clock() >= lease["expires_at"]
                 if expired and reservation["state"] == "active":
