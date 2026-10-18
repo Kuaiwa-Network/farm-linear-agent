@@ -127,6 +127,8 @@ class SingleWorkerTests(LedgerBase):
         self.assertIn('read-only conversation worker', prompt)
         self.assertIn('request-repair', prompt)
         self.assertIn('live delegation', prompt)
+        self.assertIn('GOCACHE and GOTMPDIR', prompt.split('\n\n', 1)[0])
+        self.assertIn('recovery under state_dir outside these disposable paths', prompt)
 
     def test_queued_request_cancels_on_maintenance_without_losing_claim(self):
         self.claim_owner()
@@ -300,6 +302,10 @@ class SingleWorkerTests(LedgerBase):
         self.assertIn('Settle helpers before parking', prompt)
         self.assertIn('Draft/update contracts yourself when requirements are clear', prompt)
         self.assertIn('Normal resource queueing is not a human question', prompt)
+        self.assertIn('GOCACHE and GOTMPDIR', prompt.split('\n\n', 1)[0])
+        self.assertIn('FARMBOT_BUILD_ROOT', prompt)
+        self.assertIn('Keep required in-tree bin/obj', prompt)
+        self.assertIn('recovery under state_dir outside these disposable paths', prompt)
         from agent.__main__ import parser
         start = payload['startup']['start_argv']
         claimed = parser().parse_args(start[3:])

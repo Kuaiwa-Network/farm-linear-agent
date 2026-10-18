@@ -323,7 +323,10 @@ class PoolTests(ServerPoolFixture):
         self.assertEqual(launcher.spawn_env["CLUSTER_REQUIRED"], "1")
         self.assertIn("127.0.0.1", launcher.spawn_env["MONGO_URI"])
         self.assertEqual(launcher.spawn_env["GOMAXPROCS"], "2")
-        self.assertTrue(Path(launcher.spawn_env["GOCACHE"]).is_relative_to(launcher.state_dir(item)))
+        # Launcher, exercised with real children by test_worker_retention, now
+        # owns attempt-local Go paths instead of the scheduler sharing job caches.
+        self.assertNotIn('GOCACHE', launcher.spawn_env)
+        self.assertNotIn('GOTMPDIR', launcher.spawn_env)
         self.assertEqual(launcher.spawned[0][2], {})
         self.assertFalse(any(self.root.is_relative_to(Path(path)) for path in launcher.spawn_writable))
 

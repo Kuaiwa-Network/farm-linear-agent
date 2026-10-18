@@ -548,10 +548,17 @@ class SkillAuthorityTests(unittest.TestCase):
     def test_chat_keeps_historical_restrictions_and_receives_question_authority(self):
         """Keep the historical restrictions pinned independently of the new question protocol."""
         self.assertEqual(dispatch.COMMON_AUTHORITY + dispatch.SKILL_AUTHORITY["chat"] + dispatch.AUTHORITY_REFERENCE,
-                         dispatch.MAINTENANCE_AUTHORITY + with_candidate_evidence(with_withdrawal(AUTHORITY_AT_A29D078)).replace(
+                         dispatch.MAINTENANCE_AUTHORITY + dispatch.WORKER_STORAGE_AUTHORITY + with_candidate_evidence(with_withdrawal(AUTHORITY_AT_A29D078)).replace(
                              "Never merge, deploy", "Never merge pull requests, deploy"))
         self.assertEqual(self.message({"id": "i", "skill": "chat"}).split("\n\n", 1)[0],
                          dispatch.COMMON_AUTHORITY + dispatch.QUESTION_AUTHORITY + dispatch.SKILL_AUTHORITY["chat"] + dispatch.AUTHORITY_REFERENCE)
+
+    def test_storage_policy_preserves_durable_reports_and_supported_test_layouts(self):
+        for skill in dispatch.SKILL_AUTHORITY:
+            text = self.message({'id': 'i', 'skill': skill}).split('\n\n', 1)[0]
+            for phrase in ('GOCACHE and GOTMPDIR', 'FARMBOT_BUILD_ROOT', 'verified teardown',
+                           'recovery under state_dir outside these disposable paths', 'Keep required in-tree bin/obj'):
+                self.assertIn(phrase, text)
 
     def test_write_workers_receive_fixed_per_command_identity_in_authority(self):
         for skill in ("fix", "work", "feature", "fgui", "scene"):
@@ -705,7 +712,7 @@ class SkillAuthorityTests(unittest.TestCase):
         reference = "Use references/worker-cli.md for command arguments and the exact handoff JSON shape."
         common, marker, rest = AUTHORITY_AT_A29D078.partition("When tools.kw_ops.access is present")
         expected = with_candidate_evidence(with_server_slots(common)).replace("Never merge, deploy", "Never merge pull requests, deploy")
-        self.assertEqual(dispatch.COMMON_AUTHORITY, dispatch.MAINTENANCE_AUTHORITY + expected + WITHDRAWAL_AT_DESIGN)
+        self.assertEqual(dispatch.COMMON_AUTHORITY, dispatch.MAINTENANCE_AUTHORITY + dispatch.WORKER_STORAGE_AUTHORITY + expected + WITHDRAWAL_AT_DESIGN)
         self.assertEqual(dispatch.AUTHORITY_REFERENCE, reference.replace('references/', 'references/legacy/'))
         self.assertEqual(dispatch.KW_OPS_AUTHORITY, marker + rest[:-len(reference)])
 

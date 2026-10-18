@@ -269,7 +269,7 @@ def _serve(components):
     components.scheduler.maintenance_epoch = heartbeat.started_at
     components.scheduler.maintenance_resources = getattr(components.pool, 'maintenance_blockers', None)
     def maintenance_busy():
-        return heartbeat.unsettled_loops(('pool', 'server_pool', 'resource_recovery', 'go_dependencies'))
+        return heartbeat.unsettled_loops(('pool', 'server_pool', 'resource_recovery', 'go_dependencies', 'worker_retention'))
     components.scheduler.maintenance_busy = maintenance_busy
     # The receiver's handler counts each /webhook outcome into it (receiver.make_server).
     components.server.heartbeat = heartbeat
@@ -335,6 +335,12 @@ def _serve(components):
     threads = [threading.Thread(target=guarded("receive", receive_once), daemon=True),
                threading.Thread(target=guarded("schedule", schedule_once), daemon=True),
                threading.Thread(target=guarded("pool", pool_once), daemon=True)]
+    from .worker_retention import Controller as RetentionController
+    retention = RetentionController(components.launcher, components.config.worker_retention)
+    if retention.policy['enabled']:
+        def retention_once():
+            return .1 if retention.tick(stop.is_set) else 5.0
+        threads.append(threading.Thread(target=guarded('worker_retention', retention_once), daemon=True))
     if components.lifecycle is not None:
         def reconcile_once():
             return 0.1 if components.lifecycle.tick()["checked"] else 1.0
@@ -412,6 +418,7 @@ def _serve(components):
                     # Keep the root lock and DB connections until all controller
                     # mutations have stopped, even when an operation drains slowly.
                     thread.join()
+            retention.close()
             # Batch executions have separate connections and outlive a pool tick.
             # Drain them while the root lock and serving heartbeat still belong to
             # this controller, after the launcher has fenced all further spawns.

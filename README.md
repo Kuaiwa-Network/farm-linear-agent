@@ -102,6 +102,27 @@ See [migration and recovery](docs/operating-contract.md#migration-and-recovery)
 before upgrading or rolling back. Old code cannot simply resume new-contract
 jobs; a Git checkout does not reverse the schema or adopted job state.
 
+## Worker cache cleanup
+
+`serve` automatically sweeps disposable worker caches at startup and hourly,
+keeping them for at least 24 hours after verified teardown. It retains logs,
+reports, checkpoints, source snapshots and recovery data indefinitely. Per-host
+configuration can change the grace period/interval or disable this sweep:
+
+```json
+"worker_retention": {"enabled": true, "keep_hours": 24, "sweep_seconds": 3600}
+```
+
+New workers receive attempt-local `GOCACHE`, `GOTMPDIR` and `FARMBOT_BUILD_ROOT`.
+Only regenerable build outputs belong there; durable evidence belongs elsewhere
+under `state_dir`. Known Codex download caches and the earlier controller-managed
+`server-tests/go-cache` and `server-tests/tmp` also expire. Other historical build
+folders, shared caches and Unity Libraries are never guessed or swept. Active or
+uncertain workers hold cleanup. Each attempt keeps a `cache-retention.json` audit.
+See the [retention boundaries](docs/operating-contract.md#automatic-worker-cache-retention).
+This takes effect when the changed service is deployed; editing this checkout does
+not change the running instance.
+
 ## Further references
 
 - [Go dependency preparation](docs/go-dependency-preparation.md)
