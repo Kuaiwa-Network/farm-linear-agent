@@ -19,6 +19,21 @@ or changed behavior requires the parent to settle the shared OpenSpec first;
 pure appearance corrections follow the existing requirements and actual design
 references. No duplicate OpenSpec project is needed in the Client repository.
 
+The parent declares exact `scope.assets` paths and `scope.validation` (`source`
+or `unity`); their necessary `.meta` files are included by the controller. For a
+legacy task with no scope, ask the parent to use `authorize-scene-scope` while
+you are parked at `scene-scope-missing` with `await-input --reason waiting`.
+This is an engineering coordination gap, not a new visual approval.
+Record `depends_on` for required sibling artifacts; a dependency on FGUI includes
+its certified parent installation. Never hold Client waiting for another writer.
+
+For an outside prerequisite, commit and checkpoint your asset edits, release
+resources, then `yield-presentation --input FILE` with `reason` and exact `paths`.
+Exit. The controller waits for quiescence before the parent may write; the parent
+commits only those repair paths and calls `resume-presentation`, preserving your
+original entry and invalidating only affected evidence. Do not alter inherited
+parent repair files or create replacement tasks to bypass a lock.
+
 Retain the parent's `plan.ui.validation` decision and reasons, actual baseline,
 named targets, allowed changes and preservation limits in this task's plan and on
 resume. Independently choose sufficient behavior/source, visual or pixel checks
@@ -40,8 +55,11 @@ on resume, and park again for unanswered questions.
 
 Commit and verify the actual scene/prefab dependencies and visible behavior;
 request Unity only through an exact-commit reserved slot and release through
-quiescence checks. Report actual checks and gaps. Publish this job's Client draft
-through `verify-publication`. Save evidence and finish only this presentation
+quiescence checks. If `scope.validation` is `unity`, run `verify-scene-assets`
+in that reservation before release. It proves local asset loading, not final
+gameplay or visual acceptance. Report actual checks and gaps. New tasks leave
+Client publication to the parent and finish with `prs: []`; legacy tasks retain
+their verified Client draft requirement. Save evidence and finish only this presentation
 task; the parent integrates gameplay later on the same owned issue branch. Stop
 or withdrawal of the parent revokes your work and preserves recovery evidence.
 

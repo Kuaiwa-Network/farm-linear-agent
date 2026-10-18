@@ -25,7 +25,7 @@ class GeneralDeliveryTests(unittest.TestCase):
 
     def task(self, capability="fgui"):
         return delegate_task(self.ledger, self.parent, self.token, {
-            "key": capability, "capability": capability, "instructions": "Implement the shared contract."})
+            "key": capability, "capability": capability, **({"scope": {"assets": ["Assets/nursery.prefab"], "validation": "source"}} if capability == "scene" else {}), "instructions": "Implement the shared contract."})
 
     def claim(self, task):
         return self.ledger.claim(task["id"], worker_id="task")["token"]

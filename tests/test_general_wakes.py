@@ -26,7 +26,7 @@ class GeneralWakeTests(unittest.TestCase):
 
     def task(self, key="ui", capability="fgui"):
         return delegate_task(self.ledger, self.parent, self.token, {
-            "key": key, "capability": capability, "instructions": "Use the shared contract."})
+            "key": key, "capability": capability, **({"scope": {"assets": ["Assets/nursery.prefab"], "validation": "source"}} if capability == "scene" else {}), "instructions": "Use the shared contract."})
 
     def claim_task(self, task):
         return self.ledger.claim(task["id"], worker_id="presentation")["token"]
@@ -54,6 +54,31 @@ class GeneralWakeTests(unittest.TestCase):
         self.assertFalse(wake_parent(self.ledger, self.parent))
         self.ledger.close()
         self.ledger = self.fixture.open_ledger()
+        self.assertFalse(wake_parent(self.ledger, self.parent))
+
+    def test_source_completion_wakes_parent_before_dependent_scene_is_delivered(self):
+        from agent.workflow import prepare_coordination
+        from unittest.mock import Mock
+        ui = self.task()
+        scene = delegate_task(self.ledger, self.parent, self.token, {
+            'key': 'scene', 'capability': 'scene', 'instructions': 'Use installed UI',
+            'scope': {'assets': ['Assets/nursery.prefab'], 'validation': 'source'}, 'depends_on': ['ui']})
+        await_tasks(self.ledger, self.parent, self.token)
+        self.deliver(ui)
+        # The source-delivery cryptographic checks have separate real-Git coverage.
+        self.ledger.connection.execute('UPDATE work_items SET evidence=? WHERE id=?',
+            (json.dumps({'ui_source_delivery_id': 'certified', 'receipt_id': 'receipt'}), ui['id']))
+        self.assertFalse(wake_parent(self.ledger, self.parent))
+        self.ledger.record_cleanup(ui['id'], {}, done=True)
+        self.assertTrue(wake_parent(self.ledger, self.parent))
+        self.ledger.connection.execute("UPDATE work_items SET root_repo='Farm-Client' WHERE id=?", (self.parent,))
+        prepare_coordination(self.ledger, self.parent, Mock(spec=['assert_quiescent']))
+        self.assertEqual(self.ledger.item(self.parent)['root_repo'], 'Farm-Client')
+        self.assertEqual(self.ledger.item(scene['id'])['state'], 'queued')
+        with self.assertRaisesRegex(LedgerError, 'dependency artifacts'):
+            client_ready(self.ledger, self.ledger._row(scene['id']))
+        self.resume_parent()
+        await_tasks(self.ledger, self.parent, self.token)
         self.assertFalse(wake_parent(self.ledger, self.parent))
 
     def test_answering_one_task_does_not_repeat_its_siblings_old_question(self):

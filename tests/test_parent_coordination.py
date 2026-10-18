@@ -19,6 +19,12 @@ class ParentCoordinationTests(unittest.TestCase):
         self.ledger, self.scheduler = self.fixture.ledger, self.fixture.scheduler
         self.parent, self.token = self.fixture.parent, self.fixture.token
         self.task = self.fixture.task()
+        # This suite resumes Client parents persisted before source-only tasks.
+        # Keep that historical contract explicit rather than creating a new v1 child.
+        request = dict(self.task['task_request'])
+        request.pop('_contract', None)
+        self.ledger.connection.execute('UPDATE work_items SET task_request=? WHERE id=?',
+                                       (json.dumps(request), self.task['id']))
         child_token = self.ledger.claim(self.task['id'], worker_id='ui')['token']
         self.ledger.await_input(self.task['id'], child_token, 'Confirm round 2')
         self.ledger.checkpoint(self.parent, self.token, {'plan': {'stages': {

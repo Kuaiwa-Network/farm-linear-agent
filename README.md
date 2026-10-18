@@ -10,10 +10,11 @@ requirements and actual design references.
 After the behavior is settled, the job can delegate durable FGUI/scene tasks
 while continuing independent server/config work. Each task has its own claim,
 checkpoint and questions in the same conversation. Missing assets are a human
-question; partial answers retain attribution. Client gameplay waits for server
-work and verified presentation completion. FGUI keeps its named visual approval,
-certified native export, scoped Client installation, guards and reserved Unity
-loading checks. Package loading alone does not certify gameplay or visual
+question; partial answers retain attribution. Internal FGUI tasks deliver approved
+source and certified exports. After their verified exit, the parent installs the
+artifact and owns Client metadata, dependency checks and final-candidate Unity
+loading. Scene tasks own explicitly scoped Unity assets and local checks; bounded
+prerequisite repairs can yield Client safely to the parent. Package loading alone does not certify gameplay or visual
 acceptance. People review, merge and accept the drafts.
 
 Hosts can opt into [automatic Go dependency preparation](docs/go-dependency-preparation.md)
@@ -26,6 +27,9 @@ See [general workflow and migration](docs/general-workflow.md) for activation,
 concurrency, recovery and validation boundaries. This checkout changes no running
 service or Linear labels. Hosts without `work` retain legacy label routing and
 profiles so unfinished jobs can continue during a controlled rollout.
+Shared code-stage rules live under `skills/work/code-stages.md`; `feature` is a
+compatibility entry and `fix` remains available for existing job recovery. New
+jobs on a work-enabled host always select work before legacy label routing.
 
 FarmBot keeps one conversation across read-only investigation and writable execution.
 An authorized “fix it” reply can start a general job with `work` enabled, or resume

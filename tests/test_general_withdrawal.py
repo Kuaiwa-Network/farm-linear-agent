@@ -31,7 +31,7 @@ class GeneralWithdrawalTests(unittest.TestCase):
 
     def task(self, key, state="queued"):
         task = delegate_task(self.ledger, self.parent, self.token,
-                             {"key": key, "capability": "scene", "instructions": "Use the shared spec; ask for missing art."})
+                             {"key": key, "capability": "scene", "scope": {"assets": ["Assets/nursery.prefab"], "validation": "source"}, "instructions": "Use the shared spec; ask for missing art."})
         token = None
         if state != "queued":
             self.ledger.set_worker(task["id"], 502, "h", lease_seconds=2700)

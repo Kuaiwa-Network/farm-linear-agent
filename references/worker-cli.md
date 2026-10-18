@@ -134,7 +134,13 @@ python3 -m agent --db DATABASE checkpoint --help
 | `tasks` | `--item ITEM_ID`; reads this logical job's durable presentation tasks |
 | `prepare-go-dependencies` | Claim-token arguments, `--module` from dispatch's configured module list, `--commit CLEAN_HEAD`; queues host-only preparation and returns request ID/state; optional `--retry` after a failed/cancelled request's host correction, at most three failed preparations per candidate; cancellations retain their fencing and do not consume that failure budget |
 | `go-dependencies` | Claim-token arguments, `--request-id ID`; returns this item's pending/ready/failed/cancelled preparation result |
-| `delegate-task` | General job claim-token arguments and `--input FILE`; exact JSON keys `key`, `capability` (`fgui` or `scene`), `instructions`; requires settled shared behavior in plan stage A |
+| `delegate-task` | General job claim-token arguments and `--input FILE`; `key`, `capability` (`fgui` or `scene`), `instructions`, optional `depends_on` earlier sibling keys; scene also requires `scope: {assets: [exact paths], validation: source or unity}`; requires settled behavior in A |
+| `verify-ui-source` | Internal FGUI claim-token arguments; certifies the checkpoint's retained export and source PR without Client installation; returns `delivery_id` and `receipt_id` for source-only finish |
+| `install-ui`, `verify-ui`, `verify-ui-guards`, `verify-ui-loading`, `ui-verification-status` | Also available to a work parent's Client claim with `--receipt-id` naming its own retired child's certified source artifact; parent owns installation/check records and its own resource reservation |
+| `verify-scene-assets` | Scene claim-token arguments; verifies declared assets at the exact clean candidate in its active interactive Unity reservation, before resource release |
+| `authorize-scene-scope` | Parent claim-token arguments, `--task KEY --input FILE` containing `{assets: [...], validation: source or unity}`; requires a parked child and verified process teardown; fills legacy scope without answering human questions |
+| `yield-presentation` | Scene claim-token arguments and `--input FILE` containing `{reason: ..., paths: [...]}`; saves a clean committed candidate, requires released resources, retires claim and exits for parent prerequisite repair |
+| `resume-presentation` | Parent Client claim-token arguments and `--task KEY`; checks child teardown, candidate ancestry and committed changes limited to the yielded paths; preserves original entry and queues child, so parent then releases its writer with `await-tasks` |
 | `answer-task`, `retry-task` | General job claim-token arguments, `--task KEY --message-id ID`; uses an actual attributed message from this job's inbox; retry also requires certified teardown |
 | `await-tasks` | General job claim-token arguments; valid checkpoint and no open reservation; parks the coordinator while tasks continue; exit immediately |
 
@@ -669,7 +675,7 @@ its wiki node token, with `sheets +workbook-info --as bot` and `sheets +cells-ge
 same configured identity. A direct spreadsheet link may be passed through `--url`. Read all tabs,
 including hidden and empty tabs, retain source coordinates and hashes, reject truncation or missing
 coverage, and verify one unchanged revision before, during and after reading as
-[`skills/feature/SKILL.md`](../skills/feature/SKILL.md) requires. These operations grant no sheet writes,
+[`skills/work/code-stages.md`](../skills/work/code-stages.md) requires. These operations grant no sheet writes,
 search, export, imports or remote scripts; a denied read names the required read-only scope and asks
 the operator. `fgui` retains only the three document/attachment reads above. No other lark-cli
 command is authorized apart from local help (`--help`, `skills read`).
@@ -1094,7 +1100,7 @@ removed its worktrees, then gets that branch itself, fetched and tracking `origi
 commits others pushed are on it, and commits of its own that were never pushed stay ahead of the
 remote. Integrate the remote before you push, never force-push.
 
-The `feature` skill's plan keys and their entry shapes are in `skills/feature/SKILL.md` ("The plan"); where they
+The shared work/feature plan keys and their entry shapes are in `skills/work/code-stages.md` ("The plan"); where they
 differ from the example above, a `feature` worker follows the skill.
 
 ## Read-only checkouts

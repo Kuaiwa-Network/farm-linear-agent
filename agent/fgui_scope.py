@@ -141,6 +141,8 @@ def installed_scope(workflow, installed, *, expected_commit=None):
     if expected_commit is not None and expected_commit != commit:
         raise LedgerError("UI verification commit differs from its actual committed Client HEAD")
     workflow.trees.verification_commit("Farm-Client", workflow.item_id, commit, expected_branch=branch)
+    if getattr(workflow, 'consumer', False):
+        return parent_scope(workflow, installed, client, branch, baseline, commit)
     changed = _delta(workflow, client, baseline, commit)
     allowed = {"Assets/GameRes/FairyRes/" + entry["file"] for entry in installed["files"]}
     # Earlier complete installs may have removed artifacts absent from the new
@@ -195,6 +197,32 @@ def installed_scope(workflow, installed, *, expected_commit=None):
                      inherited_client_files=sorted(inherited))
         proof["scope_sha256"] = hashlib.sha256(_canonical(proof).encode("utf-8")).hexdigest()
     return proof
+
+
+def parent_scope(workflow, installed, client, branch, baseline, commit):
+    """Parent owns business integration; certified package bytes remain immutable."""
+    if workflow.trees.git_in(client, 'merge-base', '--all', baseline, commit, env=_NO_REPLACE).splitlines() != [baseline]:
+        raise LedgerError('parent UI integration must retain its installation ancestry')
+    digest = _guid_digest(_metadata_guids(client))
+    committed = workflow.trees.git_in(client, 'grep', '-h', '-I', '-E',
+        '^guid:[[:space:]]*[[:xdigit:]]{32}[[:space:]]*$', commit, '--', ':(glob)Assets/**/*.meta', env=_NO_REPLACE)
+    if _guid_digest(Counter(v.lower() for v in _GUID.findall(committed))) != digest:
+        raise LedgerError('parent UI metadata must match the committed candidate')
+    changed = _delta(workflow, client, baseline, commit)
+    guard = []
+    if GUARD in changed:
+        before = workflow.trees.git_in(client, 'show', baseline + ':' + GUARD, env=_NO_REPLACE)
+        after = workflow.trees.git_in(client, 'show', commit + ':' + GUARD, env=_NO_REPLACE)
+        from .fgui_repair import repaired_baseline
+        before, _, _ = repaired_baseline(workflow, installed, client, baseline, before, after)
+        guard = dependency_guard_change(before, after, installed['dependencies'])
+    workflow.fence(refresh=True)
+    return {'format': 'farmbot-parent-ui-scope-v1', 'receipt_id': installed['receipt_id'],
+            'installation_id': installed['installation_id'], 'commit': commit, 'baseline': baseline,
+            'branch': branch, 'source_head': installed['source_head'],
+            'changed_packages': sorted(installed['packages']), 'changed_client_files': sorted(changed),
+            'guard_packages': guard, 'global_guid_digest': digest,
+            'source_task_id': workflow.source_item_id}
 
 
 def verify_candidate(workflow, receipt_id, *, expected_commit=None):

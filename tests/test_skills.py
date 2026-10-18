@@ -538,7 +538,7 @@ class FeatureInstructionTests(unittest.TestCase):
     Whitespace is normalized, so rewrapping a paragraph changes nothing here."""
 
     def raw(self):
-        return (ROOT / "skills" / "feature" / "SKILL.md").read_text(encoding="utf-8")
+        return (ROOT / "skills" / "work" / "code-stages.md").read_text(encoding="utf-8")
 
     def text(self):
         return " ".join(self.raw().split())
@@ -735,7 +735,7 @@ class FeatureClosingInstructionTests(unittest.TestCase):
     """Phase B, Task 14: stages C and D, the closing steps and the delivery, pinned like Task 13's sentences."""
 
     def raw(self):
-        return (ROOT / "skills" / "feature" / "SKILL.md").read_text(encoding="utf-8")
+        return (ROOT / "skills" / "work" / "code-stages.md").read_text(encoding="utf-8")
 
     def assert_phrases(self, phrases):
         text = " ".join(self.raw().split())
@@ -853,7 +853,7 @@ class IssueScopeInstructionTests(unittest.TestCase):
         return " ".join((ROOT / path).read_text(encoding="utf-8").split())
 
     def test_docs_only_input_retention_applies_to_initial_export_and_closing(self):
-        raw = (ROOT / "skills/feature/SKILL.md").read_text(encoding="utf-8")
+        raw = (ROOT / "skills/work/code-stages.md").read_text(encoding="utf-8")
         initial = " ".join(raw.split("## Stage F: Farm-Client\n", 1)[1].split("\n## Closing", 1)[0].split())
         closing = " ".join(raw.split("## Closing\n", 1)[1].split("\n## Outcomes", 1)[0].split())
         self.assertIn("When no network-input update is required, retain the existing generated files/provenance", initial)
@@ -866,7 +866,7 @@ class IssueScopeInstructionTests(unittest.TestCase):
 
     def test_verification_entrypoints_do_not_restart_rounds_for_a_new_main_tip(self):
         fix = self.text('skills/fix/SKILL.md')
-        feature = self.text('skills/feature/SKILL.md')
+        feature = self.text('skills/work/code-stages.md')
         self.assertIn('Do not merge or rerun tests solely because of a newer tip or worker restart', fix)
         self.assertIn('A resumed unchanged candidate keeps its controller-recorded round', feature)
         for text in (fix, feature):
@@ -877,7 +877,7 @@ class IssueScopeInstructionTests(unittest.TestCase):
         self.assertIn('a newer main tip does not restart verification', work)
 
     def test_required_generation_and_unmerged_provenance_are_not_waived(self):
-        text = self.text("skills/feature/SKILL.md")
+        text = self.text("skills/work/code-stages.md")
         for phrase in ("actual generator input inventory", "schemas, message IDs, registry/manifest inputs",
                        "introduced generated output or an unmerged source pin",
                        "Never cherry-pick generated files, partially sync, hand-edit output or weaken a gate",
@@ -888,7 +888,7 @@ class IssueScopeInstructionTests(unittest.TestCase):
                 self.assertIn(phrase, text)
 
     def test_general_job_and_recovered_waits_remain_bound_to_the_issue(self):
-        general, feature = self.text("skills/work/SKILL.md"), self.text("skills/feature/SKILL.md")
+        general, feature = self.text("skills/work/SKILL.md"), self.text("skills/work/code-stages.md")
         self.assertIn("Ask for an asset only when the accepted outcome actually requires that asset", general)
         self.assertIn("Recheck older plans that demand a full sync", general)
         self.assertIn("choice to keep scope never means waiting for an unrelated feature", general)

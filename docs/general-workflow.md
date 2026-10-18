@@ -23,7 +23,7 @@ is required. Actual behavior changes still follow OpenSpec review and gates.
 Question rounds run only for necessary unresolved human decisions, approvals or
 inputs; current applicable rulings can be reused without asking again.
 
-Code stages reuse the feature capability's contract, configuration, server,
+Code stages use work's `code-stages.md` contract, configuration, server,
 Client and closing instructions and protection boundaries, including withholding
 standing MCP/kw_ops access. They never merge, deploy, publish designer data or
 configure the host. Runtime authority lives in dispatch and skills.
@@ -42,14 +42,22 @@ The parent records the committed shared contract HEAD and scenario references.
 Each task gets a detached Farm-Contract read checkout borrowing the owned clone's
 objects, so read-only Git can inspect that exact unmerged commit without changing
 the checkout or assuming main already contains the new OpenSpec.
-Only independent tasks start together. A scene task that depends on FGUI
-installation starts after that UI task delivers, avoiding a Client owner waiting
-for another task to write the same repository.
+Only independent tasks start together. A scene task declares exact `scope.assets`,
+`scope.validation` (`source` or `unity`) and optional `depends_on` sibling keys.
+Dependencies must already exist, preventing cycles. A dependency on a source FGUI
+task waits for its certified teardown and the parent's certified installation,
+without acquiring a Client writer or Editor first.
 
 The parent keeps working in common/farm-hive while presentation runs. FGUI uses
-the existing source-authoring, visual-round, certified-export, scoped-install,
-guard and Unity-loading checks. Scene tasks edit only scoped Client presentation
-assets. Missing assets/decisions park the dependent task with a named question;
+source-authoring, visual-round and certified-export checks, then delivers its
+source artifact. The parent uses the original receipt under its own claim for
+scoped installation, necessary metadata/dependency work, guards and Unity loading
+at the final candidate. The source child has no Client or Unity grant. Legacy
+standalone UI and partial installations retain their original recovery protocol.
+Scene tasks edit only declared Client presentation assets and their own metadata;
+delivery verifies scope, GUID identity, actual files and optional actual Unity
+loading. New scene tasks leave Client publication to the parent.
+Missing assets/decisions park the dependent task with a named question;
 workers request actual files or locations and infer no placeholder permission.
 Independent work continues. Host-tool/license gaps are named questions, never
 permission to install or alter configuration.
@@ -92,8 +100,12 @@ destination verification, claim fencing and resource containment.
 Same-repository writers serialize across live workers, repository handoffs,
 untracked workers after restart, open Unity reservations and uncertified teardown.
 A presentation task retains its Client stage across human/resource waits and
-terminal task retries until delivery; another task cannot change the candidate
-between installation and verification. The immutable job Client baseline/branch is selected on first
+terminal task retries until delivery or an explicit prerequisite yield. A scene
+can commit/checkpoint its work and `yield-presentation` with a reason and exact
+outside repair paths. Only the parent may take over after verified quiescence,
+commit the bounded repair, and `resume-presentation`; inherited repair bytes and
+the child's original entry remain fenced. Human questions cannot be answered
+through this technical path. The immutable job Client baseline/branch is selected on first
 Client entry, possibly during presentation. Each presentation task additionally
 gets an immutable clean entry HEAD: its certified UI-only diff is measured against
 that HEAD, so earlier delivered scene/UI work does not expand its allowed scope.
@@ -103,14 +115,32 @@ fresh branch with the owning job ID suffix at current trusted main and saves its
 baseline before creating the checkout. It preserves the old branch and commits.
 An occupied suffixed branch or an unpinned existing worktree still requires
 recovery; a saved Client plan without its pin is never replaced by fresh main.
-FGUI also retains its reviewed source through Client verification and certified
-delivery; another UI task cannot invalidate that source during an approval wait.
+FGUI retains reviewed source through certified source delivery. The parent then
+consumes immutable, checksum-verified exported bytes from the retired child's
+run directory, not a mutable source working tree or a borrowed child claim.
 Before the first internal FGUI source worker can write, the controller records
 its immutable source entry commit and issue branch in audit state. Retries and
 successors retain that scope; worker checkpoints cannot replace it.
+Successors with an unfinished predecessor FGUI Client entry keep the legacy
+installation protocol. The controller records that recovery decision and the
+original entry remains the verification base; a new key cannot hide old writes.
 
-Scene delivery verifies a clean owned Client HEAD and its exact open draft in the
-configured repository. A no-change result verifies zero diff from its original
+`resume-ui-source` is a host-only migration for a stopped, maintenance-paused
+instance. It checks current delegation, no human question, settled issue
+processes/resources, original source/export, unchanged Client entry and absence
+of partial/completed installation records. It only requeues fresh source
+verification, preserving task identity and approval/export evidence. An explicit
+single-issue maintenance resume still controls which issue can run.
+
+The new protocols add audit records and request/checkpoint fields, not database
+columns. Old code cannot safely consume source-only child deliveries. Before
+rollback, settle these tasks on this release and preserve backups; do not relabel
+source delivery as legacy full Client delivery or reset job identities.
+
+Scene delivery verifies a clean owned Client HEAD and its declared asset delta.
+Legacy tasks still require their exact open draft in the configured repository;
+new tasks may leave publication to the parent, and any supplied draft is verified.
+A no-change result verifies zero diff from its original
 task entry baseline. Worker prose and an unrelated PR cannot certify delivery or
 release a dirty candidate to another writer.
 Internal UI no-change tasks require clean source on the controller-recorded

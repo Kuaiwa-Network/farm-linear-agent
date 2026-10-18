@@ -544,15 +544,22 @@ WORK_AUTHORITY = (
     "to route actual attributed human messages to the relevant tasks, and await-tasks to checkpoint "
     "and release an attempt while tasks continue. Missing assets are human questions: request the "
     "required files or their location, pause only dependent work, and invent no final art or placeholder "
-    "permission. Client gameplay implementation waits for required server/config and certified "
-    "presentation completion. The controller serializes writes to each job-owned repository and "
+    "permission. Client integration waits for required server/config; consume certified FGUI source "
+    "artifacts with install-ui under your own claim after task teardown. Own Client metadata, bounded "
+    "dependency registrations and business integration; run verify-ui-guards and verify-ui-loading "
+    "at the final candidate, reusing the candidate reservation for QA. Source delivery is not issue acceptance. "
+    "Scene requests declare scope.assets, scope.validation and optional depends_on task keys. "
+    "A scene awaiting a prerequisite repair uses yield-presentation; after its verified exit, repair only "
+    "the recorded paths, commit, resume-presentation and await-tasks to release your writer. "
+    "Use authorize-scene-scope for a parked legacy scene lacking exact asset scope; this is engineering "
+    "coordination, not a new human approval. The controller serializes writes to each job-owned repository and "
     "preserves one immutable Client baseline and issue branch. Retain UI export, approval, resource "
     "and verification evidence; full completion covers the parent and all required tasks. "
     "A new task question may wake you while your own human question remains unanswered. Consolidate "
     "the task questions with your saved question; a coordination wake is not a human answer and does "
     "not authorize resuming work blocked on that answer. "
-    "Own technical blockers and their recovery. For a task blocked on missing unchanged-baseline FGUI "
-    "dependency registrations, have that task audit the references and use authorize-ui-guard-repair; "
+    "Own technical blockers and their recovery. For missing unchanged-baseline FGUI "
+    "dependency registrations during parent integration, audit the references and use authorize-ui-guard-repair; "
     "it retains its original baseline and must rerun the normal guards/loading/delivery gates. Do not park "
     "waiting for an unnamed engineer, ask the human for hashes/controller procedures, or create replacement "
     "tasks to evade scope. For an unsupported repair, explain the specific decision or host capability needed. "
@@ -836,6 +843,28 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
             'teardown, save a current checkpoint, handoff-repository to Farm-Client and exit. '
             'That handoff still requires the server/config and presentation join; never skip its gates. '
         )
+        text += (' For certified source artifacts or a recorded presentation prerequisite yield, '
+                 'handoff to Client once server/config is settled; the controller retains writer teardown checks. ')
+    if item.get('parent_id') and item.get('skill') == 'fgui':
+        text += (
+            ' Internal FGUI task boundary: follow skills/fgui/source-task.md. Deliver the named farmgui source, '
+            'approved preview and certified export; the parent owns Client installation, metadata, guards and Unity. '
+            'New source tasks cannot hand off to Client or reserve Unity. A retained legacy task with an unchanged '
+            'clean Client entry and no prepared/completed installation may use verify-ui-source and finish with '
+            'source_only=true, its source PR and receipt_id. Preserve the same source, review, approval and export; '
+            'do not re-export or ask again merely for this migration. Partial Client installs retain their journals '
+            'and legacy recovery gates; never mark them source-delivered to discard edits. '
+        )
+    if item.get('skill') == 'scene':
+        text += (
+            ' The controller verifies exact declared asset paths and their own metadata; unrelated scripts and '
+            'GUID identity rewrites are refused. scope.validation=unity requires verify-scene-assets in the '
+            'existing candidate reservation before release. Source checks and local asset loading do not certify '
+            'parent gameplay acceptance. New scene tasks deliver asset evidence; parent publishes the final Client draft. '
+            'For a prerequisite outside your asset scope, checkpoint committed edits, release resources, '
+            'yield-presentation with reason and exact repair paths, then exit; never ask a human to perform routine '
+            'engineering handoff or wait holding Client for a parent writer. '
+        )
     root = Path(repo_root) if repo_root is not None else Path(skill_path).parent.parent.parent
     payload = {
         "item_id": item["id"],
@@ -862,8 +891,9 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
         "prior_context": prior_context,
         "task": ({"parent_id": item["parent_id"], **(item.get("task_request") or {})}
                  if item.get("parent_id") else None),
-        "capabilities": ({name: str(root / "skills" / name / "SKILL.md")
-                          for name in ("feature", "fgui", "scene")} if item.get("skill") == "work" else {}),
+        "capabilities": ({'code_stages': str(root / 'skills' / 'work' / 'code-stages.md'),
+                          **{name: str(root / "skills" / name / "SKILL.md") for name in ("fgui", "scene")}}
+                         if item.get("skill") == "work" else {}),
         # The reservation this worker holds, or None. It carries the token's *path* and never the token, and
         # in neither mode does it carry an argv or the Editor's own path: a worker never starts Unity.
         "resource": resource,

@@ -19,7 +19,8 @@ def _canonical(value):
 def _live(ledger, item_id, token, root):
     row = ledger._owned(item_id, token)
     ledger._refuse_withdrawn(row)
-    if row["skill"] != "fgui" or row["root_repo"] not in root:
+    parent_client = row['skill'] == 'work' and not row['parent_id'] and row['root_repo'] == 'Farm-Client'
+    if (row["skill"] != "fgui" and not parent_client) or row["root_repo"] not in root:
         raise LedgerError("UI evidence requires this job's matching rooted stage")
     return row
 

@@ -78,6 +78,18 @@ class ViewBase(unittest.TestCase):
 
 
 class ServerWaitTests(ViewBase):
+    def test_presentation_waits_are_technical_coordination_without_private_checkpoint_text(self):
+        item = self.job(skill='work')
+        for state, stage, cp, expected in (
+            ('awaiting_input', 'waiting-presentation', {'waiting_tasks': True}, 'waiting_presentation'),
+            ('awaiting_input', 'waiting-parent-repair', {}, 'waiting_parent_repair'),
+            ('queued', 'waiting-presentation-dependency', {}, 'waiting_presentation')):
+            self.sql('UPDATE work_items SET state=?,stage=?,checkpoint=? WHERE id=?',
+                     state, stage, json.dumps({**cp, 'private': 'SECRET'}), item['id'])
+            value = self.active(self.status(), 'FARM-1')
+            self.assertEqual(value['display_state'], expected)
+            self.assertNotIn('SECRET', json.dumps(value))
+
     def test_exact_memory_wait_is_sanitized_stales_and_disappears_when_request_ends(self):
         from agent.skills import load_skills
         item = self.job()

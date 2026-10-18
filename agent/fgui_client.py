@@ -36,6 +36,9 @@ def _client(workflow):
     if workflow.trees.git_in(client, "branch", "--show-current") != branch:
         raise LedgerError("UI installation requires the controller's exact owned Client issue branch")
     baseline = item.get("task_client_base") if item.get("parent_id") else item["target"]["commit_sha"]
+    if getattr(workflow, 'consumer', False):
+        from .presentation_artifacts import parent_install_base
+        baseline = parent_install_base(workflow, client)
     if not baseline:
         raise LedgerError("internal UI installation requires its controller-selected presentation entry HEAD")
     return client, branch, baseline
@@ -263,7 +266,7 @@ def install(workflow, receipt_id):
         return previous
     workflow.ledger.require_no_reservation(workflow.item_id)
     selected = {p["name"]: p["id"] for p in exported["publisher"]["export"]["packages"]}
-    stage = workflow.paths.runs / workflow.item_id / "ui-exports" / receipt_id / "staging"
+    stage = workflow.paths.runs / getattr(workflow, 'source_item_id', workflow.item_id) / "ui-exports" / receipt_id / "staging"
     snapshot = snapshot_export(stage, selected)
     if snapshot.evidence() != exported["publisher"]["export"]:
         raise LedgerError("private UI staging differs from the immutable controller export")

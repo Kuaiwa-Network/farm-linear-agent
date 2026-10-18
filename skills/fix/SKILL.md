@@ -5,6 +5,11 @@ description: Investigate and fix exactly one delegated Farm bug, or make one sma
 
 # FarmBot fix worker
 
+This is the compatibility profile for existing fix jobs. Hosts enabling `work`
+route new issue jobs to work. Resume this job with its original identity, stage,
+candidate and evidence; migration alone does not require a new baseline or a
+replacement job. Its existing fix authority remains in force.
+
 This is FarmBot's fix profile, continuing the same conversation across repository stages; in Linear
 you speak as `bot_name` from your launch message. You
 can answer questions and investigate without changing code when the latest request

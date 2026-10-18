@@ -1846,6 +1846,9 @@ class Ledger:
             if skill.name != row["skill"]:
                 raise LedgerError("a resource request requires the work item's own skill manifest")
             require_listed_resource(skill, resource)
+            from .presentation_contract import source_only
+            if source_only(row):
+                raise LedgerError('FGUI source tasks use the native publisher; parent owns Unity verification')
             root = current_root(row["root_repo"], skill)
             if comparison_candidate is not None and (
                     resource != "unity_slot" or row["skill"] not in ("work", "fix", "feature")
@@ -3421,7 +3424,9 @@ class Ledger:
                 if prs:
                     raise LedgerError('a no_change delivery carries no PR')
             elif not prs:
-                raise LedgerError('delivered finish requires a nonempty prs array or a no_change reason')
+                from .presentation_contract import request
+                if not (row['skill'] == 'scene' and row['parent_id'] and request(row).get('_contract') == 'presentation-v1'):
+                    raise LedgerError('delivered finish requires a nonempty prs array or a no_change reason')
         if evidence.get('comment_action_id') is not None:
             _text(evidence['comment_action_id'], 'comment_action_id')
 
@@ -3470,8 +3475,21 @@ class Ledger:
                         raise LedgerError("prs must be an array of PR URLs")
                     if not task_prs.issubset(set(prs)):
                         raise LedgerError("general delivery must include every presentation task's draft PRs")
+                    from .presentation_artifacts import require_parent_integrations
+                    require_parent_integrations(self, self._view(row))
             chat = row["skill"] == "chat"
-            if row["skill"] == "fgui" and outcome == "delivered" and not evidence.get("no_change"):
+            source_delivery = bool(evidence.get('ui_source_delivery_id'))
+            if source_delivery:
+                from .presentation_artifacts import source_proof
+                if row['skill'] != 'fgui' or not row['parent_id'] or outcome != 'delivered' or evidence.get('no_change'):
+                    raise LedgerError('source delivery belongs only to an internal FGUI task')
+                proof = source_proof(self, self._view(row), delivery_id=evidence['ui_source_delivery_id'])
+                if proof['prs'] != evidence.get('prs') or proof['receipt_id'] != evidence.get('receipt_id'):
+                    raise LedgerError('source delivery must retain its certified receipt and source draft')
+            if row["skill"] == "fgui" and outcome == "delivered" and not evidence.get("no_change") and not source_delivery:
+                from .presentation_contract import source_only
+                if source_only(row):
+                    raise LedgerError('FGUI source tasks require certified source delivery')
                 proofs = [json.loads(proof["details"]) for proof in self.connection.execute(
                     "SELECT details FROM audit WHERE item_id=? AND kind='fgui_delivery_verified'", (item_id,))]
                 if not any(proof.get("delivery_id") == evidence.get("ui_delivery_id")
@@ -3496,7 +3514,9 @@ class Ledger:
                         if prs:
                             raise LedgerError("a no_change task carries no PR")
                     elif not prs:
-                        raise LedgerError("task delivery requires PRs or an explicit no_change reason")
+                        from .presentation_contract import request
+                        if not (row['skill'] == 'scene' and request(row).get('_contract') == 'presentation-v1'):
+                            raise LedgerError("task delivery requires PRs or an explicit no_change reason")
                     if row["skill"] == "scene":
                         proofs = [json.loads(proof["details"]) for proof in self.connection.execute(
                             "SELECT details FROM audit WHERE item_id=? AND kind='scene_delivery_verified'", (item_id,))]

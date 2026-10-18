@@ -13,7 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def instructions(skill):
-    return " ".join((ROOT / "skills" / skill / "SKILL.md").read_text(encoding="utf-8").split())
+    text = (ROOT / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+    if skill == 'feature':
+        assert '../work/code-stages.md' in text
+        text += (ROOT / 'skills/work/code-stages.md').read_text(encoding='utf-8')
+    return " ".join(text.split())
 
 
 class WorkflowJudgmentTests(unittest.TestCase):

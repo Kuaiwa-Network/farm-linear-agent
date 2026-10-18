@@ -218,6 +218,12 @@ class Scheduler:
                 try:
                     client_ready(self.ledger, self.ledger._row(item["id"]))
                 except LedgerError:
+                    from .presentation_contract import dependencies_ready
+                    if item.get('parent_id') and not dependencies_ready(self.ledger, item):
+                        if item['stage'] != 'waiting-presentation-dependency':
+                            with self.ledger._transaction():
+                                self.ledger._set_state(item['id'], 'queued', 'waiting for declared presentation artifacts and installation',
+                                                      stage='waiting-presentation-dependency')
                     return None
         write_repos = write_repositories(item, skill)
         issue = self.ledger.issue(item["issue_id"])
@@ -771,7 +777,8 @@ class Scheduler:
         if item["skill"] == "scene":
             kind, evidence_key = "scene_delivery_verified", "scene_delivery_id"
         elif item["skill"] == "fgui":
-            kind, evidence_key = (("fgui_no_change_verified", "ui_no_change_id") if evidence.get("no_change") else
+            kind, evidence_key = (("fgui_source_verified", "ui_source_delivery_id") if evidence.get('ui_source_delivery_id') else
+                                  ("fgui_no_change_verified", "ui_no_change_id") if evidence.get("no_change") else
                                   ("fgui_delivery_verified", "ui_delivery_id"))
         else:
             raise TaskDeliveryMismatch("presentation delivery has no supported controller proof")
@@ -782,7 +789,11 @@ class Scheduler:
                       and value.get("fingerprint") == row["claimed_fingerprint"]), None)
         if proof is None:
             raise TaskDeliveryMismatch("presentation teardown requires its current controller delivery proof")
-        if kind == "fgui_no_change_verified":
+        if kind == 'fgui_source_verified':
+            from .presentation_artifacts import source_proof
+            proof = source_proof(self.ledger, item)
+            heads, branches = proof['heads'], proof['branches']
+        elif kind == "fgui_no_change_verified":
             heads, branches = proof.get("heads"), proof.get("branches")
             if proof.get("baseline") != item.get("task_client_base"):
                 raise TaskDeliveryMismatch("unchanged UI teardown must retain its original Client entry baseline")

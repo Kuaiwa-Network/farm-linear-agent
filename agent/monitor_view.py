@@ -19,7 +19,7 @@ TERMINAL = ("delivered", "blocked", "failed", "cancelled")
 VERDICTS = ("ok", "attention", "starting", "unresponsive", "stopped", "unknown")
 DISPLAY_STATES = ("queued", "launching", "switching_repo", "retry_wait", "running", "awaiting_input",
                   "awaiting_resource", "waiting_for_recovery", "maintenance_paused", "maintenance_handoff",
-                  "acceptance_paused")
+                  "acceptance_paused", 'waiting_presentation', 'waiting_parent_repair')
 OUTCOMES = ("delivered", "no_change", "blocked", "failed", "cancelled")
 FAILURE_CODES = ("worker_launch_failed", "worker_start_failed", "worker_claim_timeout", "worker_exit_failed",
                  "model_capacity_exhausted", "skill_disabled", "job_failed")
@@ -132,6 +132,8 @@ def _identifiers(db, item_ids):
 def _active_rows(db, schema):
     extra = [name for name in OPTIONAL_ITEM_COLUMNS if name in schema["work_items"]]
     columns = ", ".join(f"w.{name}" for name in ("id", "issue_id", "skill", "state", "stage", "created_at", *extra))
+    if 'checkpoint' in schema['work_items']:
+        columns += ", CASE WHEN json_valid(w.checkpoint) THEN json_extract(w.checkpoint,'$.waiting_tasks') ELSE 0 END AS waiting_tasks"
     rows = [dict(row) for row in db.execute(
         f"""SELECT {columns}, {_ISSUE_FIELDS} FROM work_items w JOIN issues i ON i.id=w.issue_id
             WHERE w.state IN ({_marks(ACTIVE)}) ORDER BY w.created_at, w.id""", ACTIVE)]
@@ -179,6 +181,11 @@ def _unity_queue(db, schema):
 
 
 def _display_state(row, now):
+    if row['state'] == 'awaiting_input' and row['stage'] == 'waiting-parent-repair':
+        return 'waiting_parent_repair'
+    if (row['state'] == 'awaiting_input' and row.get('waiting_tasks')
+            or row['state'] == 'queued' and row['stage'] == 'waiting-presentation-dependency'):
+        return 'waiting_presentation'
     if row["state"] == "queued":
         if row["worker_pid"] is not None:
             return "switching_repo" if row["next_root_repo"] else "launching"

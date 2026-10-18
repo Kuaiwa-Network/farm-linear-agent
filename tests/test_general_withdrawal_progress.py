@@ -29,7 +29,7 @@ class GeneralWithdrawalProgressTests(unittest.TestCase):
 
     def task(self, key, *, waiting=False):
         task = delegate_task(self.ledger, self.parent, self.token,
-                             {"key": key, "capability": "scene", "instructions": "Follow the shared spec."})
+                             {"key": key, "capability": "scene", "scope": {"assets": ["Assets/nursery.prefab"], "validation": "source"}, "instructions": "Follow the shared spec."})
         self.ledger.set_worker(task["id"], 502, "h", lease_seconds=2700)
         token = self.ledger.claim(task["id"], worker_id=key)["token"]
         self.child_tokens[task['id']] = token

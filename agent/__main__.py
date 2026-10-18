@@ -85,6 +85,11 @@ def parser():
     review_ui = cmd("review-ui", "--item", "--preview", "--asset-url", "--packages", token=True)
     review_ui.add_argument("--round", type=int, required=True)
     cmd("export-ui", "--item", "--review-id", "--preview", token=True)
+    cmd('verify-ui-source', '--item', token=True)
+    cmd('verify-scene-assets', '--item', token=True)
+    cmd('authorize-scene-scope', '--item', '--task', '--input', token=True)
+    cmd('yield-presentation', '--item', '--input', token=True)
+    cmd('resume-presentation', '--item', '--task', token=True)
     cmd("install-ui", "--item", "--receipt-id", token=True)
     verify_ui = cmd("verify-ui", "--item", "--receipt-id", token=True)
     verify_ui.add_argument("--commit", required=True)
@@ -815,7 +820,35 @@ def run(args, ledger, api_factory):
                 # own thread the acknowledgement is a thought, and the job speaks there next.
                 owe_closing(ledger, item, content, exc)
         return resumed
-    if c in ("review-ui", "export-ui", "install-ui", "verify-ui", "verify-ui-loading", "verify-ui-guards",
+    if c in ('verify-scene-assets', 'authorize-scene-scope', 'yield-presentation', 'resume-presentation'):
+        token = resolve_token(args)
+        config = load_config(secure_permissions=False)
+        paths = Paths(config)
+        if Path(args.db).resolve() != paths.ledger.resolve():
+            raise LedgerError('scene checks must use the configured host ledger')
+        from .scene_scope import authorize, verify_loading
+        if c == 'verify-scene-assets':
+            return verify_loading(ledger, args.item, token, config, api_factory)
+        from .launcher import Launcher, RUNTIMES
+        from .fgui_workflow import read_packages
+        api = api_factory()
+        issue = api.fetch_issue(ledger.item(args.item)['issue_id'])
+        observed = ledger.observe_issue(issue)
+        if (not observed['in_scope'] or issue.get('status_type') in TERMINAL_STATUS_TYPES
+                or not api.app_user_id or issue.get('delegate_id') != api.app_user_id or issue.get('archived')):
+            raise LedgerError('scene scope requires current delegation')
+        if c in ('yield-presentation', 'resume-presentation'):
+            from .presentation_repair import yield_client, resume
+            from .workflow import JobWorktrees
+            from .worktrees import Worktrees
+            trees = JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger)
+            if c == 'yield-presentation':
+                return yield_client(ledger, args.item, token, trees, config, read_packages(args.input, paths.runs / args.item))
+            return resume(ledger, args.item, token, args.task, trees, config,
+                          Launcher(paths.runs, RUNTIMES[config.runtime], config.host))
+        return authorize(ledger, args.item, token, args.task, read_packages(args.input, paths.runs / args.item),
+                         Launcher(paths.runs, RUNTIMES[config.runtime], config.host))
+    if c in ("review-ui", "export-ui", "install-ui", "verify-ui", "verify-ui-loading", "verify-ui-guards", 'verify-ui-source',
              "ui-verification-status", "authorize-ui-guard-repair"):
         token = resolve_token(args)
         ledger.renew(args.item, token)
@@ -827,8 +860,17 @@ def run(args, ledger, api_factory):
         from .skills import load_skills
         from .fgui_workflow import UiWorkflow, read_packages
         skill = load_skills(ROOT / "skills").get(ledger.item(args.item)["skill"])
+        source_stage = (c in ('review-ui', 'export-ui') or c == 'verify-ui-source'
+                        and ledger.item(args.item)['root_repo'] in (None, 'farmgui'))
         workflow = UiWorkflow(ledger, args.item, token, config, skill, api_factory,
-                              stage="farmgui" if c in ("review-ui", "export-ui") else "Farm-Client")
+                              stage="farmgui" if source_stage else "Farm-Client",
+                              receipt_id=getattr(args, 'receipt_id', None), consume=c == 'install-ui')
+        if c == 'verify-ui-source':
+            from .presentation_artifacts import verify_source_delivery
+            from .fgui_records import export_record
+            ui = ledger.item(args.item)['checkpoint'].get('plan', {}).get('ui', {})
+            proof = export_record(ledger, args.item, ui.get('receipt_id'))
+            return verify_source_delivery(workflow, [proof['source_pr']])
         if c == "authorize-ui-guard-repair":
             from .fgui_repair import authorize_repair
             return authorize_repair(workflow, args.receipt_id, read_packages(args.input, paths.runs / args.item))
@@ -1247,6 +1289,14 @@ def run(args, ledger, api_factory):
             return {'input_valid': True, 'completion_checked': False,
                     'maintenance_requested': item['maintenance_requested'],
                     'next': 'Complete live gates and confirmed delivery, then run finish without --check-input.'}
+        if item['skill'] == 'work' and args.outcome == 'delivered':
+            from .presentation_artifacts import verify_parent_head
+            from .workflow import task_views
+            if any((t.get('evidence') or {}).get('ui_source_delivery_id') for t in task_views(ledger, args.item)):
+                config = load_config(secure_permissions=False)
+                if Path(args.db).resolve() != Paths(config).ledger.resolve():
+                    raise LedgerError('parent integration delivery must use the configured host ledger')
+                verify_parent_head(ledger, item, config)
         if args.check_ready:
             return {**ledger.finish(args.item, token, args.outcome, evidence, check_only=True),
                     'maintenance_requested': item['maintenance_requested']}
@@ -1259,8 +1309,14 @@ def run(args, ledger, api_factory):
             if Path(args.db).resolve() != Paths(config).ledger.resolve():
                 raise LedgerError("UI delivery must use the configured host ledger")
             workflow = UiWorkflow(ledger, args.item, token, config, load_skills(ROOT / "skills").get("fgui"),
-                                  api_factory, stage="Farm-Client")
-            evidence["ui_delivery_id"] = verify_delivery(workflow, evidence.get("prs"))["delivery_id"]
+                                  api_factory, stage='farmgui' if item['root_repo'] in (None, 'farmgui') else 'Farm-Client')
+            from .presentation_contract import source_only
+            if item.get('parent_id') and (source_only(item) or evidence.get('source_only') is True):
+                from .presentation_artifacts import verify_source_delivery
+                proof = verify_source_delivery(workflow, evidence.get('prs'))
+                evidence.update(ui_source_delivery_id=proof['delivery_id'], receipt_id=proof['receipt_id'])
+            else:
+                evidence["ui_delivery_id"] = verify_delivery(workflow, evidence.get("prs"))["delivery_id"]
         if item["skill"] == "scene" and args.outcome == "delivered":
             from .scene_delivery import verify_delivery
             config = load_config(secure_permissions=False)
