@@ -22,8 +22,9 @@ The worker receives owned worktrees for Farm-Contract, common, farm-hive,
 farmgui and Farm-Client together. It reads repository instructions and handles the
 necessary source, UI, metadata, generated files, tests and CI registration.
 Changing repositories does not retire the claim or launch another process.
-This first rollout serializes write jobs. Chat can run independently within host
-capacity. Native Codex subagent tools are enabled in the isolated worker config;
+Independent issue owners and chat share the host's `max_concurrent` limit. Each
+issue keeps its own worktrees and claim; a resource wait retains its worker seat.
+Historical staged writers cannot overlap current owners. Native Codex subagent tools are enabled in the isolated worker config;
 the main worker chooses when to delegate independent work. It supplies scope,
 owned paths, repository instructions and relevant decisions, coordinates shared
 writes and dependencies, and integrates and verifies the results. Helpers follow
@@ -141,6 +142,13 @@ removed a checkout, controller-owned recovery refs retain unpublished commits
 and dirty work snapshots; a successor follows the same issue's certified
 predecessor chain, never silently starts over at newer main.
 
+The host may repeat `maintenance-resume --only-issue` for 1 to 32 distinct known
+issues. Selection is atomic and refuses live workers or acquired resources outside
+the group. Claim, worker launch, both resource queues and Monitor use the same
+durable issue IDs. Monitor reports the complete selected list and excludes held
+issues from queue positions. Selection does not answer a human question, adopt a
+historical job, or change its candidate.
+
 ## Migration and recovery
 
 The schema adds `work_items.execution_contract`. Existing rows remain
@@ -174,6 +182,10 @@ requires another settled maintenance stop and a state/release recovery plan;
 never start old code against new-contract active jobs. A backup must be restored
 as one consistent instance, with its ownership marker and resource evidence.
 No task state, resource, worktree or report is deleted merely by this migration.
+Multi-issue admission adds no schema migration; single-issue audit records remain
+compatible. Older releases reject a multi-issue scope rather than admit everything.
+Before rolling back to one, settle maintenance and explicitly select a supported
+single issue (or restore unrestricted admission only with operator authorization).
 
 ## Development and validation
 

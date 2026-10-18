@@ -7,7 +7,8 @@ feature across all necessary repositories, UI changes, tests and draft delivery.
 The worker stays alive while waiting for Unity or server services. It tests the
 candidate first; baseline testing is optional diagnosis. There are no compulsory
 repository handoffs, presentation subtasks or semantic closeout approvals.
-This first rollout runs one write job at a time. The main worker chooses when
+Independent issues share the configured `max_concurrent` worker limit.
+The main worker chooses when
 native Codex subagents help and remains responsible for integration and delivery.
 
 Read [the operating contract](docs/operating-contract.md),
@@ -89,6 +90,13 @@ Adoption preserves the item, source, reports and real unresolved human questions
 It does not itself resume the queue or grant an answer. Other issues stay paused
 under `--only-issue`, including after the selected issue finishes. Only an explicit
 ordinary `maintenance-resume` removes that restriction.
+
+Repeat `--only-issue` to admit a selected group concurrently, for example
+`maintenance-resume --config C:\FarmBot\config.json --only-issue FARM-1 --only-issue FARM-2`.
+Each issue retains its own main worker, claim and worktrees. Waiting for Unity or
+server services keeps that worker's seat; resources still use their existing
+capacity, FIFO and quiescence checks. Unlisted issues remain paused after restart
+and after every selected issue finishes.
 
 See [migration and recovery](docs/operating-contract.md#migration-and-recovery)
 before upgrading or rolling back. Old code cannot simply resume new-contract

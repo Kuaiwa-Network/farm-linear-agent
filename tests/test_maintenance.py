@@ -90,7 +90,7 @@ class MaintenanceTests(unittest.TestCase):
         self.assertTrue(self.store.may_launch(self.id))
         self.assertFalse(self.store.may_launch(other['id']))
         self.assertIsNone(self.scheduler.launch(other))
-        with self.assertRaisesRegex(LedgerError, 'single-issue'):
+        with self.assertRaisesRegex(LedgerError, 'acceptance scope'):
             self.ledger.claim(other['id'], worker_id='raced-launch')
         with closing(Ledger(self.path, clock=lambda:self.now)) as restarted:
             self.assertFalse(Maintenance(restarted).may_launch(other['id']))
@@ -118,6 +118,31 @@ class MaintenanceTests(unittest.TestCase):
 
     def test_single_issue_server_queue_preserves_other_issue_position_and_candidate(self):
         self.assert_scoped_resource_queue('server_slot')
+
+    def assert_group_resource_queue(self, kind):
+        second = self.other_issue()
+        third = '10000000-0000-4000-8000-000000000003'
+        self.ledger.observe_issue(issue(third, identifier='FARM-3'))
+        self.ledger.ensure_session('session-3', third, delegation=True)
+        outside = self.ledger.create_work_item(issue_id=third, session_id='session-3', skill='fix',
+                                               target=PIN, execution_contract='staged-v1')
+        older = self.queue_resource(outside['id'], kind)
+        first = self.queue_resource(self.id, kind)
+        self.queue_resource(second['id'], kind)
+        before = self.ledger.reservation(older['reservation_id'])
+        self.store.pause('selected group')
+        self.store.resume(only_issue=['FARM-1', 'FARM-2'])
+        self.assertEqual([r['item_id'] for r in self.ledger.reservation_queue(kind)], [self.id, second['id']])
+        self.ledger.ensure_slot(kind+':1', kind=kind, host='h', folder=str(self.root/'slot'))
+        grant = self.ledger.acquire(kind, host='h', owner='pool', expected_reservation=first['reservation_id'])
+        self.assertEqual(grant['item_id'], self.id)
+        self.assertEqual(self.ledger.reservation(older['reservation_id']), before)
+
+    def test_group_unity_admission_preserves_outside_candidate_and_fifo(self):
+        self.assert_group_resource_queue('unity_slot')
+
+    def test_group_server_admission_preserves_outside_candidate_and_fifo(self):
+        self.assert_group_resource_queue('server_slot')
 
     def test_single_issue_scope_accepts_same_issue_tasks_and_never_a_different_issue(self):
         other = self.other_issue()

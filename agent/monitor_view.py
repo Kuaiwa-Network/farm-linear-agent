@@ -294,9 +294,9 @@ def _resource_waits(db, schema, now, beat_state, beat):
 
 
 def _jobs(rows, times, prs, unity_queue, now, beat_state, beat, renew_seconds, resource_waits=None,
-          maintenance=False, admitted=(), only_issue=None, scope_issue_id=None):
+          maintenance=False, admitted=(), only_issue=None, scope_issue_ids=()):
     waiting = sorted((row for row in rows if _display_state(row, now) == "queued"
-                      and (only_issue is None or row['issue_id'] == scope_issue_id)),
+                      and (only_issue is None or row['issue_id'] in scope_issue_ids)),
                      key=lambda row: (row["priority"] if type(row["priority"]) is int else 0,
                                       _time(row["created_at"]) or 0, row["id"]))
     positions = {row["id"]: index for index, row in enumerate(waiting, 1)}
@@ -314,7 +314,7 @@ def _jobs(rows, times, prs, unity_queue, now, beat_state, beat, renew_seconds, r
             display = ('maintenance_handoff' if row['state'] == 'running' or row['worker_pid'] is not None
                        or row['id'] in admitted else 'maintenance_paused')
             position, server_wait = None, None
-        elif only_issue and row['issue_id'] != scope_issue_id and row['state'] in ('queued', 'awaiting_resource'):
+        elif only_issue and row['issue_id'] not in scope_issue_ids and row['state'] in ('queued', 'awaiting_resource'):
             display = 'acceptance_paused'
             position, server_wait = None, None
         jobs.append({"identifier": _text(row["identifier"], 32), "title": _text(row["title"], 200),
@@ -492,7 +492,7 @@ def _read_ledger(db, now, beat_state, beat, renew_seconds):
         counts[row["state"]] += 1
     service = {}
     from .maintenance import request as maintenance_request
-    from .admission_scope import read as admission_scope
+    from .admission_scope import read as admission_scope, issue_ids, identifiers
     scope = admission_scope(db)
     maintaining = maintenance_request(db) is not None
     admitted = ({r['item_id'] for r in db.execute("SELECT item_id FROM reservations WHERE state IN "
@@ -506,8 +506,8 @@ def _read_ledger(db, now, beat_state, beat, renew_seconds):
         service["linear"] = {"last_ok_at": _time(row["ok"]), "failing_issues": row["failing"]}
     jobs = _jobs(rows, _audit_times(db, schema, [row["id"] for row in rows]), prs, queue or [], now,
                  beat_state, beat, renew_seconds, _resource_waits(db, schema, now, beat_state, beat),
-                 maintenance=maintaining, admitted=admitted, only_issue=scope['identifier'] if scope else None,
-                 scope_issue_id=scope['issue_id'] if scope else None)
+                 maintenance=maintaining, admitted=admitted, only_issue=', '.join(identifiers(scope)) if scope else None,
+                 scope_issue_ids=issue_ids(scope) if scope else ())
     sections = {"counts": counts, "active": jobs,
                 "slots": None if slots is None else [{key: slot[key] for key in SLOT_FIELDS} for slot in slots],
                 "unity_queue": None if queue is None else len(queue),

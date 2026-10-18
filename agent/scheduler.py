@@ -901,7 +901,7 @@ class Scheduler:
             except Exception:
                 ledger.unity_wait_stage(request["reservation_id"], "waiting-for-worker-teardown")
                 return None
-            skill = self.skills.get(item["skill"])
+            skill = skill_for(item, self.skills.get(item["skill"]))
             # Disabled skills retain the existing queued-launch refusal/cleanup
             # path after hand-over, rather than getting stranded in resource wait.
             if skill and not item.get("parent_id") and skill.exclusive and self._exclusive_running(ledger=ledger):
@@ -926,6 +926,14 @@ class Scheduler:
                 ledger.unity_wait_stage(request["reservation_id"], "waiting-for-unity")
             return reservation
 
+    def _mixed_writer_running(self, item):
+        """Historical staged writers cannot overlap the current all-repository owner."""
+        if item['skill'] == 'chat':
+            return False
+        return any(other['skill'] != 'chat' and single(other) != single(item)
+                   for key in self.active if key != item['id']
+                   for other in (self.ledger.item(key),))
+
     def _exclusive_running(self, *, ledger=None, exclude=None):
         """Keep the legacy exclusive lane independent of general-job capabilities.
 
@@ -939,7 +947,7 @@ class Scheduler:
             item = ledger.item(item_id)
             if item.get("parent_id"):
                 continue
-            skill = self.skills.get(item["skill"])
+            skill = skill_for(item, self.skills.get(item["skill"]))
             if skill is not None and skill.exclusive:
                 return True
         return False
@@ -1022,15 +1030,13 @@ class Scheduler:
                     continue  # a prepared Unity worker later in the queue owns this seat
                 if item["skill"] not in self.skills or item["id"] in self.active:
                     continue
-                # The initial rollout runs one issue owner at a time, including
-                # a worker waiting for its resource. Chat remains independent.
-                if item['skill'] != 'chat' and any(
-                        self.ledger.item(key)['skill'] != 'chat' for key in self.active):
-                    if single(item) or any(single(self.ledger.item(key)) for key in self.active):
-                        continue
+                # Current owners have isolated issue worktrees and share the
+                # ordinary worker cap. Resource wait retains the same seat.
+                if self._mixed_writer_running(item):
+                    continue
                 # At most one attempt of any exclusive skill at a time (spec §5.8, D16; P8). A waiting one is only
                 # passed over, so it keeps its place in the queue, and fix and chat go on up to max_concurrent.
-                if not item.get("parent_id") and self.skills[item["skill"]].exclusive and self._exclusive_running(exclude=item["id"]):
+                if not item.get("parent_id") and skill_for(item, self.skills[item["skill"]]).exclusive and self._exclusive_running(exclude=item["id"]):
                     continue
                 if not single(item):
                     prepare_coordination(self.ledger, item['id'], self.launcher, self.active)
@@ -1068,7 +1074,9 @@ class Scheduler:
                 if (len(self.active) >= self.max_concurrent or
                         item["id"] not in reserved and len(set(self.active) | reserved) >= self.max_concurrent):
                     continue
-                if (not item.get("parent_id") and self.skills[item["skill"]].exclusive
+                if self._mixed_writer_running(item):
+                    continue
+                if (not item.get("parent_id") and skill_for(item, self.skills[item["skill"]]).exclusive
                         and self._exclusive_running(exclude=item["id"])):
                     continue
                 try:
