@@ -25,5 +25,5 @@
     "renew_minutes": 10
   },
   "opt_in": false,
-  "exclusive": true
+  "exclusive": false
 }

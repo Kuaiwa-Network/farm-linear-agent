@@ -396,7 +396,7 @@
       if (wait) main.append(el("div", "muted", wait));
       if (job.prs.length) main.append(prLinks(job.prs));
       let state = label;
-      if (job.display_state === 'acceptance_paused' && job.waiting_for_issue) state = `等待 ${job.waiting_for_issue} 验收完成`;
+      if (job.display_state === 'acceptance_paused' && job.waiting_for_issue) state = `本轮仅放行 ${job.waiting_for_issue}，此任务暂停`;
       if (job.queue_position) state += ` · 第 ${job.queue_position} 位`;
       if (job.retry_at) state += ` · ${clock(job.retry_at)}`;
       const status = cell("state", pill(state, tone));

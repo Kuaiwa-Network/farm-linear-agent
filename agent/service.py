@@ -455,7 +455,7 @@ def main(argv=None):
     parser.add_argument("--config")
     parser.add_argument("--from", dest="source_root", help="directory holding local checkouts to seed from")
     parser.add_argument("--issue", help="Linear issue id or identifier to enqueue work for")
-    parser.add_argument("--only-issue", help="maintenance-resume only: run this known issue and its tasks first")
+    parser.add_argument("--only-issue", action='append', help="maintenance-resume only: allow this known issue; repeat for a selected group")
     parser.add_argument("--skill", default="work")
     parser.add_argument("--commit", help="pin this commit instead of resolving the default branch")
     parser.add_argument("--item", help="work item selected for an explicit host recovery command")
@@ -511,7 +511,8 @@ def main(argv=None):
                 if args.command == 'maintenance-pause':
                     Maintenance(ledger).pause(args.reason)
                 else:
-                    Maintenance(ledger).resume(only_issue=args.only_issue)
+                    selected = args.only_issue
+                    Maintenance(ledger).resume(only_issue=selected[0] if selected and len(selected) == 1 else selected)
             finally:
                 ledger.close()
         print(json.dumps(read_status(config), ensure_ascii=False, indent=2))

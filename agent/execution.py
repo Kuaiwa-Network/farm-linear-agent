@@ -30,7 +30,7 @@ def skill_for(item, skill):
             return _load_one(skill.path.parent / 'legacy' / 'work')
         return skill
     return replace(skill, writes=REPOSITORIES, reads=(), staged=False,
-                   initial_root=None, gates=(), exclusive=True)
+                   initial_root=None, gates=(), exclusive=False)
 
 
 def validate_progress(progress):
