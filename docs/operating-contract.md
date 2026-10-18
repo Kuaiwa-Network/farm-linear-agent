@@ -115,6 +115,14 @@ loopback services. Local tests that need no services need no server reservation.
 Docker administration remains host-owned. Server cleanup retains the existing
 process-quiescence requirement; containers can remain reserved for cleanup until
 the worker exits. This release does not claim immediate container reuse.
+Released or cancelled reservations from an older worker generation can settle
+after a finish/requeue handoff, including after controller restart. Cleanup still
+verifies the lease's exact Docker identities and ownership and waits for all
+recorded worker attempts, including a running successor. It preserves the cleaned
+journal without changing the successor's claim or reservation. Open reservations
+with mismatched generations and reservations ahead of the current generation
+remain held. No schema migration is needed; already-held slots still require
+guarded `recover-server-slot` after the controller stops.
 The existing one-open-reservation-per-job limit is retained; simultaneous Unity
 and managed server reservations are not introduced in this first rollout.
 
