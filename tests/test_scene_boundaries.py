@@ -90,6 +90,13 @@ class SceneBoundaryTests(unittest.TestCase):
             with self.subTest(paths=paths), self.assertRaises(LedgerError):
                 validate_scope({'assets': paths, 'validation': 'source'})
 
+    def test_stale_child_claim_cannot_request_parent_repairs(self):
+        f = self.f
+        f.ledger.connection.execute("UPDATE work_items SET claimed_fingerprint='stale' WHERE id=?", (f.task,))
+        with self.assertRaisesRegex(LedgerError, 'changed issue inputs'):
+            yield_client(f.ledger, f.task, f.token, self.trees, f.config,
+                         {'reason': 'Existing metadata needs parent repair', 'paths': ['Assets/Existing.cs.meta']})
+
     def test_parent_repairs_only_named_prerequisite_after_child_exit_without_repinning(self):
         f = self.f
         f.changed()

@@ -4,6 +4,7 @@ import re
 from uuid import uuid4
 
 from .ledger import LedgerError, _json
+from .presentation_contract import current_claim
 
 
 def pending(ledger, item_id):
@@ -38,8 +39,7 @@ def yield_client(ledger, item_id, token, trees, config, value):
                        for s in p.split('/')) or p.casefold() in seen):
             raise LedgerError('prerequisite repair paths must be repository-relative ordinary files')
         seen.add(p.casefold())
-    row = ledger._owned(item_id, token)
-    ledger._refuse_withdrawn(row)
+    row = current_claim(ledger, item_id, token)
     item = ledger.item(item_id)
     if row['skill'] != 'scene' or not row['parent_id'] or row['root_repo'] not in (None, 'Farm-Client'):
         raise LedgerError('Client prerequisite yield belongs to scene tasks; FGUI delivers its source artifact')
@@ -55,7 +55,7 @@ def yield_client(ledger, item_id, token, trees, config, value):
     if checkpoint.get('pending_question') or checkpoint.get('human_question'):
         raise LedgerError('resolve real human decisions before requesting a technical repair')
     with ledger._transaction():
-        ledger._refuse_withdrawn(ledger._owned(item_id, token))
+        current_claim(ledger, item_id, token)
         ledger.require_valid_checkpoint(item_id, token)
         proof = {'yield_id': uuid4().hex, 'generation': row['generation'], 'commit': commit,
                  'branch': branch, 'reason': value['reason'], 'paths': sorted(set(paths))}
@@ -68,8 +68,7 @@ def yield_client(ledger, item_id, token, trees, config, value):
 
 def resume(ledger, parent_id, token, task_key, trees, config, launcher):
     from .workflow import repository_path
-    parent = ledger._owned(parent_id, token)
-    ledger._refuse_withdrawn(parent)
+    parent = current_claim(ledger, parent_id, token)
     if parent['skill'] != 'work' or parent['parent_id'] or parent['root_repo'] != 'Farm-Client':
         raise LedgerError('only the parent Client stage may finish a prerequisite repair')
     task = ledger.connection.execute('SELECT id FROM work_items WHERE parent_id=? AND task_key=?',
@@ -91,7 +90,7 @@ def resume(ledger, parent_id, token, task_key, trees, config, launcher):
     if not changed or changed - set(proof['paths']):
         raise LedgerError('parent repair must change only the named prerequisite paths')
     with ledger._transaction():
-        ledger._refuse_withdrawn(ledger._owned(parent_id, token))
+        current_claim(ledger, parent_id, token)
         if pending(ledger, task_id) != proof:
             raise LedgerError('presentation handoff changed during repair')
         result = {'yield_id': proof['yield_id'], 'generation': proof['generation'],

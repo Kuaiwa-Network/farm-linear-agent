@@ -675,7 +675,7 @@ its wiki node token, with `sheets +workbook-info --as bot` and `sheets +cells-ge
 same configured identity. A direct spreadsheet link may be passed through `--url`. Read all tabs,
 including hidden and empty tabs, retain source coordinates and hashes, reject truncation or missing
 coverage, and verify one unchanged revision before, during and after reading as
-[`skills/feature/SKILL.md`](../skills/feature/SKILL.md) requires. These operations grant no sheet writes,
+[`skills/work/code-stages.md`](../skills/work/code-stages.md) requires. These operations grant no sheet writes,
 search, export, imports or remote scripts; a denied read names the required read-only scope and asks
 the operator. `fgui` retains only the three document/attachment reads above. No other lark-cli
 command is authorized apart from local help (`--help`, `skills read`).
@@ -1100,7 +1100,7 @@ removed its worktrees, then gets that branch itself, fetched and tracking `origi
 commits others pushed are on it, and commits of its own that were never pushed stay ahead of the
 remote. Integrate the remote before you push, never force-push.
 
-The `feature` skill's plan keys and their entry shapes are in `skills/feature/SKILL.md` ("The plan"); where they
+The shared work/feature plan keys and their entry shapes are in `skills/work/code-stages.md` ("The plan"); where they
 differ from the example above, a `feature` worker follows the skill.
 
 ## Read-only checkouts

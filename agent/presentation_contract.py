@@ -17,6 +17,15 @@ def source_only(item):
                 and request(item).get('_contract') == 'presentation-v1')
 
 
+def current_claim(ledger, item_id, token):
+    row = ledger._owned(item_id, token)
+    ledger._refuse_withdrawn(row)
+    if (row['requeue_requested']
+            or row['claimed_fingerprint'] != ledger._issue_row(row['issue_id'])['fingerprint']):
+        raise LedgerError('reconcile changed issue inputs before presentation handoff')
+    return row
+
+
 def validate_scope(value):
     if not isinstance(value, dict) or set(value) != {'assets', 'validation'}:
         raise LedgerError('scene scope requires exact assets and validation (source or unity)')
@@ -56,3 +65,12 @@ def dependencies_ready(ledger, item):
             if not installation_record(ledger, item['parent_id'], receipt):
                 return False
     return True
+
+
+def uninstalled_sources(ledger, tasks):
+    """Wake the parent for partial artifacts, before dependent scenes can start."""
+    from .fgui_client import installation_record
+    return [task for task in tasks if task['state'] == 'delivered'
+            and (task.get('evidence') or {}).get('ui_source_delivery_id')
+            and (ledger.cleanup_record(task['id']) or {}).get('done')
+            and not installation_record(ledger, task['parent_id'], task['evidence'].get('receipt_id'))]

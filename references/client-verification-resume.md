@@ -11,7 +11,7 @@ This is navigation for an existing attempt, not a test verdict or a new grant.
 Read the current repository's required instructions, current human requests and
 `issue-context --view resume`. Read full context if its handoff is stale or a
 referenced decision is missing. For work/feature, use stage F and Closing in
-`skills/feature/SKILL.md`; fix uses its verification section. Read other stages
+`skills/work/code-stages.md`; fix uses its verification section. Read other stages
 only when a missing dependency, changed input or actual handoff requires them.
 
 1. Read the saved HEAD/input identities, completed gates, raw report paths and

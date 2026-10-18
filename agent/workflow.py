@@ -401,7 +401,8 @@ def prepare_coordination(ledger, item_id, launcher, active=()):
             return False
         tasks = task_views(ledger, item_id)
         from .presentation_repair import pending
-        if any(pending(ledger, task['id']) for task in tasks):
+        from .presentation_contract import uninstalled_sources
+        if any(pending(ledger, task['id']) for task in tasks) or uninstalled_sources(ledger, tasks):
             return False  # A technical repair needs the parent's Client writer, not answer-only coordination.
         if not tasks or _tasks_settled(ledger, tasks):
             return False
@@ -491,6 +492,8 @@ def wake_parent(ledger, parent_id):
         tasks = task_views(ledger, parent_id)
         settled = _tasks_settled(ledger, tasks)
         actionable = [t for t in tasks if t["state"] in ("awaiting_input", "blocked", "failed", "cancelled")]
+        from .presentation_contract import uninstalled_sources
+        actionable.extend(uninstalled_sources(ledger, tasks))
         # A task question wakes the parent once per question round. Parking again
         # while the same question awaits a person must not create a launch loop.
         signature = []

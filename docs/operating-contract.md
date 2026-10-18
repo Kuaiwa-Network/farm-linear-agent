@@ -2161,7 +2161,7 @@ session carry a delegated Bot/Code card through repository stages, one fresh Cod
 the Farm-Contract change (stage A, the initial root), farm-common declarations (stage B), config
 verification (stage C), the farm-hive server (stage D), UI readiness evidence (stage E), the Client
 (stage F) and the closing steps (stage G). The worker follows
-each repository's own rules and `skills/feature/SKILL.md`; the `feature` part of the dispatch
+each repository's own rules and `skills/work/code-stages.md`; the `feature` part of the dispatch
 AUTHORITY states its grants (see Authority).
 
 - It reads the 策划案 itself with lark-cli as FarmBot's read-only Feishu app (`lark-cli --profile PROFILE docs

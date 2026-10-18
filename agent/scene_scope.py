@@ -6,7 +6,7 @@ from pathlib import Path, PurePosixPath
 
 from .fgui_records import _canonical
 from .ledger import LedgerError, TERMINAL_STATUS_TYPES
-from .presentation_contract import request, validate_scope
+from .presentation_contract import current_claim, request, validate_scope
 from .preview_upload import _plain_path
 
 
@@ -22,8 +22,7 @@ def scope_for(ledger, item):
 
 def authorize(ledger, parent_id, token, task_key, scope, launcher):
     scope = validate_scope(scope)
-    parent = ledger._owned(parent_id, token)
-    ledger._refuse_withdrawn(parent)
+    parent = current_claim(ledger, parent_id, token)
     if parent['skill'] != 'work' or parent['parent_id']:
         raise LedgerError('only the parent can authorize scene asset scope')
     task = ledger.connection.execute('SELECT * FROM work_items WHERE parent_id=? AND task_key=?',
@@ -33,7 +32,7 @@ def authorize(ledger, parent_id, token, task_key, scope, launcher):
     pid = ledger.last_worker_pid(task['id'])
     launcher.assert_quiescent(task['id'], pid)
     with ledger._transaction():
-        ledger._refuse_withdrawn(ledger._owned(parent_id, token))
+        current_claim(ledger, parent_id, token)
         current = ledger._row(task['id'])
         if (current['state'] != task['state'] or current['token'] is not None
                 or current['generation'] != task['generation'] or ledger.last_worker_pid(task['id']) != pid):

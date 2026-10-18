@@ -833,8 +833,10 @@ def run(args, ledger, api_factory):
         from .fgui_workflow import read_packages
         api = api_factory()
         issue = api.fetch_issue(ledger.item(args.item)['issue_id'])
-        ledger.observe_issue(issue)
-        if not api.app_user_id or issue.get('delegate_id') != api.app_user_id or issue.get('archived'):
+        observed = ledger.observe_issue(issue)
+        from .ledger import TERMINAL_STATUS_TYPES
+        if (not observed['in_scope'] or issue.get('status_type') in TERMINAL_STATUS_TYPES
+                or not api.app_user_id or issue.get('delegate_id') != api.app_user_id or issue.get('archived')):
             raise LedgerError('scene scope requires current delegation')
         if c in ('yield-presentation', 'resume-presentation'):
             from .presentation_repair import yield_client, resume
