@@ -80,6 +80,17 @@ def unity(args, ledger, config, token, *, client_factory=None):
         return client._rpc('tools/list', {})
     if args.command == 'unity-read':
         return client.read_resource(args.uri)
+    if args.command == 'unity-test-result':
+        from .unity_test_result import retained_result
+        report = retained_result(client, args.job_id, reservation['acquired_at'])
+        # The read must not turn a withdrawn/released reservation into evidence
+        # certified as belonging to a still-owned candidate.
+        current = status(args, ledger, config, token)
+        if (not current.get('ready') or current.get('reservation_id') != reservation['reservation_id']
+                or current.get('commit_sha') != result['commit_sha']):
+            raise LedgerError('Unity reservation changed during report collection')
+        return {'reservation_id': reservation['reservation_id'], 'commit_sha': result['commit_sha'],
+                'instance': slot['instance'], 'report': report}
     if args.name == 'set_active_instance':
         raise LedgerError('instance selection is bound to the owned reservation')
     arguments = json.loads(Path(args.input).read_text(encoding='utf-8'))

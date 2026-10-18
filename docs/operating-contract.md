@@ -40,6 +40,10 @@ diagnostic work for an unanswered question. Advancing main, a restart, or an old
 unrelated failure does not itself require another merge or test run.
 Retained reports may be reused only when relevant code and inputs still match.
 Results, skips and limitations must be reported honestly.
+The first worker action claims and reads resume context, before investigation.
+Issue attachments use the authenticated download helper and private local cache.
+Final verification follows settled generated assets and test inputs; exploratory
+runs are reusable only when the relevant inputs still match.
 
 No A–G stage matrix, separate semantic verifier, comparison verdict, evidence
 index, UI receipt or technical closeout approval is required. A checkpoint is
@@ -87,6 +91,13 @@ Readiness is published to that same claim. No second worker needs admission.
 The CLI bridge selects the owned Unity instance for each operation; it preserves
 raw tool output and does not retry ambiguous mutations. The worker never edits
 slot directories or launches/kills shared Editors.
+`unity-test-result` reads a bounded retained report for an exact test job in the
+owned ready instance, including failed runs hidden by the plugin's ordinary job
+response. It rejects tests predating that reservation and rechecks ownership after
+collection. It does not launch tests, release resources or certify acceptance.
+Missing results stay unavailable; truncation is explicit. Keep reports private and
+release a quiet Editor before PR prose or remote CI waiting. No database migration
+or plugin/cache modification is involved; unsupported plugin APIs fail explicitly.
 
 For server tests, request services only when needed, using an explicit scoped
 package/test/race plan. The worker runs the actual commands against isolated

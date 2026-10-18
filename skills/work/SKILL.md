@@ -29,10 +29,13 @@ do not use the retired controller-managed presentation task workflow. Settle
 helpers before parking, releasing resources they use, handoff or finish, and
 save their completed work in your checkpoint for recovery.
 
-Read [the concise CLI guide](../../references/single-worker-cli.md). Claim once
-using `startup.start_argv`; it saves the token privately. Use `execution.python`
+Claim once first using `startup.start_argv`; it saves the token privately and
+returns the resume context. Then read [the concise CLI guide](../../references/single-worker-cli.md)
+and relevant repository instructions. Use `execution.python`
 with argument arrays and `--token-file`, never put a token in logs. Renew normally,
 and before expensive operations. Post concise progress when something changes.
+Download issue attachments with `download-uploads` into `state_dir`; the helper
+handles authentication and safe local names. Reuse its intact local files.
 
 Test the candidate and its affected behavior first. Follow real repository test
 requirements. Decide whether a failure is related using the actual diff, failure
@@ -42,6 +45,10 @@ the delivery; they do not create an automatic whole-suite repair project.
 Never turn missing results into a pass. Reuse reports when candidate and relevant
 inputs still match. Maintenance, a diagnostic run, renamed tests or main moving
 does not alone justify another full run or merge.
+Finalize generated output and test inputs before the final verification run.
+An exploratory result may be reused only if those inputs still match. Check the
+repository's native toolchain before running a bundled executable: fresh worktrees
+may contain an LFS pointer instead of the binary. Preserve version/schema checks.
 
 For Unity, request a slot at the clean committed candidate, stay in this worker,
 and poll `resource-status`. When ready, use `unity-tools` to discover schemas and
@@ -49,6 +56,10 @@ and poll `resource-status`. When ready, use `unity-tools` to discover schemas an
 results and needed UI observations in that same reservation. Reconcile a lost
 test-start response before retrying. Leave tests finished, Edit Mode idle and
 compilation quiet before releasing. Never operate shared Editor processes yourself.
+If a terminal `get_test_job` response has no result, use `unity-test-result` with
+the exact job ID while still owning the reservation. It reads retained results
+without rerunning tests; unavailable or truncated evidence must be stated honestly.
+Save the report and release safely before PR drafting or remote CI waiting.
 If a resource is held for recovery, preserve reports, checkpoint and exit as
 instructed by the resource response; do not repeatedly poll or start another test.
 If maintenance arrives while a request is still queued, cancel that request;

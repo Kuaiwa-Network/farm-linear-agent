@@ -223,6 +223,15 @@ class SingleWorkerTests(LedgerBase):
         self.assertIn('Settle helpers before parking', prompt)
         self.assertIn('Draft/update contracts yourself when requirements are clear', prompt)
         self.assertIn('Normal resource queueing is not a human question', prompt)
+        from agent.__main__ import parser
+        start = payload['startup']['start_argv']
+        claimed = parser().parse_args(start[3:])
+        self.assertEqual((claimed.command, claimed.item, claimed.context), ('claim', self.key, True))
+        self.assertEqual(claimed.save_token, str(self.launcher.state_dir(self.key) / 'token'))
+        self.assertIn('First run startup.start_argv once', prompt)
+        self.assertIn('download-uploads', prompt)
+        self.assertIn('unity-test-result', prompt)
+        self.assertIn('missing results never justify a pass or an automatic rerun', prompt)
         self.assertNotIn('Do not create subagents', prompt)
         self.assertEqual(self.launcher.spawned[0][4], str(self.launcher.state_dir(self.key)))
 

@@ -130,6 +130,7 @@ def parser():
     cmd('unity-tools', '--item', token=True)
     cmd('unity-read', '--item', '--uri', token=True)
     cmd('unity-tool', '--item', '--name', '--input', token=True)
+    cmd('unity-test-result', '--item', '--job-id', token=True)
     cmd('publish-ui', '--item', '--packages', token=True)
     resource.add_argument('--checkpoint', help='save this checkpoint before requesting the resource')
     resource.add_argument("--server-test-plan", help="JSON file with exact packages, tests and race selection")
@@ -511,7 +512,7 @@ def run(args, ledger, api_factory):
     from .execution import RETIRED_COMMANDS
     if c in RETIRED_COMMANDS and single(ledger.item(args.item)):
         raise LedgerError('this staged command is retired for single-worker jobs; continue in the current worker')
-    if c in ('resource-status', 'unity-tools', 'unity-read', 'unity-tool'):
+    if c in ('resource-status', 'unity-tools', 'unity-read', 'unity-tool', 'unity-test-result'):
         from . import worker_resources
         function = worker_resources.status if c == 'resource-status' else worker_resources.unity
         return function(args, ledger, load_config(secure_permissions=False), resolve_token(args))

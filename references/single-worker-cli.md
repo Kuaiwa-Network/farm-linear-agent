@@ -21,6 +21,7 @@ parking or finish, and checkpoints their work. No FarmBot child task is created.
 | --- | --- |
 | `fetch-issue` | No token arguments. Read live issue facts before delivery or after a new request. |
 | `issue-context` | No token arguments; `--view resume` or `full` includes history, questions, reports and inputs. |
+| `download-uploads` | `--out STATE_DIR/uploads`, optional repeatable `--url UNSIGNED_ISSUE_URL`: authenticated download of this issue's attachments, with a local manifest. Reuse intact files; never fetch private upload URLs anonymously. |
 | `renew` | Read maintenance/withdrawal flags; keep the current claim alive. |
 | `checkpoint` | `--input FILE`: bounded JSON progress, candidate SHAs, report paths and next action. |
 | `pop-inbox` | Read attributed requests. Reuse actual existing answers. |
@@ -32,6 +33,7 @@ parking or finish, and checkpoints their work. No FarmBot child task is created.
 | `cancel-resource` | `--reservation ID`: cancels only this claim's still-queued request. An acquired resource must settle normally. |
 | `unity-tools` | List actual MCP tool schemas after Unity is ready. |
 | `unity-tool` | `--name NAME --input FILE`: JSON object arguments, bound to the reserved instance; raw MCP result. |
+| `unity-test-result` | `--job-id ID`: read a retained test report in the owned instance, including failed jobs whose normal response has `result=null`. Save stdout privately. No test launch or release. |
 | `unity-read` | `--uri URI`: read a resource from the reserved Unity instance. |
 | `release-resource` | **Use the reservation token file returned by resource-status**, not the claim token. `--outcome quiescent\|unclean`. |
 | `publish-ui` | `--packages FILE`: JSON package name/ID map; native export into private staging, no Client installation. |
@@ -69,6 +71,16 @@ for example `{"packages":["./breeding"],"tests":[],"race":false}`. Request servi
 only when needed. Test commands still run in the worker. Resource
 readiness never certifies a test result. A lost Unity mutation response must be
 reconciled by observing the Editor/test job, not automatically retried.
+
+`unity-test-result` requires the same ready reservation and a test started after
+its acquisition. It returns the exact job ID, reservation and candidate commit,
+terminal counts and up to 50 non-passing test details with explicit truncation
+flags. Missing/evicted/in-flight results remain unavailable, never a pass.
+Use normal `get_test_job` for progress. If details are capped, inspect the relevant
+retained details before attributing failures; do not infer that omitted tests passed.
+Collect reports while the reservation is owned, then release a quiet Editor
+before drafting PR prose or waiting for remote CI. Release still requires the
+host's quiescence check.
 
 For queued resources during maintenance, cancel and checkpoint. For acquired
 resources, collect in-flight results, stop owned test processes, settle and
