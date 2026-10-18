@@ -26,7 +26,7 @@ class GeneralWakeTests(unittest.TestCase):
 
     def task(self, key="ui", capability="fgui"):
         return delegate_task(self.ledger, self.parent, self.token, {
-            "key": key, "capability": capability, "instructions": "Use the shared contract."})
+            "key": key, "capability": capability, **({"scope": {"assets": ["Assets/nursery.prefab"], "validation": "source"}} if capability == "scene" else {}), "instructions": "Use the shared contract."})
 
     def claim_task(self, task):
         return self.ledger.claim(task["id"], worker_id="presentation")["token"]

@@ -78,7 +78,7 @@ Farm-Contract's own OpenSpec process and gates. Pure layout, font, art or spacin
 corrections use the current behavior contract and design/visual review; they need
 no invented protocol change or duplicate OpenSpec project in farmgui.
 
-Use `../feature/SKILL.md` as the code capability reference for contract,
+Use `code-stages.md` as the code capability reference for contract,
 configuration, server, Client and closing steps. Its legacy Bot/Code intake and
 prohibition on coordinating UI do not apply to this general job. Other
 repository-specific restrictions, tooling, provenance and verification do apply.
@@ -108,17 +108,41 @@ delegate required presentation tasks with `delegate-task --input FILE`. JSON:
 {"key":"presentation-ui","capability":"fgui","instructions":"Follow the recorded shared OpenSpec and plan.ui.validation. Carry its validation decision and reasons, actual baseline, target controls/states, allowed changes, preservation limits and checks into this task. Judge whether pixel comparison is needed from acceptance criteria and visual risk, using reliable references. Retain certified visual approval/export and report only required missing assets."}
 ```
 
-`fgui` is the reusable FairyGUI capability: source authoring, actual visual
-approval, certified native export, owned Client installation, guards and Unity
-package loading. `scene` covers scene/prefab/display work in Farm-Client. Give each
+`fgui` owns source authoring, actual visual approval and certified native export.
+After its certified teardown, consume its `receipt_id` using `install-ui` in your
+Client stage. Own necessary metadata repair, dependency registration, guards and
+Unity loading; run `verify-ui-guards` and `verify-ui-loading` at the final candidate,
+using the candidate reservation for required QA too. Keep all artifact identities
+and reuse current proofs through `ui-verification-status`.
+If installation names invalid pre-existing Client metadata, preserve the export
+and diagnose that exact file in this parent stage. Check the original baseline,
+history and references before a minimal repair. Preserve a recoverable valid GUID;
+generate a valid new identity only if the old value is invalid and reference
+inspection establishes that no existing reference will be broken. Never blindly
+truncate a GUID, ignore a collision, change unrelated assets or ask the FGUI
+source task to repair it. Commit the prerequisite repair and retry installation
+of the same receipt; no new source review, export or baseline test follows solely
+from this repair. An unresolved identity/reference risk remains a concrete blocker.
+`scene` covers scene/prefab/display work in Farm-Client. Give each
 task exact scope, contract scenario references and dependencies. These are
 controller-managed subagents of this job, not separate issues or public worker
 categories. Each has its own claim, sandbox, checkpoints, receipts and run logs;
 their owned repository branches belong to this job. Do not launch an independent
 CLI or use a shared parent token to bypass task accounting or repository grants.
-Delegate independent tasks together. If scene work depends on installed FGUI
-assets, wait for FGUI delivery before creating that scene task: a task holding
-Client must never wait for another task to write the same repository.
+Delegate independent tasks together. A scene request includes, for example,
+`"scope":{"assets":["Assets/Scenes/Nursery.unity"],"validation":"unity"}` and
+`"depends_on":["presentation-ui"]` when it requires installed FGUI. Dependency
+keys name already-created siblings; the controller refuses forward references
+and cycles. Integrate its FGUI prerequisite before awaiting scene work. Waiting
+children do not reserve Client or Unity. New scene tasks deliver assets without
+requiring another Client PR; the parent owns final publication and acceptance.
+
+For a scene's `waiting-parent-repair` handoff, enter Client after server/config
+and certified writer teardown, repair only its recorded paths, commit, call
+`resume-presentation --task KEY`, then checkpoint and `await-tasks` to release
+your writer. `authorize-scene-scope --task KEY --input FILE` gives a parked old
+scene its exact missing scope. These are engineering operations within the
+issue; do not synthesize human answers or re-ask permission for them.
 
 Continue required common/config/server stages while presentation runs. Check
 `issue-context.tasks` and the parent inbox at every checkpoint and before long
@@ -138,7 +162,8 @@ If `stage.coordination_only` is true, this attempt has no repository write roots
 Route already-saved attributed answers with `answer-task`; consume handled inbox
 messages, checkpoint, then `await-tasks` and exit while presentation is unfinished.
 Do not ask for the same answer again, implement changes, publish or request tests
-in this attempt. Once required tasks have delivered with certified teardown,
+in this attempt. When source artifacts are delivered with certified teardown,
+or a scene has a recorded prerequisite yield and server/config is settled,
 save a current handoff checkpoint and `handoff-repository` to `Farm-Client`.
 The normal server/config/presentation gates still apply. Keep the existing
 candidate, baseline and reports; the coordination detour is not a new test round.
@@ -211,7 +236,7 @@ limitations are explicit, and the job's relevant drafts are listed. Reuse the
 existing foreign-work, destination, claim and resource checks. Stop/withdrawal
 ends the whole job including its tasks and retains recovery evidence. Workers
 never merge or deploy.
-For Client verification, use feature stage F's candidate-first assessment and
+For Client verification, use shared code stage F's candidate-first assessment and
 [on-demand comparison decision](../../references/candidate-verification.md).
 Do not run two suites by default. A passing scoped candidate or a controller-reviewed
 independent failure needs no newly executed baseline. Preserve required repository gates.
@@ -242,7 +267,7 @@ Keep the task's verified changes on the owned branch and include every task's
 draft PR in the general delivery comment/evidence.
 
 
-Service verification follows feature stage D's fixed candidate round. A queued or resumed
+Service verification follows shared code stage D's fixed candidate round. A queued or resumed
 server lease is for its recorded commit; generic main refresh does not restart the round.
 Reuse exact-candidate evidence after maintenance. Do not release/requeue or merge a newer
 main just because its tip moved. Publication still verifies the configured destination,

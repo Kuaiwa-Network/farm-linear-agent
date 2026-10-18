@@ -5,6 +5,11 @@ description: Reusable FairyGUI capability for a general issue's presentation tas
 
 # FarmBot FairyGUI capability
 
+For an internal task (`task.parent_id` present), first read `source-task.md`.
+Its source-artifact boundary supersedes the Client continuation/delivery steps
+below for new tasks and eligible clean legacy handoffs. The full Client protocol
+below remains for standalone jobs and recovery of existing partial installations.
+
 Speak as `bot_name` from the launch message. For an internal `task`, the enabled
 general job owns the issue; no Bot label or separately enabled UI worker is
 required. Read `issue-context.parent_job` for the settled shared OpenSpec and

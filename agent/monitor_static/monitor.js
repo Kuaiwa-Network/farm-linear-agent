@@ -28,6 +28,8 @@
   const STATE = {
     maintenance_paused: ["维护暂停", "neutral"], maintenance_handoff: ["维护收尾中", "info"],
     acceptance_paused: ["等待指定任务验收", "neutral"],
+    waiting_presentation: ["等待子任务产物或安装", "neutral"],
+    waiting_parent_repair: ["等待安全交接及主任务前置修复", "warn"],
     queued: ["排队中", "neutral"], launching: ["正在启动", "info"], switching_repo: ["切换仓库", "info"],
     retry_wait: ["等待重试", "neutral"], running: ["处理中", "info"], awaiting_input: ["等待回复", "warn"],
     awaiting_resource: ["等待资源", "neutral"], waiting_for_recovery: ["等待 Unity 修复", "warn"],

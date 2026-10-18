@@ -140,6 +140,7 @@ class UiWorkflowTests(unittest.TestCase):
         self.ledger.connection.execute("UPDATE work_items SET state='blocked' WHERE id=?", (self.item,))
         parent = self.ledger.create_work_item(issue_id=self.fixture.item["issue_id"], session_id="ui-session", skill="work")
         parent_token = self.ledger.claim(parent["id"], worker_id="general")["token"]
+        self.parent_token = parent_token
         self.ledger.checkpoint(parent["id"], parent_token, {"plan": {"stages": {"A": "done"}}})
         self.ledger.connection.execute("UPDATE work_items SET state='running',parent_id=?,task_key='ui',task_request=? WHERE id=?",
             (parent["id"], json.dumps({"key": "ui", "capability": "fgui", "instructions": "shared spec"}), self.item))

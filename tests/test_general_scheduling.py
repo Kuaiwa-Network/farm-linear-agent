@@ -41,7 +41,7 @@ class GeneralSchedulingTests(unittest.TestCase):
 
     def task(self, key="ui", capability="fgui", *, parent=None, token=None):
         return delegate_task(self.ledger, parent or self.parent, token or self.token,
-            {"key": key, "capability": capability, "instructions": "Use the settled shared spec."})
+            {"key": key, "capability": capability, **({"scope": {"assets": ["Assets/nursery.prefab"], "validation": "source"}} if capability == "scene" else {}), "instructions": "Use the settled shared spec."})
 
     def retained_client_branch(self):
         fixture = git_fixtures.WorktreeTests()

@@ -31,6 +31,9 @@ def write_repositories(item, skill):
     if not skill.staged:
         return tuple(skill.writes)
     root = current_root(item.get("root_repo"), skill)
+    from .presentation_contract import source_only
+    if source_only(item) and root != 'farmgui':
+        raise ValueError('FGUI source task has no Client write grant')
     if root is None:
         return ()
     if root not in skill.writes:

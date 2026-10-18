@@ -173,13 +173,26 @@ claim tokens, checkpoints, human gates and run evidence, sharing the job's owned
 branches. Actual human answers go to the parent, which routes them with original
 attribution; partial answers resume only the relevant task. Missing assets are
 questions, never implicit permission to invent art or use placeholders. The
-existing FGUI visual approval/export/install/guards/Unity proof gates remain.
+FGUI visual approval and certified export remain source gates. New internal FGUI
+tasks deliver a versioned source artifact and cannot enter Client or reserve
+Unity. After certified child teardown the parent consumes that exact receipt,
+installs it, handles necessary metadata/dependency prerequisites and verifies
+guards/loading at its final candidate. Source completion is not issue acceptance.
+Standalone FGUI and existing partial installs retain their legacy recovery gates.
 
-Parent Client gameplay waits for configuration stages B/C and server stage D to
-be done or explicitly skipped with reasons, and every required
-presentation task's delivery and certified teardown. All same-repository writers
+Parent Client entry waits for configuration stages B/C and server stage D to
+be done or explicitly skipped with reasons. Versioned tasks permit parent
+prerequisite integration before all children finish; legacy tasks keep their
+original join until source handoff or an explicit prerequisite yield. Final issue
+delivery still requires every child and all required final-candidate integration
+evidence. All same-repository writers
 serialize, including attempts recovered after restart; a presentation retains its
-Client stage across human/resource waits and terminal task retries until delivery.
+Client stage across human/resource waits and terminal task retries until delivery
+or a certified prerequisite yield. `yield-presentation` records a clean scene
+candidate and exact outside repair paths, retires its claim and parks it without
+a human question. The parent can write only after worker quiescence; after a
+bounded committed repair `resume-presentation` preserves the child's original
+entry and records inherited repair files that the child cannot alter.
 FGUI retains its reviewed source through certified delivery. The job keeps one immutable Client pin,
 and each presentation task retains a clean entry HEAD for its own scoped diff.
 On first Client entry, a general job whose preferred issue branch already exists
@@ -194,8 +207,17 @@ coordinators and queued/parked children through quick re-delegation. Shared sour
 is cleaned only after certified child teardown. Successor UI recovery retains the
 original source entry branch/commit and Client entry baseline, accepts only
 matching certified installation history, and
-requires fresh approval/export/guards/Unity proofs. Scene delivery binds a clean
-owned Client HEAD to the actual open draft; no-change delivery proves zero task
+requires appropriate current approval/export/guards/Unity proofs. Unchanged
+certified source handoffs retain the original approval/export; their immutable
+staged bytes are checked again on consumption. New scene requests declare exact
+asset scope, a source/Unity validation mode and optional earlier sibling task
+dependencies. Delivery checks file scope, ordinary-file/LFS identity, asset/meta
+pairs and GUID preservation/collisions. Unity mode additionally requires a
+controller-recorded exact-candidate asset-load probe, not a worker's claimed pass.
+New scenes leave the final Client draft to the parent; legacy scene delivery
+also binds its actual open draft. A parked old scene can receive scope through
+`authorize-scene-scope`, without answering or waiving human decisions.
+No-change delivery proves zero task
 diff. Delivered tasks are rechecked at their exact clean source/Client HEADs after
 process quiescence. Proven late writes invalidate that task's delivery while
 preserving the candidate and certified teardown for attributed human retry. Internal UI
@@ -221,8 +243,21 @@ Farm-Contract root. This also recovers already-queued waits from older releases.
 The attempt routes actual attributed answers without editing repositories or
 requesting tests. Candidate pins, reports, checkpoint and generation are retained.
 After presentation delivery and certified teardown, an ordinary repository
-handoff restores Client authority, still checking B/C/D and the task join.
+handoff restores Client authority, still checking B/C/D and actual writer ownership.
 Maintenance, single-issue admission and withdrawal fences remain authoritative.
+Monitor distinguishes internal artifact waits and parent prerequisite repair
+from human replies. A source-only upgrade is an explicit host operation:
+`resume-ui-source` requires maintenance, stopped controller, quiescent issue
+workers/resources, current delegation, a technical wait without a human question,
+an unchanged clean Client entry and no outstanding installation journal. It
+requeues source verification; it never certifies delivery or fabricates an answer.
+
+Shared code-stage rules live in `skills/work/code-stages.md`. `chat` remains the
+read-only entry. New work uses `work`; the `feature` compatibility entry reads
+those shared rules and `fix` retains its existing continuation profile. Existing
+job IDs, claims, candidates, questions and evidence are not rewritten into a new
+profile. Compatibility profiles must remain enabled while their old jobs need
+recovery; new delegated/conversation work still selects `work` first.
 This adds no database columns. An older release does not understand the narrower
 root. Before rollback, let coordination items leave it through certified handoff
 on this release, then pause and settle workers. Do not rewrite live roots or

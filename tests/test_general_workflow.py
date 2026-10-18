@@ -35,7 +35,7 @@ class GeneralWorkflowTests(unittest.TestCase):
 
     def task(self, key="ui", capability="fgui"):
         return delegate_task(self.ledger, self.parent, self.token,
-                             {"key": key, "capability": capability, "instructions": "Use the shared spec; ask for missing art."})
+                             {"key": key, "capability": capability, **({"scope": {"assets": ["Assets/nursery.prefab"], "validation": "source"}} if capability == "scene" else {}), "instructions": "Use the shared spec; ask for missing art."})
 
     def claim_task(self, task):
         return self.ledger.claim(task["id"], worker_id="presentation")["token"]
@@ -75,7 +75,7 @@ class GeneralWorkflowTests(unittest.TestCase):
             delegate_task(self.ledger, task["id"], token, {"key": "other", "capability": "fgui", "instructions": "x"})
         for capability in ([], "unknown"):
             with self.subTest(capability=capability), self.assertRaises(LedgerError):
-                delegate_task(self.ledger, self.parent, self.token, {"key": "bad", "capability": capability, "instructions": "x"})
+                delegate_task(self.ledger, self.parent, self.token, {"key": "bad", "capability": capability, **({"scope": {"assets": ["Assets/nursery.prefab"], "validation": "source"}} if capability == "scene" else {}), "instructions": "x"})
 
     def test_changed_inputs_block_new_task_admission(self):
         self.ledger.observe_issue(fixtures.issue(description="New behavior ruling"))
@@ -205,8 +205,10 @@ class GeneralWorkflowTests(unittest.TestCase):
         with self.assertRaisesRegex(LedgerError, "internal presentation capability"):
             self.ledger.create_work_item(issue_id=fixtures.ISSUE, session_id=fixtures.SESSION, skill="scene")
 
-    def test_client_gameplay_waits_for_server_and_certified_presentation(self):
+    def test_legacy_client_gameplay_waits_for_server_and_certified_presentation(self):
         ui = self.task()
+        legacy = dict(ui['task_request']); legacy.pop('_contract')
+        self.ledger.connection.execute('UPDATE work_items SET task_request=? WHERE id=?', (json.dumps(legacy), ui['id']))
         with self.assertRaisesRegex(LedgerError, "server/config"):
             client_ready(self.ledger, self.ledger._row(self.parent))
         self.save(D="done")
@@ -222,7 +224,7 @@ class GeneralWorkflowTests(unittest.TestCase):
 
     def test_fgui_full_delivery_still_requires_controller_proofs(self):
         ui = self.task()
-        with self.assertRaisesRegex(LedgerError, "current controller verification"):
+        with self.assertRaisesRegex(LedgerError, "certified source delivery"):
             self.ledger.finish(ui["id"], self.claim_task(ui), "delivered", {"summary": "UI ready",
                 "verification": "claimed pass", "prs": ["https://github.com/example/farmgui/pull/1"]})
 
@@ -348,7 +350,7 @@ class GeneralSchedulerTests(unittest.TestCase):
         self.ledger.checkpoint(self.parent, self.token, {"plan": {"stages": {"A": "done", "D": "pending"}}})
 
     def task(self, key="ui", capability="fgui"):
-        return delegate_task(self.ledger, self.parent, self.token, {"key": key, "capability": capability, "instructions": "Shared spec"})
+        return delegate_task(self.ledger, self.parent, self.token, {"key": key, "capability": capability, **({"scope": {"assets": ["Assets/nursery.prefab"], "validation": "source"}} if capability == "scene" else {}), "instructions": "Shared spec"})
 
     def test_presentation_and_server_launch_together_with_separate_scope(self):
         task = self.task()

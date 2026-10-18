@@ -14,10 +14,13 @@ class UiScopeRecoveryTests(unittest.TestCase):
     def setUp(self):
         self.f = f = fixtures.UiClientWorkflowTests(); f.internal = True; f.setUp()
         self.addCleanup(f.doCleanups)
-        f.installed(); f.source.commit(f.client)
+        source_only = getattr(self, 'source_only', False)
+        if not source_only:
+            f.installed(); f.source.commit(f.client)
         f.source.config.host = 'fixture'
         f.ledger.pop_inbox(f.item, f.source.token)
-        f.ledger.checkpoint(f.item, f.source.token, {'plan': f.source.plan, 'stage': 'client-scope-stage-limit'})
+        f.ledger.checkpoint(f.item, f.source.token, {'plan': f.source.plan,
+            'stage': 'client-install-blocked' if source_only else 'client-scope-stage-limit'})
         f.ledger.await_input(f.item, f.source.token, 'Controller scope correction needed', reason='waiting')
         f.ledger.connection.execute("UPDATE work_items SET state='awaiting_input',token=NULL,lease_expires_at=NULL WHERE id=?", (f.parent,))
         Maintenance(f.ledger).pause('test host correction')
@@ -29,7 +32,8 @@ class UiScopeRecoveryTests(unittest.TestCase):
         self.quiescent = self.enterContext(patch('agent.ui_scope_recovery.Launcher.assert_quiescent'))
 
     def resume(self):
-        return resume_scope(self.f.source.config, self.f.item, 'scope verifier corrected; recheck retained candidate')
+        return resume_scope(self.f.source.config, self.f.item, 'scope verifier corrected; recheck retained candidate',
+                            source_only=getattr(self, 'source_only', False))
 
     def test_resume_preserves_artifacts_and_requires_fresh_verification(self):
         f = self.f; before = f.ledger.item(f.item)

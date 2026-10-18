@@ -33,17 +33,24 @@ def _inputs(context):
 
 
 class UiWorkflow:
-    def __init__(self, ledger, item_id, token, config, skill, api_factory, *, stage="farmgui"):
+    def __init__(self, ledger, item_id, token, config, skill, api_factory, *, stage="farmgui", receipt_id=None,
+                 consume=False):
         self.ledger, self.item_id, self.token = ledger, item_id, token
         self.config, self.paths, self.api_factory = config, Paths(config), api_factory
         ledger.renew(item_id, token)
         item = ledger.item(item_id)
+        self.consumer = item['skill'] == 'work' and not item.get('parent_id')
+        self.source_item_id, self.receipt_id, self.create_consumption = item_id, receipt_id, consume
         if stage not in ("farmgui", "Farm-Client"):
             raise LedgerError("UI workflow stage is invalid")
         self.stage = stage
         roots = (None, "farmgui") if stage == "farmgui" else ("Farm-Client",)
         enabled = "fgui" in (config.enabled_skills or []) or (item.get("parent_id") and "work" in (config.enabled_skills or []))
-        if (item["skill"] != "fgui" or item["root_repo"] not in roots
+        if self.consumer:
+            if (stage != 'Farm-Client' or item['root_repo'] != 'Farm-Client'
+                    or 'work' not in (config.enabled_skills or []) or not skill or skill.name != 'work'):
+                raise LedgerError('UI consumption requires the enabled parent Client stage')
+        elif (item["skill"] != "fgui" or item["root_repo"] not in roots
                 or not enabled or not skill or skill.name != "fgui"
                 or "Farm-Client" not in skill.writes or "unity_slot" not in skill.resources):
             raise LedgerError("UI export requires the explicitly enabled Phase E farmgui stage")
@@ -159,6 +166,11 @@ class UiWorkflow:
         return value
 
     def retained_export(self, receipt_id):
+        if self.consumer:
+            from .presentation_artifacts import consumed_export
+            if receipt_id != self.receipt_id:
+                raise LedgerError('UI consumption cannot change its selected receipt')
+            return consumed_export(self, receipt_id, create=self.create_consumption)
         proof = export_record(self.ledger, self.item_id, receipt_id)
         context = self.ledger.issue_context(self.item_id); ui = (context.get("plan") or {}).get("ui") or {}
         if ui.get("receipt_id") != receipt_id:

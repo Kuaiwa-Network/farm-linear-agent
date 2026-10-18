@@ -6,7 +6,7 @@ from .ledger import ACTIVE_STATES, Ledger, LedgerError, _in_scope
 from .maintenance import Maintenance
 
 
-def resume_scope(config, item_id, reason):
+def resume_scope(config, item_id, reason, *, source_only=False):
     """Requeue one technical wait; never answer a question or certify its candidate."""
     if not isinstance(reason, str) or not reason.strip() or len(reason) > 500:
         raise LedgerError("UI scope recovery requires an operator reason of 1 to 500 characters")
@@ -28,7 +28,9 @@ def resume_scope(config, item_id, reason):
             with ledger._transaction():
                 item = ledger.item(item_id)
                 if (item['skill'] != 'fgui' or not item.get('parent_id')
-                        or item['state'] != 'awaiting_input' or item['stage'] != 'client-scope-stage-limit'
+                        or item['state'] != 'awaiting_input'
+                        or item['stage'] not in (('client-install-blocked', 'client-scope-stage-limit') if source_only
+                                                else ('client-scope-stage-limit',))
                         or item['root_repo'] != 'Farm-Client' or item.get('next_root_repo')
                         or item['checkpoint'].get('pending_reason') != 'waiting'
                         or ledger.human_question(item_id)):
@@ -50,13 +52,48 @@ def resume_scope(config, item_id, reason):
                     if row['host'] not in (None, config.host):
                         raise LedgerError("UI scope recovery cannot certify another host's workers")
                     launcher.assert_quiescent(row['id'], ledger.last_worker_pid(row['id']))
-                from .fgui_client import installation_record
+                from .fgui_client import installation_record, installation_records, _prepared_record
                 receipt = (item['checkpoint'].get('plan', {}).get('ui') or {}).get('receipt_id')
-                if not receipt or installation_record(ledger, item_id, receipt) is None:
+                if source_only:
+                    from types import SimpleNamespace
+                    from .fgui_records import export_record
+                    from .workflow import JobWorktrees, repository_path
+                    from .worktrees import Worktrees
+                    from .presentation_artifacts import snapshot
+                    exported = export_record(ledger, item_id, receipt)
+                    trees = JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger)
+                    workflow = SimpleNamespace(ledger=ledger, item_id=item_id, paths=paths)
+                    if installation_records(ledger, item_id) or _prepared_record(workflow, receipt):
+                        raise LedgerError('source recovery cannot discard Client installation journals or results')
+                    client = repository_path(trees, 'Farm-Client', item_id)
+                    head = trees.head(client)
+                    branch = ledger.staged_client_branch(item_id, issue_prefix=config.issue_prefix)
+                    trees.verification_commit('Farm-Client', item_id, head, expected_branch=branch)
+                    if trees.git_in(client, 'diff', '--name-only', '--no-renames', '--no-ext-diff', '--no-textconv',
+                                    item['task_client_base'], head):
+                        raise LedgerError('source recovery requires unchanged Client entry')
+                    source_branch = ledger.recorded_branches(item_id, issue_prefix=config.issue_prefix).get('farmgui')
+                    trees.verification_commit('farmgui', item_id, exported['authority']['head'], expected_branch=source_branch)
+                    snapshot(workflow, item_id, exported)
+                elif not receipt or installation_record(ledger, item_id, receipt) is None:
                     raise LedgerError("UI scope recovery requires its retained certified installation")
-                ledger._set_state(item_id, 'queued', reason, needs_resource=None, stage='client-scope-recheck')
+                options = {}
+                if source_only:
+                    from .ledger import _json
+                    checkpoint = dict(item['checkpoint'])
+                    checkpoint.pop('pending_question', None); checkpoint.pop('pending_reason', None)
+                    options['checkpoint'] = _json(checkpoint)
+                    if (parent['state'] == 'awaiting_input' and parent['stage'] == 'presentation-prerequisite'
+                            and parent['checkpoint'].get('pending_reason') == 'waiting' and not ledger.human_question(parent['id'])):
+                        cp = dict(parent['checkpoint'])
+                        cp.pop('pending_question', None); cp.pop('pending_reason', None); cp['waiting_tasks'] = True
+                        ledger._set_state(parent['id'], 'awaiting_input', 'source handoff capability available; waiting for child artifact',
+                                          stage='waiting-presentation', checkpoint=_json(cp))
+                        ledger._audit(parent['id'], 'operator_presentation_capability_ready', reason, {'task_id': item_id})
+                ledger._set_state(item_id, 'queued', reason, needs_resource=None,
+                                  stage='source-handoff-recheck' if source_only else 'client-scope-recheck', **options)
                 resumed = ledger.item(item_id)
-                ledger._audit(item_id, 'operator_ui_scope_resume', reason,
+                ledger._audit(item_id, 'operator_ui_source_resume' if source_only else 'operator_ui_scope_resume', reason,
                               {'generation': item['generation'], 'receipt_id': receipt, 'parent_id': parent['id']})
                 return {'item': resumed['id'], 'state': resumed['state'], 'stage': resumed['stage'],
                         'generation': resumed['generation'], 'receipt_id': receipt,

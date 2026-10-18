@@ -179,8 +179,13 @@ def pin_source_entry(ledger, item_id, generation, commit, branch, *, issue_prefi
 
 def delegate_task(ledger, item_id, token, request):
     from .ledger import LedgerError, REQUEST_ID, _json, _text
-    if not isinstance(request, dict) or set(request) != {"key", "capability", "instructions"}:
-        raise LedgerError("task requires key, capability and instructions only")
+    required = {'key', 'capability', 'instructions'}
+    if (not isinstance(request, dict) or not required.issubset(request)
+            or set(request) - required - {'scope', 'depends_on', '_contract'}):
+        raise LedgerError("task requires key, capability and instructions; optional scope and depends_on")
+    if '_contract' in request and request['_contract'] != 'presentation-v1':
+        raise LedgerError('workers cannot select a legacy presentation contract')
+    request = {k: v for k, v in request.items() if k != '_contract'}
     key, capability, instructions = request["key"], request["capability"], request["instructions"]
     if not isinstance(key, str) or not REQUEST_ID.fullmatch(key):
         raise LedgerError("task key must be 1-64 ASCII letters, digits, '.', '_' or '-'")
@@ -189,6 +194,16 @@ def delegate_task(ledger, item_id, token, request):
     _text(instructions, "task instructions")
     if len(instructions) > 8000:
         raise LedgerError("task instructions exceed 8000 characters")
+    if 'scope' in request:
+        from .presentation_contract import validate_scope
+        if capability != 'scene':
+            raise LedgerError('structured asset scope belongs to scene tasks')
+        validate_scope(request['scope'])
+    dependencies = request.get('depends_on', [])
+    if (not isinstance(dependencies, list) or len(dependencies) > 32
+            or any(not isinstance(n, str) or not REQUEST_ID.fullmatch(n) or n == key for n in dependencies)
+            or len(set(dependencies)) != len(dependencies)):
+        raise LedgerError('task dependencies must be distinct earlier task keys')
     with ledger._transaction():
         parent = ledger._owned(item_id, token)
         ledger._refuse_withdrawn(parent)
@@ -203,9 +218,18 @@ def delegate_task(ledger, item_id, token, request):
         prior = ledger.connection.execute("SELECT * FROM work_items WHERE parent_id=? AND task_key=?",
                                           (item_id, key)).fetchone()
         if prior:
-            if json.loads(prior["task_request"]) != request:
+            saved = json.loads(prior['task_request'])
+            saved.pop('_contract', None)
+            if saved != request:
                 raise LedgerError("task key already records different instructions; use a new key")
             return ledger._view(prior)
+        if capability == 'scene' and 'scope' not in request:
+            raise LedgerError('new scene tasks require exact asset scope and validation before launch')
+        for name in dependencies:
+            if not ledger.connection.execute('SELECT 1 FROM work_items WHERE parent_id=? AND task_key=?',
+                                             (item_id, name)).fetchone():
+                raise LedgerError('dependencies must name existing sibling tasks; forward references and cycles are refused')
+        request = {**request, '_contract': 'presentation-v1'}
         task_id, now = str(uuid4()), ledger.clock()
         predecessor = None
         if parent["predecessor_id"]:
@@ -320,6 +344,11 @@ def client_ready(ledger, row):
     if parent["skill"] != "work":
         return
     if row["parent_id"]:
+        from .presentation_contract import source_only, dependencies_ready
+        if source_only(row):
+            raise LedgerError('FGUI source tasks deliver certified exports; parent owns Client installation')
+        if not dependencies_ready(ledger, ledger._view(row)):
+            raise LedgerError('presentation waits for its declared dependency artifacts and installation')
         return  # asset/scene authoring precedes the parent's gameplay integration
     stages = json.loads(parent["checkpoint"]).get("plan", {}).get("stages", {})
     server = stages.get("D", "")
@@ -328,6 +357,12 @@ def client_ready(ledger, row):
     if any(not _stage_settled(stages.get(stage)) for stage in ("B", "C")):
         raise LedgerError("Client work waits for required configuration stages B/C to finish or be explicitly skipped")
     for task in task_views(ledger, row["id"]):
+        from .presentation_contract import request
+        from .presentation_repair import pending
+        if pending(ledger, task['id']):
+            continue  # Actual writer teardown is checked by repository_busy before launch.
+        if request(task).get('_contract') == 'presentation-v1':
+            continue  # Parent may integrate prerequisites; repository_busy still fences actual writers.
         cleanup = ledger.cleanup_record(task["id"])
         if task["state"] != "delivered" or not cleanup or not cleanup["done"]:
             raise LedgerError("Client work waits for presentation delivery and certified task teardown")
@@ -365,6 +400,9 @@ def prepare_coordination(ledger, item_id, launcher, active=()):
         except LedgerError:
             return False
         tasks = task_views(ledger, item_id)
+        from .presentation_repair import pending
+        if any(pending(ledger, task['id']) for task in tasks):
+            return False  # A technical repair needs the parent's Client writer, not answer-only coordination.
         if not tasks or _tasks_settled(ledger, tasks):
             return False
         return (any(t['state'] in ('awaiting_input', 'blocked', 'failed', 'cancelled') for t in tasks)
@@ -409,6 +447,14 @@ def repository_busy(ledger, item, skills, active=(), launcher=None):
         unfinished = other["state"] != "delivered" or not (cleanup or {}).get("done")
         retained_client = (root == "Farm-Client" and other.get("parent_id")
                            and other.get("task_client_base") and unfinished)
+        if retained_client and item['id'] == owner:
+            from .presentation_repair import pending
+            if pending(ledger, other['id']) and launcher is not None:
+                try:
+                    launcher.assert_quiescent(other['id'], ledger.last_worker_pid(other['id']))
+                except Exception:
+                    return True
+                retained_client = False
         retained_source = (root == "farmgui" and other.get("parent_id") and other["skill"] == "fgui"
                            and (other["checkpoint"].get("worker_id") or ledger.last_worker_pid(other["id"]) is not None)
                            and unfinished)

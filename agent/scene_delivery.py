@@ -39,6 +39,7 @@ def verify_delivery(ledger, item_id, token, config, api_factory, evidence):
     if not isinstance(urls, list) or any(not isinstance(url, str) for url in urls):
         raise LedgerError("scene PRs must be an array of URLs")
     no_change = evidence.get("no_change")
+    checked = None
     if no_change is not None:
         if not isinstance(no_change, str) or not no_change.strip() or urls:
             raise LedgerError("a no_change scene requires a reason and no PR")
@@ -46,17 +47,25 @@ def verify_delivery(ledger, item_id, token, config, api_factory, evidence):
                         row["task_client_base"], commit):
             raise LedgerError("a no_change scene must have no changes from its original entry baseline")
     else:
-        if len(urls) != 1:
+        from .scene_scope import verify_scope, require_loading
+        from .presentation_contract import request
+        checked = verify_scope(ledger, ledger.item(item_id), trees, client, commit)
+        require_loading(ledger, ledger.item(item_id), checked)
+        source_delivery = request(row).get('_contract') == 'presentation-v1'
+        if len(urls) != 1 and not (source_delivery and not urls):
             raise LedgerError("scene delivery requires exactly its verified Client draft")
-        verifier = PublicationVerifier(trees, issue_prefix=config.issue_prefix)
-        verifier.verify_pr("Farm-Client", item_id, ledger.issue(row["issue_id"])["identifier"], urls[0])
+        if urls:
+            verifier = PublicationVerifier(trees, issue_prefix=config.issue_prefix)
+            verifier.verify_pr("Farm-Client", item_id, ledger.issue(row["issue_id"])["identifier"], urls[0])
     final = fence()
     trees.verification_commit("Farm-Client", item_id, commit, expected_branch=branch)
     if final["generation"] != row["generation"] or final["task_client_base"] != row["task_client_base"]:
         raise LedgerError("scene delivery changed while verifying its draft")
+    if checked is not None and verify_scope(ledger, ledger.item(item_id), trees, client, commit) != checked:
+        raise LedgerError('scene scope changed while verifying its delivery')
     proof = {"delivery_id": uuid4().hex, "generation": row["generation"],
              "fingerprint": row["claimed_fingerprint"], "commit": commit, "branch": branch,
-             "baseline": row["task_client_base"], "prs": urls, "no_change": no_change}
+             "baseline": row["task_client_base"], "prs": urls, "no_change": no_change, 'asset_checks': checked}
     with ledger._transaction():
         current = ledger._owned(item_id, token)
         ledger._refuse_withdrawn(current)

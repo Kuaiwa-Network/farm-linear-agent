@@ -132,14 +132,15 @@ def _metadata(data, kind):
 def _metadata_guids(client):
     files, _ = _walk(client / "Assets", metadata_only=True)
     counts = Counter()
-    for data in files.values():
+    for name, data in files.items():
         try:
             text = data.decode("utf-8", errors="strict")
         except UnicodeError:
-            raise LedgerError("Client metadata GUID inventory is not UTF-8") from None
+            raise LedgerError(f"Client metadata GUID inventory is not UTF-8 at Assets/{name}") from None
         values = _GUID.findall(text)
         if len(values) != 1 or len(re.findall(r"^guid:", text, re.M)) != 1:
-            raise LedgerError("Client metadata GUID inventory is invalid")
+            raise LedgerError(f"Client metadata GUID inventory is invalid at Assets/{name}; "
+                              "retain the export and diagnose this exact installation prerequisite in the parent Client stage")
         counts[values[0].lower()] += 1
     return counts
 
