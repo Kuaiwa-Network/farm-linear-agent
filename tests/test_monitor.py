@@ -821,7 +821,8 @@ class MonitorServerTests(unittest.TestCase):
 
         with patch("agent.monitor.build_status", side_effect=recording):
             self.request(path="/api/status")
-        skills = load_skills(Path(__file__).resolve().parents[1] / "skills", replay_legacy=True)
+        skills = load_skills(Path(__file__).resolve().parents[1] / "skills")
+        self.assertEqual(set(skills), {"chat", "work"})
         self.assertEqual(calls, [{name: skill.budget["renew_minutes"] * 60 for name, skill in skills.items()}])
 
     def test_unresponsive_stays_anchored_to_the_first_observed_failure(self):
