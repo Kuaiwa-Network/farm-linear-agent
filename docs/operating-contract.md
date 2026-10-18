@@ -2,7 +2,7 @@
 
 This is the implemented contract for the single worker rollout. Historical stage,
 UI receipt and comparison behavior is archived in
-[the previous operating contract](legacy-operating-contract.md); it is not a
+[the previous operating contract](legacy/operating-contract.md); it is not a
 requirement for new work.
 
 ## One issue, one main worker
@@ -11,6 +11,12 @@ Delegated write work uses `work`, with execution contract `single-worker-v1`.
 Bug fixes, features and UI changes have the same owner. `chat` remains read-only
 investigation and conversation. New service intake supports these two profiles;
 old skill names remain readable for historical recovery and offline replay.
+Only `skills/chat` and `skills/work` are loaded by the current registry. Retired
+profiles and procedures live under `skills/legacy` and `references/legacy`, and
+are loaded only for explicit offline replay. Chat has a separate current launch
+authority and concise CLI; it does not inherit the old staged worker prompt.
+An authorized implementation request routes to the work owner. Retained staged
+jobs still require explicit settled adoption; chat cannot silently restart them.
 
 The worker receives owned worktrees for Farm-Contract, common, farm-hive,
 farmgui and Farm-Client together. It reads repository instructions and handles the

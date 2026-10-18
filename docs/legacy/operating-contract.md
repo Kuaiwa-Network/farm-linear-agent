@@ -274,7 +274,7 @@ flags and never edit global or clone configuration to supply an identity.
 
 Enable `work` explicitly; hosts without it retain the legacy routing described
 below. Existing jobs retain their profile, which must stay enabled to continue
-them. See [activation, concurrency and schema recovery](general-workflow.md).
+them. See [activation, concurrency and schema recovery](../general-workflow.md).
 This is offline implementation, not evidence of deployment or live acceptance.
 
 ## Host configuration
@@ -500,14 +500,14 @@ WSL or GNU utilities. A version inventory does not certify prepared module cache
 sandbox tool access or actual worker readiness. This adds no write roots or grants;
 fix/chat authority and containment are unchanged.
 
-Hosts may opt into [Go dependency preparation](go-dependency-preparation.md).
+Hosts may opt into [Go dependency preparation](../go-dependency-preparation.md).
 Each startup validates the configured native tools and Go digest before creating
 or marking fresh/empty cache and preparation roots. Existing ownership markers
 must match the instance and absolute state root; nonempty unmarked storage still
 requires explicit operator adoption. Links and foreign markers remain refused.
 No missing config, tools, credentials or permissions are selected/repaired by
 startup. Read-only `doctor` reports configured storage/tool readiness without
-initializing it. The [host startup guide](startup.md) covers this alongside Unity
+initializing it. The [host startup guide](../startup.md) covers this alongside Unity
 slot preparation and the configured on-demand or persistent Editor pool mode.
 Workers request only a configured module at their clean committed HEAD. A separate
 controller loop parses/downloads/verifies those immutable module inputs using
@@ -519,7 +519,7 @@ gates themselves. Failed host preparation remains a named verification gap.
 This adds audit kinds, not a schema migration; rollback requires settling workers
 and removing the optional config block while preserving cache/recovery evidence.
 
-The optional [native Windows Git/LFS callback](windows-native-git.md) is built
+The optional [native Windows Git/LFS callback](../windows-native-git.md) is built
 and selected separately; `serve` and `doctor` do not install or activate it.
 Its GitHub route remains HTTPS github.com only. An optional private companion
 pins one non-GitHub LFS origin and an existing native Git Credential Manager
@@ -1086,7 +1086,7 @@ existing input handshake opens. This also contains a Windows venv redirector's
 base interpreter from startup. A closed/unassigned Job, exited or foreign process
 object, ambiguous thread ownership, denied native operation or unexpected suspend
 count refuses startup; only owned creation/Job handles authorize cleanup. See the
-[measured redirector investigation](superpowers/spikes/2026-10-07-windows-python-redirector-containment.md).
+[measured redirector investigation](../superpowers/spikes/2026-10-07-windows-python-redirector-containment.md).
 The selected interpreter, isolated home, native sandbox choice and POSIX startup
 remain the same; no permission-repair or uncontained fallback is added. A POSIX
 worker leads its own session and process group, whose IDs both equal its PID and stay reserved until
@@ -1423,7 +1423,7 @@ evidence file/hash. Existing shared-test source/evidence verification and separa
 maintenance recording apply. Required acceptance failures cannot use either
 exception. Skips need explicit non-applicability evidence and cannot excuse missing
 required work. Single-run results record `baseline_executed=false` and retain real
-failure/skip counts. See [candidate-first verification](../references/candidate-verification.md).
+failure/skip counts. See [candidate-first verification](../../references/legacy/candidate-verification.md).
 
 Equal whole Git trees can establish unchanged source even when commit SHAs differ. The controller
 derives this identity from its validated clone with replacement objects disabled, after verifying the
@@ -1499,7 +1499,7 @@ the applicable fixture repair and validate whole changed fixtures
 at their own new candidate while retaining the original baseline/full reports.
 Drift, incomplete dependency review and other unmatched failures remain explicit.
 Records add no database schema; older releases ignore them. See
-[shared test repairs](../references/shared-test-repairs.md) for evidence and recovery.
+[shared test repairs](../../references/legacy/shared-test-repairs.md) for evidence and recovery.
 An existing shared test's new/changed failure may instead receive an explicit
 `confirmed_unrelated` causal review bound to both actual report identities. The
 claim-fenced comparator checks the complete actual Git diff, unchanged fixture and
@@ -1513,7 +1513,7 @@ block. Success preserves all failures and counts with
 the verdict. No child job, repair, assignment, new baseline or main merge becomes a
 business prerequisite. `shared-test-repairs` exposes those diagnoses for current-diff
 review and reuse. Tracking creates no external issue or automatic maintenance work.
-See [shared findings](../references/shared-test-findings.md). No schema migration;
+See [shared findings](../../references/legacy/shared-test-findings.md). No schema migration;
 older releases conservatively block unmatched failures and ignore the extra audit
 records. Settle workers before rollback and retain the original reports.
 The verdict is `passed_with_existing_failures`, with `full_suite_passed=false` and all retained
@@ -1567,7 +1567,7 @@ a late baseline observation; this is not a diagnosis of the baseline delay. Arbi
 configured timeout changes, new/affected failures, concretely linked changed dependencies and
 environment drift are not exempt. Older evidence without this review remains strict; add reviewed evidence
 and recompare offline after upgrade. No ledger migration or historical result rewrite is required.
-See [evidence schema and procedure](../references/test-baseline.md). No schema migration: identity lives in
+See [evidence schema and procedure](../../references/legacy/test-baseline.md). No schema migration: identity lives in
 audit details. Settle active comparison reservations before rollback to code that lacks comparison dispatch.
 
 UI resources changed by the candidate are distinguished from environment drift only with both complete
@@ -2306,12 +2306,12 @@ A step the worker cannot run in its runtime is named in the PR as not run, with 
 error. Host tool detection is separate from actual worker acceptance. On 2026-10-06,
 a scoped native Windows TestBot audit of unchanged Farm-Contract main runs all twelve
 gates: nine pass, while gates 3, 9 and 12 fail creating temporary directories; gate 3
-also refuses object alternates in the read-only snapshot. The [measured gate record](superpowers/spikes/2026-10-06-native-contract-gates.md)
+also refuses object alternates in the read-only snapshot. The [measured gate record](../superpowers/spikes/2026-10-06-native-contract-gates.md)
 preserves each failure and coverage limit. Farm-Contract #327 subsequently fixes
 native temporary access and replaces buf's Git baseline transport with verified
 raw Git blobs in an owned directory. Its final candidate and merge have identical
 trees, all 28 CI checks pass, and the configured native unelevated worker passes
-12/12 gates and 169 focused regressions. The [final native measurements](superpowers/spikes/2026-10-06-native-contract-gates.md#merged-native-baseline-transport-acceptance-2026-10-06)
+12/12 gates and 169 focused regressions. The [final native measurements](../superpowers/spikes/2026-10-06-native-contract-gates.md#merged-native-baseline-transport-acceptance-2026-10-06)
 preserve the earlier failures and separate the unresolved packaged-runtime
 rename comparison from configured 0.156.1 acceptance. A genuine changed-contract
 draft-PR/stage-limit check remains pending. Earlier scoped generator
@@ -2599,7 +2599,7 @@ about 63 seconds. Linear displayed the response once and marked its session
 complete. The owned Job was empty; selected worktrees were removed and the
 recovery ref preserved. This used separate development state on the Windows
 host and does not establish running-worker withdrawal or production readiness.
-The [measured record](superpowers/spikes/2026-10-03-native-windows-offline.md#windows-signed-intake-and-long-path-checkouts-2026-10-06)
+The [measured record](../superpowers/spikes/2026-10-03-native-windows-offline.md#windows-signed-intake-and-long-path-checkouts-2026-10-06)
 retains the scope and timing.
 
 Observed later on 2026-10-06 for the exact native Windows FARM-1435 stage-A
@@ -2611,7 +2611,7 @@ Contract/common/hive recovery refs, the real draft PR, branch and notices.
 TestBot restarted with chat/fix only. The two-read confirmation was preserved;
 this is not a 60-second action-to-cancellation guarantee, running-worker test
 or production-readiness claim. See the
-[stage-limit cancellation record](superpowers/spikes/2026-10-06-windows-stage-a-acceptance.md#exact-parked-stage-limit-cancellation-2026-10-06).
+[stage-limit cancellation record](../superpowers/spikes/2026-10-06-windows-stage-a-acceptance.md#exact-parked-stage-limit-cancellation-2026-10-06).
 
 **A new delegation owns the card.** A delegation's `created` event, or a reply that routes a
 delegation session again, while the card is delegated here and work is active in another session:
@@ -2667,8 +2667,8 @@ sessions remained unarchived; archiving them allowed a fresh session. The notes 
 if re-delegation still opens no session, archive this bot's completed sessions on the card and try
 again. Keep sessions Linear shows working or needing input intact. FarmBot now opens a session when the
 90-second episode has no thread that can take the delegation; it does not archive sessions. See the
-[original measured record](superpowers/spikes/2026-10-01-silent-delegation-live-checks.md) and the
-[recovery validation](superpowers/spikes/2026-10-01-silent-session-recovery.md).
+[original measured record](../superpowers/spikes/2026-10-01-silent-delegation-live-checks.md) and the
+[recovery validation](../superpowers/spikes/2026-10-01-silent-session-recovery.md).
 
 The receiver records `session_openings` before sending the mutation, one attempt per issue and episode.
 A unique non-secret link back to the issue identifies the resulting session. On restart or a lost response,
@@ -3128,7 +3128,7 @@ version, native executable/PATH directories and the complete package hashes.
 Linked package files and directories are refused; `verify` checks receipt metadata
 and package hashes without running a CLI. Preparation runs only npm and the
 native version probe: it loads no host config or ledger, copies no authentication
-and activates no service. Promotion follows [the runtime upgrade procedure](codex-runtime.md)
+and activates no service. Promotion follows [the runtime upgrade procedure](../codex-runtime.md)
 during separately authorized settled maintenance, retaining the previous runtime
 and sealed launch inputs for rollback. No controller schema or worker authority
 changes are introduced by candidate preparation.

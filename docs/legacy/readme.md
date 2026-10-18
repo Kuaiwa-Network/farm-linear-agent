@@ -1,7 +1,7 @@
 # Historical README
 
 This document describes the staged runtime before the single worker rollout.
-Use [the current README](../README.md) for current operations.
+Use [the current README](../../README.md) for current operations.
 
 # farm-linear-agent
 
@@ -22,13 +22,13 @@ loading. Scene tasks own explicitly scoped Unity assets and local checks; bounde
 prerequisite repairs can yield Client safely to the parent. Package loading alone does not certify gameplay or visual
 acceptance. People review, merge and accept the drafts.
 
-Hosts can opt into [automatic Go dependency preparation](go-dependency-preparation.md)
+Hosts can opt into [automatic Go dependency preparation](../go-dependency-preparation.md)
 for clean committed candidates. The controller fills an explicitly owned cache;
 workers retain read-only, offline access and run their own verification gates.
-The [host startup guide](startup.md) covers first-time configuration and the
+The [host startup guide](../startup.md) covers first-time configuration and the
 automatic Go storage, Unity slot and server-pool preparation on each start.
 
-See [general workflow and migration](general-workflow.md) for activation,
+See [general workflow and migration](../general-workflow.md) for activation,
 concurrency, recovery and validation boundaries. This checkout changes no running
 service or Linear labels. Hosts without `work` retain legacy label routing and
 profiles so unfinished jobs can continue during a controlled rollout.
@@ -45,7 +45,7 @@ ten minutes while work is active or queued. Legacy fix work starts with read-onl
 then uses a fresh Codex worker rooted in each repository it needs to change. The controller
 keeps one Linear work item across those switches.
 
-Start with the [design spec](superpowers/specs/2026-09-17-farm-linear-agent-design.md).
+Start with the [design spec](../superpowers/specs/2026-09-17-farm-linear-agent-design.md).
 It records the decisions, the architecture, the porting map from the two prototypes it
 replaces (`FarmTestAgent` and `BugAgent`), and the phased plan.
 
@@ -92,11 +92,11 @@ The pause persists across restart until `maintenance-resume`. A completed
 maintenance handoff retires the old claim and preserves its candidate, reports,
 stage and retry budgets; after verified process teardown it can resume without
 waiting for the old lease. Uncooperative or older workers remain a visible blocker
-until they finish safely. See [the maintenance contract](operating-contract.md#cooperative-maintenance-pause)
+until they finish safely. See [the maintenance contract](../operating-contract.md#cooperative-maintenance-pause)
 for rollout and rollback constraints.
 
 To prepare a dedicated npm Codex runtime, use the
-[runtime preparation command](codex-runtime.md). It installs the latest
+[runtime preparation command](../codex-runtime.md). It installs the latest
 release into a fresh candidate directory and records the exact version and package
 hashes. Runtime promotion remains a settled host deployment.
 
@@ -145,7 +145,7 @@ convert to interactive without executing tests. Server test slots retain their
 existing execution mode. Size `resource_admission.max_reserved_mib` for all
 retained Editors plus any server capacity; startup still observes host headroom,
 and one healthy Editor can serve the queue while another awaits capacity.
-See [pool activation and recovery](operating-contract.md#fixed-unity-editor-pool).
+See [pool activation and recovery](../operating-contract.md#fixed-unity-editor-pool).
 Activate after active Unity work settles; this checkout does not change a running
 instance or its private configuration.
 With no `tunnel` key in the host config it runs a quick tunnel, whose hostname
@@ -165,7 +165,7 @@ python -B -m agent.runtime_retention --runs-root 'D:\FarmBot\TestBot\runs' --exp
 Add `--apply` to reclaim only verified inactive executable copies. An optional
 `--archive-root` points to a separate existing directory (initially empty) and
 keeps one verified copy per executable hash. Active/uncertain attempts, credentials,
-logs and recovery evidence are preserved. See the [operating contract](operating-contract.md).
+logs and recovery evidence are preserved. See the [operating contract](../operating-contract.md).
 For a new instance, an absolute `local_root` on D: also puts its runs, clones and
 Unity slots there. Moving an existing instance requires a settled migration;
 changing the config while its controller or workers are running is unsafe.
@@ -202,11 +202,11 @@ heartbeat alone never triggers a kill or a duplicate controller. Guard events ar
 appended to `<local_root>/agent/logs/supervisor.jsonl`.
 
 For Mac development alongside Windows production, follow the
-[development workflow](development-workflow.md): offline tests first, then live
+[development workflow](../development-workflow.md): offline tests first, then live
 tests with the TestBot app in the same Linear workspace, on real issues you choose
 and the real repositories.
-Start an explicit development profile from [this template](../config/development.example.json).
-See [CI](ci.md) for the Python 3.13 Mac/Windows checks and evidence artifacts.
+Start an explicit development profile from [this template](../../config/development.example.json).
+See [CI](../ci.md) for the Python 3.13 Mac/Windows checks and evidence artifacts.
 
 The full offline suite now also tests optional UI tools with pinned Pillow.
 Prepare it in a separate Python 3.13 development environment using that environment's
@@ -233,7 +233,7 @@ dependency failure. Native CJK fonts are read locally; none is downloaded.
 These previews do not establish FairyGUI Editor, export or Unity acceptance.
 
 The opt-in UI worker can continue after actual named visual approval and an
-explicit export request through the [certified UI commands](../references/worker-cli.md#certified-ui-export-and-delivery).
+explicit export request through the [certified UI commands](../../references/worker-cli.md#certified-ui-export-and-delivery).
 It uses an explicitly selected native Windows publisher, scoped Client assets
 and metadata, the actual hydrated dependency/orphan guards and exact-commit Unity
 package loading, then publishes two drafts for human review. Missing publisher
@@ -290,7 +290,7 @@ excludes it only from the environment a worker inherits, and worker shells may s
 files. `install-launchd` writes only `PATH` and `HOME` into its plists, so it cannot carry the
 variable; never add the token to a plist's `EnvironmentVariables`, where workers can read it.
 Instead, start a kw_ops controller through that wrapper yourself, as the
-[development workflow](development-workflow.md) does for TestBot. Codex fix workers then get
+[development workflow](../development-workflow.md) does for TestBot. Codex fix workers then get
 every kw_ops tool and chat workers its query tools; Claude workers get none. FarmBot learns the
 variable's name only from the block, so add the block and the export together, and remove them
 together: an export without the block reaches every worker. `doctor` shows whether kw_ops is
@@ -325,7 +325,7 @@ receiver:
 In profile mode FarmBot stores neither the app ID nor its secret; they stay in that lark-cli profile. `home` must lie
 outside `local_root`, your home directory and every temporary directory. `serve` and `enqueue` refuse
 a host that enables `feature` without the block. Create the home and the profile as the
-[development workflow](development-workflow.md) describes. Every worker starts without
+[development workflow](../development-workflow.md) describes. Every worker starts without
 `LARKSUITE_CLI_APP_ID`, `LARKSUITE_CLI_APP_SECRET`, `LARKSUITE_CLI_PROXY_KEY` and any
 `LARKSUITE_CLI_*ACCESS_TOKEN`, because lark-cli prefers credentials from the environment to
 `--profile`. FarmBot also removes `LARKSUITE_CLI_CONFIG_DIR` after worker overrides, preserving
@@ -334,7 +334,7 @@ instead supplies bot credentials only to Codex `feature`/`fgui` workers, after t
 mode. It cannot be combined with profile/home. The secret value stays in the controller's environment;
 the worker's commands can read it. The source alias is removed from every worker, diagnostic and Unity
 child, and values are excluded from launch prompts and saved Codex settings. See the
-[environment variant](development-workflow.md#feature-only-environment-credentials) for its limits.
+[environment variant](../development-workflow.md#feature-only-environment-credentials) for its limits.
 Diagnostic and Unity children get the same removals. They cover
 only the inherited environment, so never export these variables, or
 `LARKSUITE_CLI_CONFIG_DIR`, in a shell startup file on a FarmBot host, and never run
@@ -592,19 +592,19 @@ later, confirms it; a new delegation session takes over work waiting in another 
 worker saves its progress and runs `withdraw`, or is stopped after twice its renew interval.
 Conversations started by an @mention or by the operator stay. Each job cancelled while active gets
 one response in its session. `doctor` lists work withdrawal should have ended; see "Withdrawn work"
-in the [operating contract](operating-contract.md).
+in the [operating contract](../operating-contract.md).
 
 Owned processes stop before cleanup. Unfinished source and clean unpublished commits survive in local
 `refs/farmbot/recovery/<job-id>` refs. Unverified processes, unsettled slots and preservation failures
 hold cleanup; `python3 -m agent.service status` shows `cleanup_pending` and `issue_status_errors`.
-All run logs, ledger history and memory snapshots remain. See the [operating contract](operating-contract.md)
+All run logs, ledger history and memory snapshots remain. See the [operating contract](../operating-contract.md)
 for source recovery and deployment details.
 
 Retries of the same job restore missing worktrees from its saved recovery commit. Cleanup also
 retains immutable `refs/farmbot/recovery-history/<job-id>/<sha>` snapshots, listed in the cleanup
 manifest, so later attempts cannot hide earlier work by replacing the latest recovery pointer.
 
-Worker CLI examples and the exact handoff format are in [worker CLI guidance](../references/worker-cli.md).
+Worker CLI examples and the exact handoff format are in [worker CLI guidance](../../references/worker-cli.md).
 A rejected handoff must be successfully saved before the job can await input/resources or finish.
 If Linear attaches a job's PR before its checkpoint, the CLI can reconcile it after verifying the
 exact open draft, repository, branch and HEAD and proving that no other issue input changed.
@@ -710,7 +710,7 @@ mutable tags and automatic pulls are refused. Use the repository-pinned MongoDB,
 Redis, etcd and NATS versions for the tested server candidate. The supported
 etcd image has `/etcd` as entrypoint and `/etcdctl`; NATS uses `/nats-server`.
 The fixed `proxy` image uses `/server-proxy`, built from
-[`agent/probes/server-proxy`](../agent/probes/server-proxy/main.go) with the pinned Go
+[`agent/probes/server-proxy`](../../agent/probes/server-proxy/main.go) with the pinned Go
 and its Dockerfile. Hash the source and binary, retain build/test evidence, inspect
 the resulting image ID and write that ID to private config. The trusted operator
 can run `python3 -m agent.server_slot_tools --go /absolute/go --docker /absolute/docker --output /absolute/new-build-directory`
@@ -736,7 +736,7 @@ slots of each kind. The earlier 4096/4608 MiB estimates did not cover simultaneo
 cold Unity imports or full multi-node Go race tests on that PC. Measure the
 complete native process tree and
 Docker services, then tune the costs and shared budget on the intended host.
-The [native capacity record](superpowers/plans/2026-09-28-feature-workers-phase-b.md#actual-windows-workload-trial-after-testbot-only-approval-2026-10-12)
+The [native capacity record](../superpowers/plans/2026-09-28-feature-workers-phase-b.md#actual-windows-workload-trial-after-testbot-only-approval-2026-10-12)
 records host measurements separately from the example. Switching, busy and held
 resources consume budget; idle open
 Editors also count. Windows checks available physical RAM **and** commit
@@ -775,7 +775,7 @@ capacity or verified-worker-teardown wait, with expired observations marked stal
 On upgrade, unleased legacy requests resume once to declare scope from their
 retained checkpoint; no business answer is synthesized. Existing leased requests
 finish with their original fences and full estimate. See the
-[worker reference](../references/worker-cli.md) for request and migration details.
+[worker reference](../../references/worker-cli.md) for request and migration details.
 
 Workers checkpoint, request `server_slot` in batch mode at a clean committed
 `farm-hive` HEAD, and exit. The resumed worker gets only that lease's endpoints,
@@ -815,7 +815,7 @@ worker state on D: does not itself relocate that disk.
 FarmBot starts with an empty memory store. Workers may save reusable corrections,
 operational lessons and source pointers across issues. Gameplay rules stay in
 Farm-Contract. Memory is recall data and never grants permission to act. See
-[worker memory guidance](../references/memory.md) for the JSON format and commands.
+[worker memory guidance](../../references/memory.md) for the JSON format and commands.
 
 The ledger is authoritative; `.local/agent/memory/<snapshot>/MEMORY.md` and topic
 files are generated historical reading views. Edit notes using the CLI, not those

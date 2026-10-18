@@ -1,6 +1,6 @@
 # Start or continue one worker
 
-New single-owner work starts with [the concise CLI](single-worker-cli.md).
+New single-owner work starts with [the concise CLI](../single-worker-cli.md).
 The stage navigation below documents archived launches and read-only chat;
 it does not add stage handoffs or read requirements to `single-worker-v1`.
 

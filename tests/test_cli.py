@@ -1708,13 +1708,16 @@ class CliTests(unittest.TestCase):
         self.assertEqual(posted[-1][1]["type"], "thought")
         self.assertEqual([row[0] for row in self.closures(ledger)], ["mention"])
 
-    def test_resume_work_refreshes_delegation_and_hands_message_to_original_fix(self):
+    def test_resume_work_refreshes_delegation_and_hands_message_to_original_owner(self):
         from agent.ledger import Ledger
-        self.env['FARMBOT_CONFIG'] = self.json_file('historical-profile.json', {
+        self.env['FARMBOT_CONFIG'] = self.json_file('current-profile.json', {
             'client_id': 'test', 'client_secret': 'test', 'webhook_secret': 'test',
-            'local_root': str(self.root), 'enabled_skills': ['chat', 'fix']})
+            'local_root': str(self.root), 'enabled_skills': ['chat', 'work']})
         app = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
-        fix = self.seeded_item()
+        with closing(Ledger(self.db)) as ledger:
+            ledger.observe_issue(issue(id=ISSUE, labels=['Bug']))
+            ledger.ensure_session('session-1', ISSUE, delegation=True)
+            fix = ledger.create_work_item(issue_id=ISSUE, session_id='session-1', skill='work')['id']
         self.run_cli("cancel", "--item", fix, "--reason", "stopped")
         # A mention's conversation: a newer delegation session would itself receive the continuation (C7).
         chat = self.seeded_item(session="mention", skill="chat", delegation=False)
@@ -1730,7 +1733,46 @@ class CliTests(unittest.TestCase):
         resumed = self.run_cli("resume-work", "--item", chat, "--token", token, "--message-id", str(message))
         self.assertNotEqual(resumed["id"], fix)
         self.assertEqual((resumed["predecessor_id"], resumed["state"]), (fix, "queued"))
+        self.assertEqual(resumed['execution_contract'], 'single-worker-v1')
         self.assertEqual(self.calls()[-1]["content"]["type"], "response")
+
+    def test_current_chat_implementation_request_starts_one_main_owner(self):
+        from agent.ledger import Ledger
+        chat = self.seeded_item(skill='chat')
+        with closing(Ledger(self.db)) as ledger:
+            ledger.push_inbox(chat, 'Implement the requested display fix')
+            message = ledger.issue_context(chat)['session_messages'][-1]['id']
+        self.stub_card(delegate_id=STUB_APP)
+        token = self.run_cli('claim', '--item', chat, '--worker-id', 'chat')['token']
+        result = self.run_cli('request-repair', '--item', chat, '--token', token,
+                             '--message-id', str(message), '--summary-file',
+                             self.json_file('summary.json', 'Implement the display fix'))
+        self.assertEqual((result['skill'], result['execution_contract'], result['state']),
+                         ('work', 'single-worker-v1', 'queued'))
+        with closing(Ledger(self.db)) as ledger:
+            self.assertEqual(ledger.item(chat)['state'], 'delivered')
+            self.assertEqual([item['id'] for item in ledger.queue()], [result['id']])
+
+    def test_current_chat_refuses_historical_resume_before_retiring_its_claim(self):
+        from agent.ledger import Ledger
+        old = self.seeded_item(skill='work')
+        self.run_cli('cancel', '--item', old, '--reason', 'stopped')
+        chat = self.seeded_item(session='mention', skill='chat', delegation=False)
+        with closing(Ledger(self.db)) as ledger:
+            ledger.push_inbox(chat, 'Continue the existing work')
+            message = ledger.issue_context(chat)['session_messages'][-1]['id']
+        self.stub_card(delegate_id=STUB_APP)
+        token = self.run_cli('claim', '--item', chat, '--worker-id', 'chat')['token']
+        for command in ('resume-work', 'request-repair'):
+            extra = (['--summary-file', self.json_file('summary.json', 'Continue existing work')]
+                     if command == 'request-repair' else [])
+            refused = self.run_cli(command, '--item', chat, '--token', token,
+                                   '--message-id', str(message), *extra, success=False)
+            self.assertIn('settled host adoption', refused.stderr)
+        with closing(Ledger(self.db)) as ledger:
+            self.assertEqual(ledger.item(old)['state'], 'cancelled')
+            self.assertEqual(ledger.item(chat)['state'], 'running')
+            self.assertEqual(ledger.queue(), [])
 
     def test_retry_checks_current_status_and_delegation_before_successor(self):
         fix = self.seeded_item()

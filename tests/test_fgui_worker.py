@@ -113,12 +113,12 @@ class FguiScopeTests(unittest.TestCase):
         work = " ".join(SKILLS["work"].skill_md.read_text(encoding="utf-8").split())
         self.assertIn("Pass the decision, baseline commit/controls/states, allowed changes", work)
         self.assertIn("preservation limits and checks into this task", work)
-        review = (ROOT / "skills/fgui/templates/visual-approval.md").read_text(encoding="utf-8")
+        review = (ROOT / "skills/legacy/fgui/templates/visual-approval.md").read_text(encoding="utf-8")
         for phrase in ("为什么需要或不需要像素对比", "参考图与渲染条件可比", "不让人例行选择验证方式",
                        "保持原样", "before image or source evidence",
                        "不作为自动调整源样式的依据", "仅确认视觉，暂不导出"):
             self.assertIn(phrase, review)
-        document = (ROOT / "skills/fgui/templates/ui-document.md").read_text(encoding="utf-8")
+        document = (ROOT / "skills/legacy/fgui/templates/ui-document.md").read_text(encoding="utf-8")
         for phrase in ("Chosen validation checks", "whether pixel comparison is needed", "before/after evidence",
                        "optional checks skipped with reasons"):
             self.assertIn(phrase, document)
@@ -128,6 +128,8 @@ class FguiToolchainTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="UI doctor ")
         self.addCleanup(self.tmp.cleanup)
+        # Preserve diagnostics for archived profiles without exposing them in live intake.
+        self.enterContext(patch('agent.doctor.load_skills', return_value=SKILLS))
         self.config = Config("doctor-only", "doctor-only", "doctor-only", runtime="codex",
                              local_root=Path(self.tmp.name)/"empty", enabled_skills=["chat", "fgui"], lark_cli=BLOCK)
         self.commands = []

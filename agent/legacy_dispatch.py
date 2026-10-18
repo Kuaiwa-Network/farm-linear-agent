@@ -213,7 +213,7 @@ FGUI_EXPORT_AUTHORITY = (
     "lets you run the FairyGUI CLI batch export for this issue's UI bug fix or small change to existing UI and "
     "integrate its validated outputs into this issue's authorized client worktree, without asking for a "
     "separate export approval or a human GUI publish. Follow the command, staging and validation workflow in "
-    "references/repo-map.md; the export adds no repository, publishing, merge or deployment scope. "
+    "references/legacy/repo-map.md; the export adds no repository, publishing, merge or deployment scope. "
 )
 
 # The feature (Bot/Code) worker's grants and limits (feature-workers design §8.2, §8.4; Phase B plan, P5, P12, P13
@@ -387,13 +387,13 @@ DOCUMENT_READER_DIAGNOSTIC_AUTHORITY = (
     "or a successful full-document read. "
 )
 
-AUTHORITY_REFERENCE = "Use references/worker-cli.md for command arguments and the exact handoff JSON shape."
+AUTHORITY_REFERENCE = "Use references/legacy/worker-cli.md for command arguments and the exact handoff JSON shape."
 
 BASELINE_AUTHORITY = (
     " For work, feature and fix Client jobs, test the candidate first at the issue's required scope. "
     "Baseline comparison is on demand, never a mandatory two-suite workflow. Preserve repository-required "
     "gates and complete actual outcomes; do not expand selection just to obtain a comparison. "
-    "Read references/candidate-verification.md and use verify-candidate after a clean settled candidate run. "
+    "Read references/legacy/candidate-verification.md and use verify-candidate after a clean settled candidate run. "
     "It checks the controller source base, complete real diff, passing affected acceptance, explicit skip "
     "reviews and exact source-causal evidence for independent failures. An unchanged-source failure can be "
     "retained only with the exact same source SHA, empty actual diff and reviewed outside-issue scope; "
@@ -410,7 +410,7 @@ BASELINE_AUTHORITY = (
     "permits this exception. UI resource changes are candidate changes, not automatically environment drift: "
     "retain complete package_inventory with its original digest in both runs, audit each exact changed UI "
     "path in ui_resource_changes. Never omit changed resources or metadata from fingerprints. "
-    "Use issue_scope from references/test-baseline.md to bind acceptance requirements, the complete actual diff "
+    "Use issue_scope from references/legacy/test-baseline.md to bind acceptance requirements, the complete actual diff "
     "and affected_tests to the exact pair. Scope follows changed behavior and concretely linked dependencies: "
     "sharing an exported package, directory, loader or fixture alone is not an impact finding. "
     "Retain identical baseline failures outside that scope without proving every transitive dependency "
@@ -421,14 +421,14 @@ BASELINE_AUTHORITY = (
     "New/changed failures, affected failures, new skips, missing tests or mismatched evidence "
     "remain blockers. Never suppress tests, change expected results or fix unrelated issues to make a gate green. "
     "A changed absolute Unity realtime clock reading is not itself a new regression: use only the comparator's "
-    "reviewed clock_diagnostic procedure in references/test-baseline.md after auditing the unchanged assertion "
+    "reviewed clock_diagnostic procedure in references/legacy/test-baseline.md after auditing the unchanged assertion "
     "source and configured timeout; preserve raw messages and never strip arbitrary numbers. "
     "A late baseline observation alone is not a candidate regression when the reviewed candidate timeout "
     "is observed within one second of its deadline; a late candidate still blocks. Recompare retained "
     "completed reports offline after a diagnostic-rule update instead of rerunning Unity. "
     "NUnit Failed:Invalid remains a failure and can only match the same reviewed baseline state. "
     "For standalone .NET suites use the read-only agent.dotnet_baseline CLI with complete raw TRX manifests "
-    "and source/dependency scope as documented in references/test-baseline.md; do not invent Unity modes, "
+    "and source/dependency scope as documented in references/legacy/test-baseline.md; do not invent Unity modes, "
     "reservations or test jobs. It preserves each execution ID, blocks ambiguous failing duplicates, "
     "and grants only that standalone check's verdict. Reuse complete existing TRX before requesting tests. "
     "The draft must say full_suite_passed=false and list every retained failure and skip with actual tested "
@@ -470,17 +470,17 @@ BASELINE_AUTHORITY = (
     "This includes restored missing test identities: list repair.restored_tests and run the whole changed "
     "fixture with its meaningful assertions. Do not repeat baseline or complete candidate suites solely "
     "because a test name was restored. Preserve other modes' original evidence and source identities. "
-    "Read references/worker-cli.md for the repair scope schema; retain every old failure and actual source "
+    "Read references/legacy/worker-cli.md for the repair scope schema; retain every old failure and actual source "
     "identity, report full_suite_passed=false, and never label retained tests as newly executed. A bare focused "
     "pass without the recorded repair and causal review remains insufficient. Other changed candidates or "
     "an explicitly new baseline start a fresh round with normal checks. Compare a completed failing pair "
     "and either deliver an eligible draft, fix an attributable failure at a new commit, or retain a concrete "
     "unresolved blocker. Do not request more diagnostics merely because a retained outside-scope failure's "
     "root cause is unknown. Before new failure diagnosis, run shared-test-repairs --candidate ORIGINAL_FULL_REPORT "
-    "with the current item/claim. Read references/shared-test-repairs.md. Matching diagnosed fixture repairs "
+    "with the current item/claim. Read references/legacy/shared-test-repairs.md. Matching diagnosed fixture repairs "
     "reuse their causal investigation after current-diff review; do not repeat the same reproduction per issue. "
     "Before repairing a shared fixture, determine whether it actually blocks this issue's acceptance. "
-    "For confirmed unrelated new/changed failures, read references/shared-test-findings.md and submit an exact "
+    "For confirmed unrelated new/changed failures, read references/legacy/shared-test-findings.md and submit an exact "
     "confirmed_unrelated causal review against the retained pair. The controller verifies the full Git diff, "
     "unchanged fixture/dependencies and hashed causal evidence, then records separate maintenance findings. "
     "Business delivery does not wait for those findings to be repaired, merged, assigned or retested; do not "
@@ -491,7 +491,7 @@ BASELINE_AUTHORITY = (
     "at the repaired SHA with the original retained baseline/full reports. Publish reviewed shared_dependencies "
     "in the repair scope so later issues can check exact dependency blobs. A lookup is not a passing result or "
     "waiver; drift or a different failure needs fresh review. For a new/changed or concretely affected failure with unresolved attribution, perform one bounded diagnostic "
-    "attempt as documented in references/test-baseline.md when existing authority and tools allow it. "
+    "attempt as documented in references/legacy/test-baseline.md when existing authority and tools allow it. "
     "Preserve the original failed full-suite pair, candidate and raw results; begin offline, then request "
     "only the original candidate for a planned focused observation if needed. Record the hypothesis, "
     "observables, limit and consumed diagnostic budget in the checkpoint/handoff across resumes. "
@@ -600,7 +600,7 @@ SERVER_TEST_AUTHORITY = (
     "for shared changes. The host checks changed-package coverage. Memory profile full does NOT mean full "
     "repository verification: targeted race still runs only selected packages. Never add unrelated shell gates "
     "or full race solely to satisfy an inherited CI checklist. Disclose checks outside the selected scope. "
-    "Review retained server failures using references/server-evidence.md. A failure outside issue scope may "
+    "Review retained server failures using references/legacy/server-evidence.md. A failure outside issue scope may "
     "be recorded as a confirmed independent defect only with its exact assertion, immutable source/input "
     "identities and a concrete causal chain excluding this issue, including changed shared test helpers. "
     "Without a comparable executed baseline, never call it a matched baseline failure. Keep original failures "
@@ -656,7 +656,7 @@ CLOSEOUT_AUTHORITY = (
     "clean owned issue history and the fetched main SHA before editing or running Contract gates. Reconcile "
     "a stale Contract branch once when its required checks compare against main, then check the integrated "
     "Contract HEAD. Do not adopt those inputs into an unchanged Client/server or invalidate frozen tests "
-    "merely for that Contract synchronization. See references/closeout-reuse.md."
+    "merely for that Contract synchronization. See references/legacy/closeout-reuse.md."
     " On Windows, submit the exact verified Git push through the runtime's normal automatic approval "
     "outside the restricted shell on the first attempt, as described by execution_hint; keep hooks enabled. "
     "This avoids known MSYS signal-pipe restrictions, not approval review. A denial still stops the action."
@@ -690,7 +690,7 @@ def verification_resume(item, resource, root):
         next_action = 'candidate-tests-and-planned-qa-before-release'
     else:
         next_action = 'inspect-saved-evidence-and-run-only-missing-gates'
-    return {'guide': str(root / 'references' / 'client-verification-resume.md'),
+    return {'guide': str(root / 'references' / 'legacy' / 'client-verification-resume.md'),
             'stage': item.get('stage'), 'next_action': next_action,
             'context': 'issue-context --view resume', 'evidence_is_authority': False}
 
@@ -703,12 +703,12 @@ def startup_navigation(item, root, skill_path, worktrees, root_repository, db_pa
     files = ([str(Path(current) / 'AGENTS.md')] if current else [])
     if current and (Path(current) / 'CLAUDE.md').is_file():
         files.append(str(Path(current) / 'CLAUDE.md'))
-    files += [str(skill_path), str(root / 'references' / 'worker-start.md')]
+    files += [str(skill_path), str(root / 'references' / 'legacy' / 'worker-start.md')]
     return {'read_together': files, 'context_flag': '--context',
             'start_argv': ([sys.executable, '-m', 'agent', '--db', str(db_path), 'claim',
                             '--item', item['id'], '--worker-id', item['id'] + ':worker', '--context',
                             '--save-token', str(Path(state_dir) / 'token')] if db_path and state_dir else None),
-            'stage': item.get('stage'), 'guide': str(root / 'references' / 'closeout-reuse.md'),
+            'stage': item.get('stage'), 'guide': str(root / 'references' / 'legacy' / 'closeout-reuse.md'),
             'full_context_when_stale': 'issue-context --view full', 'evidence_is_authority': False}
 
 
@@ -753,7 +753,7 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
                      'observation follows the existing bounded diagnostic rules on the original candidate.')
     if item.get('stage') == 'client-baseline-resume':
         text += (' Host operator resumed a maintenance-interrupted baseline after fixing its recovery entry point. '
-                 'Read references/client-verification-resume.md and the saved exact candidate/baseline reservation. '
+                 'Read references/legacy/client-verification-resume.md and the saved exact candidate/baseline reservation. '
                  'The old capability-gap handoff is historical; --resume-baseline-reservation now restores that '
                  'controller-recorded base without merging main. Reuse all completed reports and run only missing '
                  'checks. A no-test release is not a passing baseline. Preserve any previously tested candidate '
@@ -797,7 +797,7 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
             "runs. Queued legacy Unity batch requests are converted to interactive; no tests ran during that "
             "conversion. After the reservation-bound resume, pin resource.instance with set_active_instance, "
             "verify resource.commit. Before each run_tests request, including a change of test mode, establish "
-            "the test-start boundary in references/worker-cli.md: verify idle Edit Mode and no active tests, "
+            "the test-start boundary in references/legacy/worker-cli.md: verify idle Edit Mode and no active tests, "
             "archive the completed run's error Console before clearing it, then request refresh_unity with "
             "mode=if_dirty, scope=all, compile=request, wait_for_ready=true. Wait for the requested compilation "
             "and domain reload to finish; a successful refresh response or a single cached idle snapshot "
@@ -847,7 +847,7 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
                  'handoff to Client once server/config is settled; the controller retains writer teardown checks. ')
     if item.get('parent_id') and item.get('skill') == 'fgui':
         text += (
-            ' Internal FGUI task boundary: follow skills/fgui/source-task.md. Deliver the named farmgui source, '
+            ' Internal FGUI task boundary: follow skills/legacy/fgui/source-task.md. Deliver the named farmgui source, '
             'approved preview and certified export; the parent owns Client installation, metadata, guards and Unity. '
             'New source tasks cannot hand off to Client or reserve Unity. A retained legacy task with an unchanged '
             'clean Client entry and no prepared/completed installation may use verify-ui-source and finish with '
@@ -865,7 +865,9 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
             'yield-presentation with reason and exact repair paths, then exit; never ask a human to perform routine '
             'engineering handoff or wait holding Client for a parent writer. '
         )
-    root = Path(repo_root) if repo_root is not None else Path(skill_path).parent.parent.parent
+    profile = Path(skill_path).parent
+    root = Path(repo_root) if repo_root is not None else (
+        profile.parent.parent.parent if profile.parent.name == 'legacy' else profile.parent.parent)
     payload = {
         "item_id": item["id"],
         "identifier": issue["identifier"],
@@ -874,8 +876,8 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
         "bot_name": bot_name,
         "skill": str(skill_path),
         "repo_root": str(root),
-        "contract": str(root / "docs" / "operating-contract.md"),
-        "references": sorted(str(path) for path in (root / "references").glob("*.md")),
+        "contract": str(root / "docs" / "legacy" / "operating-contract.md"),
+        "references": sorted(str(path) for path in (root / "references" / "legacy").glob("*.md")),
         "database": str(db_path),
         "state_dir": str(state_dir) if state_dir is not None else None,
         "worktrees": {name: str(path) for name, path in worktrees.items()},

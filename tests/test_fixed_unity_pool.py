@@ -483,7 +483,7 @@ class FixedEditorConfigTests(SlotFixture):
 
     def test_dispatch_overrides_legacy_batch_instructions_without_granting_editor_lifecycle(self):
         message = dispatch_message(item={"id": "i", "skill": "fix"},
-            issue={"identifier": "FARM-1", "url": "u"}, skill_path=self.root / "skills/fix/SKILL.md",
+            issue={"identifier": "FARM-1", "url": "u"}, skill_path=self.root / "skills/legacy/fix/SKILL.md",
             worktrees={}, db_path=self.root / "ledger.sqlite3", runtime="fake", guidance="", budget=SKILLS["fix"].budget,
             tools={"unity_pool": {"mode": "interactive", "editors": 2}})
         authority, payload = message.split("\n\n", 1)

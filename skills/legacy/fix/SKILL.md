@@ -58,7 +58,7 @@ repository/export/runtime gates and preserve unrelated fonts, outlines and layou
 
 ## Intake
 
-1. For fresh intake read this file, `contract`, `references/worker-cli.md`, and the instructions of the current
+1. For fresh intake read this file, `contract`, `references/legacy/worker-cli.md`, and the instructions of the current
    `stage.root_repository` if one is set. Open other references and repository instructions when
    investigation needs them. In the neutral stage, start read-only with the repositories and paths indicated
    by the issue, logs and applicable prior findings. Follow actual call/data dependencies and expand the
@@ -66,13 +66,13 @@ repository/export/runtime gates and preserve unrelated fonts, outlines and layou
    the affected behavior and required checks are established; available worktrees are not a checklist.
    Record relevant findings and any remaining uncertainty. All stage/write restrictions still apply.
    On continuation batch `startup.read_together` and current-root rules, following
-   `references/worker-start.md`; read current-phase references without reopening unrelated stages.
+   `references/legacy/worker-start.md`; read current-phase references without reopening unrelated stages.
    Use `claim --context` for the resume view without a duplicate context read, keeping the same
    private token storage and fresh `fetch-issue` checks below. Stale or missing facts require full context.
 2. `python3 -m agent --db DATABASE claim --item ITEM_ID --worker-id WORKER_ID`. Write the returned token
    to `STATE_DIR/token`: on POSIX use mode 0600; on Windows keep the inherited DACL
    and do not change ACLs. Never print it. Follow the claim-token storage procedure in
-   `<repo_root>/references/worker-cli.md`; that reference also gives the command argument table and checkpoint JSON.
+   `<repo_root>/references/legacy/worker-cli.md`; that reference also gives the command argument table and checkpoint JSON.
    Claim-authenticated commands, including `post-comment` and `confirm-comment`, take
    `--item ITEM_ID --token-file STATE_DIR/token`. `fetch-issue` and `issue-context` take only
    `--item ITEM_ID`; they do not accept token flags. Never put `--token` on a command line:
@@ -95,7 +95,7 @@ repository/export/runtime gates and preserve unrelated fonts, outlines and layou
    reconciles the marker against live comments, so a restarted worker never posts twice.
 5. When the description or human comments carry uploads (screenshots, screen recordings, logs,
    archives), download them before diagnosing with `download-uploads --item ITEM_ID --token-file
-   STATE_DIR/token --out STATE_DIR/inputs/linear` (`references/worker-cli.md`), and open the files its
+   STATE_DIR/token --out STATE_DIR/inputs/linear` (`references/legacy/worker-cli.md`), and open the files its
    manifest names instead of guessing what they show. Run it again after a resume for new uploads.
    FarmBot's Linear credentials are for its CLI commands on this item only: never fetch
    `uploads.linear.app` another way. An upload the diagnosis depends on that failed to download or
@@ -297,7 +297,7 @@ Run each check in the repository's own stage. Cheapest sufficient check first, a
    Recheck state after that attempt; if it still cannot settle, save a checkpoint and release `unclean`. Never start or kill
    the shared Editor. A reload that restores progress does not establish why the stall occurred.
    Prepare the issue acceptance checklist and harness before reserving Unity, following
-   [verification resume](../../../references/client-verification-resume.md). After candidate tests, run the
+   [verification resume](../../../references/legacy/client-verification-resume.md). After candidate tests, run the
    planned presentation QA in this same reservation when safe; do not release just to create a separate QA
    worker. A concrete regression/unsafe runtime stops dependent QA; offline analysis and human waits require
    release. Report `verification-progress --phase testing` and then `--phase presentation-qa` for actual work.
@@ -327,7 +327,7 @@ require two full suites. UI work follows its recorded validation decision. Missi
 unhydrated LFS pointers, typecheck setup
 failures, compilation failures before the intended test, and zero-test runs leave that
 test unverified; they are not the product's red test. Establish prerequisites before claiming the
-required behavior was verified. Follow `references/evidence-format.md` when classifying results. A draft delivery
+required behavior was verified. Follow `references/legacy/evidence-format.md` when classifying results. A draft delivery
 may include unresolved verification gaps, but its comment, report and outcome must name those gaps and
 must not claim the behavior or full suite passed.
 
@@ -349,7 +349,7 @@ delegated again, continue.
 Other people may already be working on the issue: humans, or another FarmBot instance, since
 production and TestBot both name branches `farmbot/<key>`. Before your first source change in each
 stage, and again immediately before each push or PR creation, run `fetch-issue` and then
-`foreign-work` (see `references/worker-cli.md`). Record a branch in `plan.prs` before its first push,
+`foreign-work` (see `references/legacy/worker-cli.md`). Record a branch in `plan.prs` before its first push,
 and only when `foreign-work` found nothing foreign for it or a human said to build on it; an
 unrecorded branch is foreign even when your worktree has its name. When `status` is `found`, change
 and publish nothing unless a current session message already answered about exactly those entries.
@@ -391,12 +391,12 @@ FarmBot's clone behind your worktree is partly read-only to you: its config and 
 cannot be written, so `git push -u`, `git config`, deleting a branch and a full `git gc` fail. Git
 may also print `Unable to create '…/packed-refs.lock'` after a commit, fetch or rebase that
 succeeded; that line is harmless, so check the exit status and the result instead.
-For Client checks, default to [candidate-first verification](../../../references/candidate-verification.md)
+For Client checks, default to [candidate-first verification](../../../references/legacy/candidate-verification.md)
 and `verify-candidate` at the issue's actual scope, preserving mandatory gates and complete outcomes.
 Do not automatically run two suites. Reviewed unchanged-source or causally independent failures can
 accompany scoped delivery without a new baseline; missing/failed affected tests still block.
 For unresolved attribution where a named source/input difference makes a comparison useful, record
-the hypothesis and selection, then use [baseline comparison](../../../references/test-baseline.md).
+the hypothesis and selection, then use [baseline comparison](../../../references/legacy/test-baseline.md).
 Request trusted remote main with `await-resource --baseline --commit CANDIDATE`;
 when the exact candidate already completed its first run, add `--reuse-candidate-reservation ID` to retain
 that cleanly released run and its recorded admission upstream. For a grant carrying
@@ -445,13 +445,13 @@ revoked delegation is never a question; follow the withdrawal rule above. If aut
 rejects the action, keep the rejection in the report; gather the missing evidence or request concrete
 approval. Never switch execution paths to bypass it.
 
-A fix keeps a `plan` in its checkpoint (`references/worker-cli.md`). Its `prs` maps each repository's
+A fix keeps a `plan` in its checkpoint (`references/legacy/worker-cli.md`). Its `prs` maps each repository's
 name, as your launch message spells it (`Farm-Client`, never `OWNER/Farm-Client`), to a list of entries
 with the branch, head and PR URL, the shape of the reference's example: `foreign-work` counts no other
 shape as yours. The plan survives stages, pauses and restarts, and a successor of cancelled work reads
 it from `recovery.plan`; verify it like any recall.
 
-Checkpoint often using the complete JSON in `references/worker-cli.md`, with `stage`, `handoff` and
+Checkpoint often using the complete JSON in `references/legacy/worker-cli.md`, with `stage`, `handoff` and
 `published_prs` immediately after a PR exists. Check every mutation's exit status and returned state.
 A rejected handoff must be repaired and successfully saved before `await-input`, `await-resource` or
 `finish`; a failed checkpoint does not preserve progress. Open PRs as drafts with `gh pr create --draft`, link the

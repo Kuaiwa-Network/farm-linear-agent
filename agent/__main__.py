@@ -250,6 +250,8 @@ def conversation_request(ledger, item_id, issue, running, *, start):
     if context["coordination"]["skill"] != "chat":
         return None, None
     work = context["resumable_work"]
+    if work is not None and set(running) <= {'chat', 'work'} and not single(ledger.item(work['id'])):
+        return None, 'historical staged work requires settled host adoption into single-worker-v1 before continuation'
     if work is not None and work["skill"] in running:
         return work["skill"], None
     children = bot_children(issue.get("label_groups"))
@@ -367,7 +369,7 @@ def verify_late_prs(ledger, args, token, progress):
     if Path(args.db).resolve() != paths.ledger.resolve():
         raise LedgerError("publication reconciliation must use the configured host ledger")
     item = ledger.item(args.item)
-    skill = skill_for(item, load_skills(ROOT / 'skills').get(item['skill']))
+    skill = skill_for(item, load_skills(ROOT / 'skills', replay_legacy=not single(item)).get(item['skill']))
     session = ledger.session(item['session_id']) or {}
     if item['skill'] not in WRITE_SKILLS or not skill or not session.get('delegation'):
         raise LedgerError("only a delegated write worker may reconcile published PRs")
@@ -654,7 +656,7 @@ def run(args, ledger, api_factory):
             from .config import ROOT
             from .skills import load_skills
             item = ledger.item(args.item)
-            skill = skill_for(item, load_skills(ROOT / "skills").get(item["skill"]))
+            skill = skill_for(item, load_skills(ROOT / "skills", replay_legacy=not single(item)).get(item["skill"]))
             published = progress.get("published_prs")
             if (isinstance(published, list) and all(isinstance(url, str) for url in published)
                     and skill is not None):
@@ -678,7 +680,7 @@ def run(args, ledger, api_factory):
         item = ledger.item(args.item)
         refuse_withdrawn(item)
         # The item's own manifest decides its stages: any staged skill, to a repository in its writes.
-        skill = skill_for(item, load_skills(ROOT / "skills").get(item["skill"]))
+        skill = skill_for(item, load_skills(ROOT / "skills", replay_legacy=not single(item)).get(item["skill"]))
         if skill is None or not skill.staged:
             raise LedgerError(f"repository handoff requires a staged skill; {item['skill']} is not staged on this host")
         if args.to not in skill.writes:
@@ -889,7 +891,8 @@ def run(args, ledger, api_factory):
         from .config import ROOT
         from .skills import load_skills
         from .fgui_workflow import UiWorkflow, read_packages
-        skill = load_skills(ROOT / "skills").get(ledger.item(args.item)["skill"])
+        item = ledger.item(args.item)
+        skill = load_skills(ROOT / "skills", replay_legacy=not single(item)).get(item["skill"])
         source_stage = (c in ('review-ui', 'export-ui') or c == 'verify-ui-source'
                         and ledger.item(args.item)['root_repo'] in (None, 'farmgui'))
         workflow = UiWorkflow(ledger, args.item, token, config, skill, api_factory,
@@ -1005,7 +1008,7 @@ def run(args, ledger, api_factory):
         paths = Paths(config)
         if Path(args.db).resolve() != paths.ledger.resolve():
             raise LedgerError("publication must use the configured host ledger")
-        skills = load_skills(ROOT / 'skills')
+        skills = load_skills(ROOT / 'skills', replay_legacy=not single(item))
         skill = skill_for(item, skills.get(item['skill']))
         session = ledger.session(item['session_id']) or {}
         if (item['skill'] not in WRITE_SKILLS or not skill or args.repo not in write_repositories(item, skill)
@@ -1088,7 +1091,7 @@ def run(args, ledger, api_factory):
         if single(item):
             from .worker_resources import request
             return request(args, ledger, load_config(secure_permissions=False), token)
-        skill = skill_for(item, load_skills(ROOT / "skills").get(item["skill"]))
+        skill = skill_for(item, load_skills(ROOT / "skills", replay_legacy=not single(item)).get(item["skill"]))
         if skill is None:
             raise LedgerError(f"a resource request requires the item's skill; {item['skill']} is not loaded here")
         require_listed_resource(skill, args.resource)
@@ -1292,7 +1295,7 @@ def run(args, ledger, api_factory):
         from .config import ROOT
         from .skills import load_skills
         from .withdrawal import grace_seconds
-        grace = grace_seconds(load_skills(ROOT / "skills").get(item["skill"]))
+        grace = grace_seconds(load_skills(ROOT / "skills", replay_legacy=not single(item)).get(item["skill"]))
         view, reason = ledger.withdraw(args.item, token, delegated=delegated, closed=closed, read_at=read_at,
                                        grace_seconds=grace)
         posted = post_closing_notice(ledger, lambda: api, view, reason) if view["state"] == "cancelled" else False
@@ -1341,7 +1344,7 @@ def run(args, ledger, api_factory):
             config = load_config(secure_permissions=False)
             if Path(args.db).resolve() != Paths(config).ledger.resolve():
                 raise LedgerError("UI delivery must use the configured host ledger")
-            workflow = UiWorkflow(ledger, args.item, token, config, load_skills(ROOT / "skills").get("fgui"),
+            workflow = UiWorkflow(ledger, args.item, token, config, load_skills(ROOT / "skills", replay_legacy=True).get("fgui"),
                                   api_factory, stage='farmgui' if item['root_repo'] in (None, 'farmgui') else 'Farm-Client')
             from .presentation_contract import source_only
             if item.get('parent_id') and (source_only(item) or evidence.get('source_only') is True):

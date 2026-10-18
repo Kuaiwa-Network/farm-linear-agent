@@ -98,8 +98,7 @@ jobs; a Git checkout does not reverse the schema or adopted job state.
 
 - [Go dependency preparation](docs/go-dependency-preparation.md)
 - [Current resource and authority boundaries](docs/operating-contract.md#resource-ownership)
-- [Archived operating contract](docs/legacy-operating-contract.md)
-- [Archived setup and diagnostics detail](docs/legacy-readme.md)
 
-The archives describe previous revisions. They do not re-enable stage gates,
-subtask execution or deployment actions in the current workflow.
+Historical material lives under `docs/legacy`, `docs/superpowers`,
+`skills/legacy` and `references/legacy`. It is excluded from current worker
+entry points and cannot re-enable retired procedures.

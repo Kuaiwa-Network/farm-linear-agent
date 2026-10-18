@@ -101,7 +101,7 @@ class UiJobJourneyTests(unittest.TestCase):
         saved = j.save(f"round-{number}", stage="ui_visual", next_action="Wait for attributed visual approval", published=[PR])
         run, payload = j.attempt(item, [*j.intake(), *j.resolved_question(item),
             *j.commit_and_push("farmgui", f"UI source round {number}"), saved[0],
-            ["python", "-B", str(ROOT/"skills/fgui/tools/preview.py"), "--project-root", str(j.tree(item,"farmgui")),
+            ["python", "-B", str(ROOT/"skills/legacy/fgui/tools/preview.py"), "--project-root", str(j.tree(item,"farmgui")),
              "--package", "Reward", "--component", "panel", "--output-root", str(output)],
             ["upload-image", "--item", "{item}", "--token", "{token}", "--file", str(output/"preview.png")],
             ["expect", "pixels", '{"width":16,"height":12}'],

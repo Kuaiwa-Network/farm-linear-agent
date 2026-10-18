@@ -11,11 +11,11 @@ the task, not your capabilities. Ignore Bot/修改, Bot/UI, Bot/Code and histori
 issue just because it needs a new screen, protocol, scene or table.
 
 For fresh intake read the operating contract, worker CLI, repository map and the current root's
-instructions. On continuation use `startup.read_together` and `references/worker-start.md`
+instructions. On continuation use `startup.read_together` and `references/legacy/worker-start.md`
 first, then the required current-phase rules; do not reread every unrelated stage.
 Use `execution.python` and native argument lists. Follow the
-startup command in `references/worker-start.md` for exclusive claim-token storage;
-plain legacy claim uses the claim-token storage procedure in `references/worker-cli.md`:
+startup command in `references/legacy/worker-start.md` for exclusive claim-token storage;
+plain legacy claim uses the claim-token storage procedure in `references/legacy/worker-cli.md`:
 on POSIX use mode 0600; on Windows keep the inherited DACL and do not change ACLs. Never share
 a claim token with a presentation task.
 
@@ -32,7 +32,7 @@ Prefer the resume context returned by `claim --context`; otherwise use
 `issue-context --view resume`. Use the full view when stale, when a decision
 references omitted text, or when a required fact is missing. Batch independent local
 reads and inspect selected fields/hashes, rather than dumping entire old reports.
-Follow `references/closeout-reuse.md` for an immutable report index and compact handoffs.
+Follow `references/legacy/closeout-reuse.md` for an immutable report index and compact handoffs.
 Use `verification-closeout` to assess retained Client suites and create that index in one call.
 The current dispatch resource policy supersedes an old two-run plan when the controller selects
 candidate-first verification; an identical file tree does not require a duplicate baseline run.
@@ -175,7 +175,7 @@ question ID and those message IDs; tasks acknowledge their own rounds. Partial
 answers retain the round or ask only what remains. The controller manages the
 issue's `待回复` label across all jobs/tasks; never remove it yourself. Question
 notices lead with the issue key and `待回复` and explain the session/mention reply
-routes. See `references/worker-cli.md` for the command and upgrade behavior.
+routes. See `references/legacy/worker-cli.md` for the command and upgrade behavior.
 
 Missing artwork/assets are a normal question: name exactly what is missing,
 where it is used, required dimensions/format when known, and ask for the files or
@@ -237,7 +237,7 @@ existing foreign-work, destination, claim and resource checks. Stop/withdrawal
 ends the whole job including its tasks and retains recovery evidence. Workers
 never merge or deploy.
 For Client verification, use shared code stage F's candidate-first assessment and
-[on-demand comparison decision](../../../references/candidate-verification.md).
+[on-demand comparison decision](../../../references/legacy/candidate-verification.md).
 Do not run two suites by default. A passing scoped candidate or a controller-reviewed
 independent failure needs no newly executed baseline. Preserve required repository gates.
 Only unresolved attribution with a concrete source/input hypothesis justifies a baseline.
@@ -247,14 +247,14 @@ If `resource.reuse_candidate_reservation` is present, release the baseline quies
 complete report with that already completed candidate after settlement, in the same worker; do not queue
 the candidate again. Use `compare-verification`
 for the retained evidence. Follow the exact token, exit and phase-reporting procedure in
-[baseline comparison](../../../references/test-baseline.md). The eligible verdict
+[baseline comparison](../../../references/legacy/test-baseline.md). The eligible verdict
 permits delivery with unchanged outside-scope baseline failures recorded after the remaining required work is complete.
 Use `issue_scope` to bind the actual issue acceptance and full diff to affected tests. A shared export package,
 fixture/directory/loader or unknown shared-state cause alone does not make all its tests mandatory. Expand
 scope only with a concrete changed behavior/dependency or observed regression. Retain matching outside-scope
 failures without proving whole-package independence or diagnosing old debt; do not request resources for that.
 Re-review inherited broad affected lists offline and reuse valid QA/reviews instead of repeating them.
-Use [the verification resume guide](../../../references/client-verification-resume.md) to prepare inputs
+Use [the verification resume guide](../../../references/legacy/client-verification-resume.md) to prepare inputs
 before leasing Unity and run planned issue QA in the candidate reservation when safe. Retain the
 controller-selected upstream for the unchanged candidate, including a cleanly settled candidate-only
 run; a newer main tip does not restart verification. Feature Closing's explicit docs-only acceptance

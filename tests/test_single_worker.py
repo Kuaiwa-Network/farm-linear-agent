@@ -25,11 +25,31 @@ class SingleWorkerTests(LedgerBase):
         from agent.dispatch import SKILL_AUTHORITY
         from agent.skills import enabled_skills
         current = enabled_skills(SKILLS, None, authority=SKILL_AUTHORITY)
+        self.assertEqual(set(SKILLS), {'chat', 'work'})
         self.assertEqual(set(current), {'chat', 'work'})
         self.assertFalse(current['work'].staged)
         from agent.stages import runtime_can_launch
         self.assertTrue(runtime_can_launch(current['work'], 'codex'))
         self.assertFalse(runtime_can_launch(current['work'], 'claude'))
+
+    def test_current_chat_cannot_inherit_staged_guidance_or_publication_grants(self):
+        prompt = dispatch.dispatch_message(item={'id': 'chat', 'skill': 'chat', 'execution_contract': LEGACY},
+            issue={'identifier': 'FARM-1', 'url': 'https://linear.app/issue/FARM-1'},
+            skill_path=SKILLS['chat'].skill_md, worktrees={'Farm-Client': '/read/client'},
+            db_path='/state/db', runtime='codex', guidance='', repo_root=ROOT, state_dir='/state/chat',
+            budget=SKILLS['chat'].budget, write_repositories=['Farm-Client'],
+            publication={'repositories': {'Farm-Client': {'verified': True}}})
+        payload = json.loads(prompt.split('\n\n', 1)[1])
+        self.assertEqual(payload['stage']['write_repositories'], [])
+        self.assertEqual(payload['publication'], {'repositories': {}})
+        self.assertEqual(Path(payload['cli']), ROOT / 'references/chat-cli.md')
+        self.assertEqual(Path(payload['skill']), SKILLS['chat'].skill_md)
+        self.assertNotIn('references/legacy', prompt)
+        self.assertNotIn('handoff-repository', prompt)
+        self.assertNotIn('verify-candidate', prompt)
+        self.assertIn('read-only conversation worker', prompt)
+        self.assertIn('request-repair', prompt)
+        self.assertIn('live delegation', prompt)
 
     def test_queued_request_cancels_on_maintenance_without_losing_claim(self):
         self.claim_owner()

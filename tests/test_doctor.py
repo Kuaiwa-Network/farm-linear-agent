@@ -541,14 +541,14 @@ class DoctorTests(unittest.TestCase):
         self.assertNotIn("lark_cli_unconfigured", self.codes(report))
 
     def test_the_enabled_skills_are_reported(self):
-        # feature is loaded from the checkout but opt-in (P1): enabled only where enabled_skills names it.
+        # Retired profiles are physically archived and absent from the live registry.
         skills = self.report()["skills"]
         self.assertEqual((skills["loaded"], skills["enabled"], skills["configured"]),
-                         (["chat", "feature", "fgui", "fix", "scene", "work"], ["chat", "work"], False))
+                         (["chat", "work"], ["chat", "work"], False))
         self.config.enabled_skills = ["chat"]
         report = self.report()
         self.assertEqual((report["skills"]["loaded"], report["skills"]["enabled"], report["skills"]["configured"]),
-                         (["chat", "feature", "fgui", "fix", "scene", "work"], ["chat"], True))
+                         (["chat", "work"], ["chat"], True))
         self.assertEqual(report["status"], "ok")
 
     def test_an_enabled_skill_the_checkout_lacks_is_the_finding_serve_would_refuse(self):

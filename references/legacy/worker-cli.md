@@ -2,9 +2,9 @@
 
 ## Continuing a diagnosed Client repair
 
-Confirmed unrelated shared defects can be recorded as [independent maintenance](../shared-test-findings.md)
+Confirmed unrelated shared defects can be recorded as [independent maintenance](shared-test-findings.md)
 without repairing them or rerunning baseline to deliver the business issue.
-First consult [shared test repairs](../shared-test-repairs.md) for an already diagnosed
+First consult [shared test repairs](shared-test-repairs.md) for an already diagnosed
 matching fixture failure. Reuse a verified mechanism after current-diff review,
 rather than repeating the same investigation for each issue.
 
@@ -67,7 +67,7 @@ creates the token exclusively at the configured item path and returns `token_fil
 and resume context without printing the token. It requires the configured ledger;
 existing files/links and storage failures stop startup. Preserve failure evidence,
 never retry a possibly successful claim. Plain claim remains compatible.
-See [worker-start](../worker-start.md) for current issue refresh and required reads.
+See [worker-start](worker-start.md) for current issue refresh and required reads.
 
 `handoff-repository`, `await-resource` and `continue-verification` accept optional
 `--checkpoint FILE`. This saves through normal checkpoint/PR checks before the
@@ -128,8 +128,8 @@ python3 -m agent --db DATABASE checkpoint --help
 | `continue-verification` | `--item ITEM_ID --token-file CLAIM_TOKEN_FILE --reservation-token-file RESOURCE_TOKEN_FILE --commit CANDIDATE`; completed interactive Client comparison baseline only; retires the claim, then exit |
 | `verification-progress` | `--item ITEM_ID --token-file CLAIM_TOKEN_FILE --phase preparation\|testing\|presentation-qa\|failure-review\|comparison\|publication\|delivery`; display only, preserves checkpoint |
 | `compare-verification` | `--item ITEM_ID --token-file CLAIM_TOKEN_FILE --baseline STATE_DIR/baseline.json --candidate STATE_DIR/candidate.json --scope STATE_DIR/scope.json`; validates the recorded pair and updates comparison status; inspect output `draft_eligible` |
-| `verify-candidate` | `--item ITEM_ID --token-file CLAIM_TOKEN_FILE --candidate STATE_DIR/candidate.json --scope STATE_DIR/candidate-scope.json`; validates one actual released run, controller source base, complete Git diff and reviewed acceptance/failures; see [candidate-first verification](../candidate-verification.md), inspect `draft_eligible`; never invents a tested baseline |
-| `verification-closeout` | `--item ITEM_ID --token-file CLAIM_TOKEN_FILE --input STATE_DIR/closeout.json`; assess 1–6 retained suites, preserve all original reports and create one immutable index; see [closeout manifest](../closeout-reuse.md); any blocked suite blocks the combined verdict, and remaining finish gates still apply |
+| `verify-candidate` | `--item ITEM_ID --token-file CLAIM_TOKEN_FILE --candidate STATE_DIR/candidate.json --scope STATE_DIR/candidate-scope.json`; validates one actual released run, controller source base, complete Git diff and reviewed acceptance/failures; see [candidate-first verification](candidate-verification.md), inspect `draft_eligible`; never invents a tested baseline |
+| `verification-closeout` | `--item ITEM_ID --token-file CLAIM_TOKEN_FILE --input STATE_DIR/closeout.json`; assess 1–6 retained suites, preserve all original reports and create one immutable index; see [closeout manifest](closeout-reuse.md); any blocked suite blocks the combined verdict, and remaining finish gates still apply |
 | `withdraw` | `--item ITEM_ID --token-file STATE_DIR/token`; releases your claim after the delegation was removed or superseded; a general coordinator may park for running children's grace; save a checkpoint first; exit after it succeeds |
 | `tasks` | `--item ITEM_ID`; reads this logical job's durable presentation tasks |
 | `prepare-go-dependencies` | Claim-token arguments, `--module` from dispatch's configured module list, `--commit CLEAN_HEAD`; queues host-only preparation and returns request ID/state; optional `--retry` after a failed/cancelled request's host correction, at most three failed preparations per candidate; cancellations retain their fencing and do not consume that failure budget |
@@ -210,7 +210,7 @@ the shared deferred-archive consumer prerequisites before acceptance is publishe
 configured host ledger. Indexes accept up to 32 files (64 MiB each, 256 MiB total),
 full source pins and bounded summaries. No symlinks, junctions or paths outside the
 item state are accepted. Neither hashes nor supplied pins establish a passing test.
-See [closeout reuse](../closeout-reuse.md) for the input shape and reuse boundaries.
+See [closeout reuse](closeout-reuse.md) for the input shape and reuse boundaries.
 
 `verify-publication` already refreshes issue/delegation and returns `foreign_work`
 for the chosen repository. Inspect that result instead of immediately repeating the
@@ -675,7 +675,7 @@ its wiki node token, with `sheets +workbook-info --as bot` and `sheets +cells-ge
 same configured identity. A direct spreadsheet link may be passed through `--url`. Read all tabs,
 including hidden and empty tabs, retain source coordinates and hashes, reject truncation or missing
 coverage, and verify one unchanged revision before, during and after reading as
-[`skills/work/code-stages.md`](../../skills/work/code-stages.md) requires. These operations grant no sheet writes,
+[`skills/legacy/work/code-stages.md`](../../skills/legacy/work/code-stages.md) requires. These operations grant no sheet writes,
 search, export, imports or remote scripts; a denied read names the required read-only scope and asks
 the operator. `fgui` retains only the three document/attachment reads above. No other lark-cli
 command is authorized apart from local help (`--help`, `skills read`).
@@ -923,7 +923,7 @@ after settlement in this same worker, without `continue-verification` or a secon
 Otherwise, when quiescent and ready, use `continue-verification` with both tokens, then exit: it atomically
 releases the baseline and queues that exact candidate for the same slot's next turn. Worker admission, teardown,
 Git identity and controller settlement still apply. Already released baselines use a normal candidate request;
-never rerun them for priority. See [comparison evidence and draft verdict](../test-baseline.md).
+never rerun them for priority. See [comparison evidence and draft verdict](test-baseline.md).
 
 Finish this exact controller-recorded round when remote main advances during the queue.
 A cleanly settled candidate-only run in the current generation can use its recorded admission base
@@ -948,7 +948,7 @@ cannot replace a failed full suite. A newer baseline still starts a fresh round.
 Use the documented `issue_scope` review for the actual acceptance requirements and complete diff. Matching
 failures outside that scope are disclosed baseline debt, not mandatory root-cause investigations. Sharing a
 changed UI package alone does not expand acceptance. Re-review inherited broad scopes offline; preserve
-all required issue checks, raw reports, QA and diagnostic budgets. See [scope schema](../test-baseline.md#issue-acceptance-boundary).
+all required issue checks, raw reports, QA and diagnostic budgets. See [scope schema](test-baseline.md#issue-acceptance-boundary).
 After a comparator capability correction, the host operator (not a worker) may run
 `python -m agent.service resume-comparison --config CONFIG --item ITEM --commit CANDIDATE --reason REASON`.
 It requires maintenance pause, a stopped controller, fresh open/delegated issue state, no human question
@@ -1100,7 +1100,7 @@ removed its worktrees, then gets that branch itself, fetched and tracking `origi
 commits others pushed are on it, and commits of its own that were never pushed stay ahead of the
 remote. Integrate the remote before you push, never force-push.
 
-The shared work/feature plan keys and their entry shapes are in `skills/work/code-stages.md` ("The plan"); where they
+The shared work/feature plan keys and their entry shapes are in `skills/legacy/work/code-stages.md` ("The plan"); where they
 differ from the example above, a `feature` worker follows the skill.
 
 ## Read-only checkouts

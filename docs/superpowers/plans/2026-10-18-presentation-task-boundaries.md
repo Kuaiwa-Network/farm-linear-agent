@@ -31,8 +31,8 @@ QA 当前是主任务的验证活动，没有独立的持久 QA 子任务。换�
 依据：[委派与仓库互斥](../../../agent/workflow.py)、
 [执行根](../../../agent/stages.py)、[工作流](../../general-workflow.md)、
 [技能清单](../../../agent/skills.py)及 [work](../../../skills/work/skill.json)、
-[fgui](../../../skills/fgui/skill.json)、[scene](../../../skills/scene/skill.json)、
-[feature](../../../skills/feature/skill.json)、[fix](../../../skills/fix/skill.json)、
+[fgui](../../../skills/legacy/fgui/skill.json)、[scene](../../../skills/legacy/scene/skill.json)、
+[feature](../../../skills/legacy/feature/skill.json)、[fix](../../../skills/fix/skill.json)、
 [chat](../../../skills/chat/skill.json) 的 manifest。
 
 ## 2. 已确认的边界缺口
@@ -54,9 +54,9 @@ QA 当前是主任务的验证活动，没有独立的持久 QA 子任务。换�
    `Assets` 元数据，任一非法 GUID 就中止。FARM-1614 已观察到范围外既有元数据挡住
    安装；调整职责归属本身不会消除这个检查问题。
 
-依据：[FGUI 指令](../../../skills/fgui/SKILL.md)、
+依据：[FGUI 指令](../../../skills/legacy/fgui/SKILL.md)、
 [FGUI 交付认证](../../../agent/fgui_delivery.py)、
-[scene 指令](../../../skills/scene/SKILL.md)、
+[scene 指令](../../../skills/legacy/scene/SKILL.md)、
 [scene 交付认证](../../../agent/scene_delivery.py)、
 [安装器](../../../agent/fgui_install.py)、
 [交付退出复核](../../../agent/scheduler.py)。

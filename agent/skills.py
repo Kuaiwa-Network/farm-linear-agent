@@ -102,7 +102,7 @@ def load_skills(root, *, replay_legacy=False):
             skill = _load_one(directory)
             skills[skill.name] = skill
     if replay_legacy:
-        for name in ('work', 'fix'):
+        for name in ('chat', 'work', 'fix', 'feature', 'fgui', 'scene'):
             if (root / 'legacy' / name / 'skill.json').is_file():
                 skills[name] = _load_one(root / 'legacy' / name)
     if not skills:

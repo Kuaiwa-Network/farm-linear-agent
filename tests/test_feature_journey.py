@@ -10,7 +10,7 @@ checkouts, the plan, notices, pauses, registered PRs, cleanup).
 Linear is the file stub (`FARMBOT_LINEAR_STUB_DIR`). The five repositories are local Git origins behind the configured
 `https://github.com/example-org/...` remotes, reached through a `url.<base>.insteadOf` rewrite in the environment,
 with the host's own Git configuration ignored; the read-only checkouts of the manifest's three `reads` repositories
-are fetched from the same origins. The `feature` manifest is the checkout's own `skills/feature/skill.json`. Nothing
+are fetched from the same origins. The `feature` manifest is the checkout's own `skills/legacy/feature/skill.json`. Nothing
 reaches GitHub: the controller's publication check at launch stops at the rewritten push URL, and the fake never runs
 `verify-publication` or `foreign-work`, which have tests of their own.
 
@@ -699,7 +699,7 @@ class CodeJobJourneyTests(unittest.TestCase):
         self.assert_stage(item, run, payload, "Farm-Contract")
         self.assert_reads(item, run, payload, self.origin_head("Farm-Contract", "main"))
         self.assertEqual((payload["skill"], payload["target"], payload["user_requests"]),
-                         (str(ROOT / "skills" / "feature" / "SKILL.md"), None, []))
+                         (str(ROOT / "skills" / "legacy" / "feature" / "SKILL.md"), None, []))
         self.assertEqual({repo: self.branch(self.tree(item, repo)) for repo in FEATURE}, dict.fromkeys(FEATURE, BRANCH))
         self.assertFalse({"Farm-Client", "farmgui"} & set(payload["worktrees"]))  # read, never written (P2)
         current = self.c.ledger.item(item)

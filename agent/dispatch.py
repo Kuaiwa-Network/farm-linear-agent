@@ -1,4 +1,5 @@
 """Launch the single issue owner. Historical prompts are isolated for offline replay."""
+from pathlib import Path
 from .execution import single
 from . import legacy_dispatch
 
@@ -9,7 +10,10 @@ authority = legacy_dispatch.authority
 
 
 def dispatch_message(**arguments):
-    if single(arguments['item']):
+    skill_path = Path(arguments['skill_path'])
+    current_chat = (arguments['item'].get('skill') == 'chat' and skill_path.parent.name == 'chat'
+                    and skill_path.parent.parent.name != 'legacy')
+    if single(arguments['item']) or current_chat:
         from .worker_dispatch import message
         return message(**arguments)
     return legacy_dispatch.dispatch_message(**arguments)
