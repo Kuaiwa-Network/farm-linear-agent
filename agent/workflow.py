@@ -206,6 +206,9 @@ def delegate_task(ledger, item_id, token, request):
         raise LedgerError('task dependencies must be distinct earlier task keys')
     with ledger._transaction():
         parent = ledger._owned(item_id, token)
+        from .execution import single
+        if single(parent):
+            raise LedgerError('controller-managed presentation tasks are retired for single-worker jobs')
         ledger._refuse_withdrawn(parent)
         ledger.require_valid_checkpoint(item_id, token)
         if parent["skill"] != "work" or parent["parent_id"] is not None:

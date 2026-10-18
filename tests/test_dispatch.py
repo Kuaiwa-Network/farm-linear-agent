@@ -739,7 +739,7 @@ class SkillAuthorityTests(unittest.TestCase):
     def test_every_skill_the_manifest_grants_kw_ops_carries_the_kw_ops_terms(self):
         """The tool grant comes from the manifest and its terms from the per-skill part: a skill with the grant
         and no terms would use kw_ops without its limits and credential rule."""
-        for skill in load_skills(ROOT / "skills").values():
+        for skill in load_skills(ROOT / "skills", replay_legacy=True).values():
             if kw_ops.access(skill.mcp):
                 with self.subTest(skill=skill.name):
                     self.assertIn(dispatch.KW_OPS_AUTHORITY, dispatch.SKILL_AUTHORITY[skill.name])

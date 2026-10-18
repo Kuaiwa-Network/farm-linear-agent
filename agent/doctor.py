@@ -494,6 +494,11 @@ def diagnose(config, *, now=None):
                      unbriefed=sorted((names & set(loaded)) - set(SKILL_AUTHORITY)), missing_chat="chat" not in names)
         else:
             report["skills"]["enabled"] = sorted(enabled)
+            retired = sorted(set(enabled) - {'chat', 'work'})
+            if retired:
+                _finding(report, 'retired_execution_profiles',
+                         'Current service intake uses chat/work. Drain and explicitly adopt historical jobs before rollout.',
+                         skills=retired)
             # The scheduler's own launch rule. serve still starts and queues these skills' jobs, and each then fails.
             unsupported = sorted(name for name, skill in enabled.items()
                                  if not runtime_can_launch(skill, config.runtime))
@@ -531,10 +536,11 @@ def diagnose(config, *, now=None):
             report["tools"]["server_slots"] = {"configured": True, "count": config.server_slots["count"], "ready": True}
     if set(report["skills"]["enabled"] or []) & {"work", "feature"}:
         feature = report["tools"]["feature"] = feature_toolchain(config, paths)
-        if not config.lark_cli:
+        if not config.lark_cli and 'work' not in (report['skills']['enabled'] or []):
             _finding(report, "lark_cli_unconfigured", "serve refuses to start: configure the lark-cli profile or "
                      "explicit app_id/secret_env variant for FarmBot's Feishu app (docs/development-workflow.md).")
-        if feature["missing"]:
+        feature['optional_for_work'] = 'work' in (report['skills']['enabled'] or [])
+        if feature["missing"] and not feature['optional_for_work']:
             _finding(report, "feature_toolchain_incomplete", "Install or fix these before this host runs code stages; its "
                      "workers stop where a tool is missing.", tools=feature["missing"])
         profile = feature["entries"]["lark_cli"]["profile"]
@@ -548,7 +554,8 @@ def diagnose(config, *, now=None):
         if not config.lark_cli and not set(report["skills"]["enabled"] or []) & {"work", "feature"}:
             _finding(report, "lark_cli_unconfigured", "serve refuses to start: configure FarmBot's read-only "
                      "lark-cli profile or explicit app_id/secret_env variant (docs/development-workflow.md).")
-        if fgui["missing"]:
+        fgui['optional_for_work'] = 'work' in (report['skills']['enabled'] or [])
+        if fgui["missing"] and not fgui['optional_for_work']:
             _finding(report, "fgui_toolchain_incomplete", "Prepare native Python, pinned Pillow, a CJK font, Git LFS "
                      "and the configured bot document reader before this host runs fgui.", tools=fgui["missing"])
         profile = fgui["entries"]["lark_cli"]["profile"]

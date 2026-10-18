@@ -516,7 +516,7 @@ class Worktrees:
             _git("branch", "--quiet", f"--set-upstream-to=origin/{branch}", branch, cwd=clone)
         return path
 
-    def add(self, repo, item_id, branch, *, refresh=True, attach=False):
+    def add(self, repo, item_id, branch, *, refresh=True, attach=False, recovery_from=()):
         """The item's write worktree of `repo` on `branch`; an existing one is returned as it is.
 
         By default a new worktree restarts at the item's recovery commit when cleanup preserved one, else tracks
@@ -537,6 +537,13 @@ class Worktrees:
         if attach:
             return self._attach(repo, clone, path, branch)
         recovery = self._recovery_commit(clone, self._recovery_ref(item_id)) if not path.exists() else None
+        if not path.exists() and not recovery:
+            # Only the controller supplies predecessor IDs from the retained
+            # ledger chain. Read fixed recovery refs, never worker-provided SHAs.
+            for previous in recovery_from:
+                recovery = self._recovery_commit(clone, self._recovery_ref(previous))
+                if recovery:
+                    break
         if recovery:
             path.parent.mkdir(parents=True, exist_ok=True)
             local_branches = set(_git("for-each-ref", "--format=%(refname:short)", "refs/heads", cwd=clone).splitlines())

@@ -123,7 +123,7 @@ class LifecycleTests(unittest.TestCase):
         self.ledger.observe_issue(issue(id=issue_id))
         self.ledger.ensure_session(session, issue_id, delegation=True)
         job = self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill=skill, target=PIN,
-                                           authority=authority)
+                                           authority=authority, execution_contract='staged-v1')
         if state in ('running', 'awaiting_input', 'awaiting_resource'):
             self.tokens[job['id']] = self.ledger.claim(job['id'], worker_id='test')['token']
         if state == 'awaiting_input':

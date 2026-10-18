@@ -793,7 +793,7 @@ class PoolTests(SlotFixture):
         self.ledger.ensure_session(session, issue_id, True)
         target = {"repository": "Farm-Client", "requested_ref": "main", "commit_sha": commit,
                   "server_environment": "公共测试服", "selected_at": SELECTED_AT}
-        item = self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill="fix", target=target)
+        item = self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill="fix", target=target, execution_contract='staged-v1')
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
         self.ledger.await_resource(item["id"], token, "unity_slot", mode, skill=SKILLS["fix"])
         return item["id"]
@@ -1027,7 +1027,7 @@ class PoolTests(SlotFixture):
         item = self.waiting(ISSUE, self.commit("fix"), "batch")
         api = FakeAPI()
         scheduler = Scheduler(self.ledger, FakeLauncher(self.root / "runs"), SKILLS, FakeWorktrees(self.root / "wt"),
-                              skill_root=ROOT / "skills", db_path=self.root / "ledger.sqlite3", runtime_name="fake",
+                              replay_legacy=True, skill_root=ROOT / "skills", db_path=self.root / "ledger.sqlite3", runtime_name="fake",
                               host="test", api=api)
         reads = SimpleNamespace(app_user_id=APP, issue_status=lambda issue_id: {
             "id": issue_id, "status": "Todo", "status_type": "unstarted", "archived": False, "delegate_id": None,

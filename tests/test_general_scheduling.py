@@ -372,7 +372,7 @@ class GeneralSchedulingTests(unittest.TestCase):
                 evidence.pop("comment_action_id")
                 fixture.ledger.finish(fixture.item, fixture.fixture.source.token, "delivered", evidence)
                 scheduler = Scheduler(fixture.ledger, self.fixture.launcher, SKILLS, fixture.fixture.source.trees,
-                    skill_root=self.scheduler.skill_root, db_path=fixture.fixture.paths.ledger,
+                    replay_legacy=True, skill_root=self.scheduler.skill_root, db_path=fixture.fixture.paths.ledger,
                     runtime_name="fake", host="fixture")
                 if late_change == "source":
                     fixture.fixture.source.git(fixture.fixture.source.path, "commit", "--allow-empty", "-qm", "Late source commit")

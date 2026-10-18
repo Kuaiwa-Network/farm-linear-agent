@@ -120,7 +120,7 @@ class SessionProgressTests(LedgerBase):
         self.ledger.cancel(item["id"], "Stop")
         self.assertFalse(self.progress.tick())
         self.ledger.ensure_session("local-test", item["issue_id"], True)
-        self.ledger.create_work_item(issue_id=item["issue_id"], session_id="local-test", skill="chat")
+        self.ledger.create_work_item(issue_id=item["issue_id"], session_id="local-test", skill="chat", execution_contract='staged-v1')
         self.now += 600
         self.assertFalse(self.progress.tick())
         self.assertEqual(self.sent, [])
@@ -261,7 +261,7 @@ class SessionProgressTests(LedgerBase):
         # A mention's conversation does not depend on the delegation, so it is not told it will stop.
         self.ledger.cancel(fix["id"], "Stop")
         self.ledger.ensure_session("mention", ISSUE, delegation=False)
-        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="mention", skill="chat")
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="mention", skill="chat", execution_contract='staged-v1')
         self.now += 600
         self.progress.tick()
         self.assertEqual((self.sent[-1][0], self.sent[-1][1]["body"]), ("mention", "工作仍在排队，等待可用的执行资源。"))
@@ -317,7 +317,7 @@ class SessionProgressTests(LedgerBase):
         self.assertTrue(self.progress.tick())  # the heartbeat is pending, due again in a minute
         self.api.create_activity = self.send
         scheduler = Scheduler(self.ledger, FakeLauncher(Path(self.tmp.name) / "runs"), SKILLS,
-                              FakeWorktrees(Path(self.tmp.name) / "wt"), skill_root=ROOT / "skills",
+                              FakeWorktrees(Path(self.tmp.name) / "wt"), replay_legacy=True, skill_root=ROOT / "skills",
                               db_path=self.path, runtime_name="fake", host="h", api=self.api)
         scheduler.stop(item["id"], "Linear delegation removed", states=("queued",), notice="这项工作已取消。")
         self.assertEqual([content for _, content, _ in self.sent], [{"type": "response", "body": "这项工作已取消。"}])
@@ -522,7 +522,7 @@ class SessionProgressTests(LedgerBase):
                 self.ledger.await_input(item["id"], token, "哪个服？")
             else:
                 self.ledger.cancel(item["id"], "a new delegation took the card over in place", drop_progress=True)
-                self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix")
+                self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix", execution_contract='staged-v1')
         self.api.create_activity = crossing
         self.now += 20
         self.assertTrue(self.progress.tick())

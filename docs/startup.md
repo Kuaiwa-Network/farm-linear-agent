@@ -36,7 +36,7 @@ admission can defer some starts while a healthy Editor serves work. This mode
 uses interactive worker MCP tests; older queued Unity batch requests convert to
 interactive without counting as executed tests. Activate this policy only after
 active Unity work settles and projects outside the selected count are closed.
-See [fixed pool activation and recovery](operating-contract.md#fixed-unity-editor-pool).
+See [resource ownership and recovery](operating-contract.md#resource-ownership).
 Without `unity_pool`, the existing on-demand batch/interactive mode remains.
 
 For example, from the accepted source checkout:

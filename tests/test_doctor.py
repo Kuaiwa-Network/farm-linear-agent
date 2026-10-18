@@ -87,7 +87,7 @@ class DoctorTests(unittest.TestCase):
         self.addCleanup(self.ledger.close)
         self.ledger.observe_issue(issue(description="private issue prose"))
         self.ledger.ensure_session(SESSION, ISSUE, delegation=True)
-        self.item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix", target=PIN)
+        self.item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix", target=PIN, execution_contract='staged-v1')
         self.config_path = Path(self.tmp.name) / "config.json"
         self.config_path.write_text(json.dumps({"client_id": "client-secret", "client_secret": "oauth-secret",
                                                "webhook_secret": "webhook-secret", "host": "test-host",
@@ -300,7 +300,7 @@ class DoctorTests(unittest.TestCase):
         identifier left the host's issue_prefix is listed."""
         self.ledger.observe_issue(issue(id=OTHER, identifier="OPS-7"))
         self.ledger.ensure_session("session-2", OTHER, delegation=False)
-        moved = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill="chat")
+        moved = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill="chat", execution_contract='staged-v1')
         found = self.findings(self.report(), "outside_prefix")
         self.assertEqual([(f["item_id"], f["identifier"], f["issue_prefix"]) for f in found],
                          [(moved["id"], "OPS-7", "FARM")])
@@ -324,7 +324,7 @@ class DoctorTests(unittest.TestCase):
         self.ledger.mark_undelegated(ISSUE, 1000)
         self.ledger.observe_issue(issue(id=OTHER))
         self.ledger.ensure_session("mention", OTHER, delegation=False)
-        self.ledger.create_work_item(issue_id=OTHER, session_id="mention", skill="chat")
+        self.ledger.create_work_item(issue_id=OTHER, session_id="mention", skill="chat", execution_contract='staged-v1')
         self.ledger.mark_undelegated(OTHER, 1000)
         self.assertEqual(self.findings(diagnose(self.config, now=1180), "undelegated_work"), [])
         found = self.findings(diagnose(self.config, now=1181), "undelegated_work")
@@ -491,11 +491,11 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual(self.findings(self.report(), "stored_undelegated"), [])
         self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2"))
         self.ledger.ensure_session("delegated-chat", OTHER, delegation=True)
-        old_chat = self.ledger.create_work_item(issue_id=OTHER, session_id="delegated-chat", skill="chat")
+        old_chat = self.ledger.create_work_item(issue_id=OTHER, session_id="delegated-chat", skill="chat", execution_contract='staged-v1')
         self.ledger.connection.execute("UPDATE work_items SET authority=NULL WHERE id=?", (old_chat["id"],))
         self.ledger.observe_issue(issue(id=THIRD, identifier="FARM-3"))
         self.ledger.ensure_session("mention", THIRD, delegation=False)
-        self.ledger.create_work_item(issue_id=THIRD, session_id="mention", skill="chat")
+        self.ledger.create_work_item(issue_id=THIRD, session_id="mention", skill="chat", execution_contract='staged-v1')
         pinned = replace(self.config, expected_app_user_id=app)
         found = self.findings(diagnose(pinned, now=1001), "stored_undelegated")
         self.assertEqual({(f["item_id"], f["skill"], f["authority_recorded"]) for f in found},
@@ -535,13 +535,16 @@ class DoctorTests(unittest.TestCase):
             self.assertFalse(self.report()["tools"]["kw_ops"]["token_set_in_doctor_environment"])
 
     def test_an_unconfigured_kw_ops_is_reported_as_such(self):
-        self.assertEqual(self.report()["tools"], {"kw_ops": {"configured": False}})
+        report = self.report()
+        self.assertEqual(report["tools"]["kw_ops"], {"configured": False})
+        self.assertTrue(report["tools"]["feature"]["optional_for_work"])
+        self.assertNotIn("lark_cli_unconfigured", self.codes(report))
 
     def test_the_enabled_skills_are_reported(self):
         # feature is loaded from the checkout but opt-in (P1): enabled only where enabled_skills names it.
         skills = self.report()["skills"]
         self.assertEqual((skills["loaded"], skills["enabled"], skills["configured"]),
-                         (["chat", "feature", "fgui", "fix", "scene", "work"], ["chat", "fix"], False))
+                         (["chat", "feature", "fgui", "fix", "scene", "work"], ["chat", "work"], False))
         self.config.enabled_skills = ["chat"]
         report = self.report()
         self.assertEqual((report["skills"]["loaded"], report["skills"]["enabled"], report["skills"]["configured"]),
@@ -560,21 +563,20 @@ class DoctorTests(unittest.TestCase):
         with patch("agent.doctor.SKILL_AUTHORITY", {"chat": "the chat part"}):
             report = self.report()
         finding = next(f for f in report["findings"] if f["code"] == "enabled_skills_invalid")
-        self.assertEqual((finding["unknown"], finding["unbriefed"]), ([], ["fix"]))
+        self.assertEqual((finding["unknown"], finding["unbriefed"]), ([], ["work"]))
         self.assertIsNone(report["skills"]["enabled"])
 
     def test_an_enabled_skill_the_runtime_cannot_launch_is_a_warning(self):
-        """serve starts on a claude host with fix enabled and accepts fix delegations; the scheduler then refuses
-        every launch. Doctor names fix by the same rule, whether enabled_skills lists it or is absent."""
+        """A runtime without the issue worktree write boundary cannot execute new work."""
         self.config.runtime = "claude"
-        for enabled in (None, ["chat", "fix"]):
+        for enabled in (None, ["chat", "work"]):
             with self.subTest(enabled_skills=enabled):
                 self.config.enabled_skills = enabled
                 report = self.report()
                 finding = next(f for f in report["findings"] if f["code"] == "skill_runtime_unsupported")
                 self.assertEqual((finding["severity"], finding["runtime"], finding["skills"]),
-                                 ("warning", "claude", ["fix"]))
-                self.assertEqual(report["skills"]["enabled"], ["chat", "fix"])
+                                 ("warning", "claude", ["work"]))
+                self.assertEqual(report["skills"]["enabled"], ["chat", "work"])
                 self.assertEqual(report["status"], "attention")
 
     def test_a_runtime_that_can_launch_every_enabled_skill_is_not_a_finding(self):
@@ -587,7 +589,7 @@ class DoctorTests(unittest.TestCase):
 
     def test_each_enabled_staged_skill_is_named_and_only_those(self):
         staged = staged_skill(Path(self.tmp.name) / "fixture-skills")
-        skills = {**load_skills(ROOT / "skills"), staged.name: staged}
+        skills = {**load_skills(ROOT / "skills", replay_legacy=True), staged.name: staged}
         self.config.runtime = "claude"
         with patch("agent.doctor.load_skills", return_value=skills), \
                 patch.dict(SKILL_AUTHORITY, {staged.name: "Fixture staged-skill grants. "}):
@@ -601,7 +603,7 @@ class DoctorTests(unittest.TestCase):
         """P1: an opt-in skill no list names is loaded, not enabled; doctor names it in no finding, as serve runs
         none of its jobs. The fixture is staged, so on a claude host doctor would name it if it ran."""
         fixture = opt_in_skill(Path(self.tmp.name) / "fixture-skills")
-        skills = {**load_skills(ROOT / "skills"), fixture.name: fixture}
+        skills = {**load_skills(ROOT / "skills", replay_legacy=True), fixture.name: fixture}
         self.config.runtime = "claude"
         with patch("agent.doctor.load_skills", return_value=skills):
             report = self.report()
@@ -624,12 +626,12 @@ class DoctorTests(unittest.TestCase):
     def test_an_unfinished_job_with_an_initial_root_shows_its_root_stages_pause_and_prs(self):
         """spec §9.11: where a long job stands, with nothing out of its plan but known words and PR links."""
         feature = opt_in_skill(Path(self.tmp.name) / "fixture-skills")
-        skills = {**load_skills(ROOT / "skills"), feature.name: feature}
+        skills = {**load_skills(ROOT / "skills", replay_legacy=True), feature.name: feature}
 
         def job(issue_id, identifier, session):
             self.ledger.observe_issue(issue(id=issue_id, identifier=identifier, description="private issue prose"))
             self.ledger.ensure_session(session, issue_id, delegation=True)
-            return self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill=feature.name)
+            return self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill=feature.name, execution_contract='staged-v1')
 
         parked, queued = job(OTHER, "FARM-2", "session-2"), job(THIRD, "FARM-3", "session-3")
         token = self.ledger.claim(parked["id"], worker_id="w")["token"]
@@ -660,15 +662,16 @@ class DoctorTests(unittest.TestCase):
         for private in ("private question text", "farmbot/farm-2", "no config in this feature", "config-needed",
                         "private issue prose"):
             self.assertNotIn(private, encoded)
-        self.assertEqual(report["status"], "ok")
+        self.assertEqual(self.codes(report), {"retired_execution_profiles"})
+        self.assertEqual(report["status"], "attention")
 
     def test_a_job_stopped_at_a_stage_limit_shows_that_pause(self):
         """Plan P14: a job a person stopped after a stage waits like any other pause, and doctor names it."""
         feature = opt_in_skill(Path(self.tmp.name) / "fixture-skills")
-        skills = {**load_skills(ROOT / "skills"), feature.name: feature}
+        skills = {**load_skills(ROOT / "skills", replay_legacy=True), feature.name: feature}
         self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2"))
         self.ledger.ensure_session("session-2", OTHER, delegation=True)
-        item = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill=feature.name)
+        item = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill=feature.name, execution_contract='staged-v1')
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
         self.ledger.checkpoint(item["id"], token, {"plan": {
             "stages": {"A": "done", "B": "pending"},
@@ -682,10 +685,10 @@ class DoctorTests(unittest.TestCase):
 
     def test_ui_ready_pause_is_visible_without_export_or_client_plan_details(self):
         feature = opt_in_skill(Path(self.tmp.name) / "fixture-skills")
-        skills = {**load_skills(ROOT / "skills"), feature.name: feature}
+        skills = {**load_skills(ROOT / "skills", replay_legacy=True), feature.name: feature}
         self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2"))
         self.ledger.ensure_session("session-2", OTHER, delegation=True)
-        item = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill=feature.name)
+        item = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill=feature.name, execution_contract='staged-v1')
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
         self.ledger.checkpoint(item["id"], token, {"plan": {
             "stages": {"E": "pending", "F": "pending"}, "client": {"private": "private client evidence"},
@@ -704,10 +707,10 @@ class DoctorTests(unittest.TestCase):
         """checkpoint bounds a plan's size and its lists' lengths, not its depth, and doctor reads what workers
         wrote: a plan nested deeper than Python recurses shows no PR links instead of failing the whole report."""
         feature = opt_in_skill(Path(self.tmp.name) / "fixture-skills")
-        skills = {**load_skills(ROOT / "skills"), feature.name: feature}
+        skills = {**load_skills(ROOT / "skills", replay_legacy=True), feature.name: feature}
         self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2"))
         self.ledger.ensure_session("session-2", OTHER, delegation=True)
-        item = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill=feature.name)
+        item = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill=feature.name, execution_contract='staged-v1')
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
         nested = "x"
         for _ in range(sys.getrecursionlimit() + 10):
@@ -827,7 +830,7 @@ class FeatureToolchainTests(unittest.TestCase):
             (self.stubs / "stub.sh").write_text(POSIX_STUB, encoding="utf-8")
             (self.stubs / "stub.sh").chmod(0o755)
         self.original_path = os.environ["PATH"]
-        skills = {**load_skills(ROOT / "skills"), "feature": staged_skill(Path(self.tmp.name) / "fixture-skills")}
+        skills = {**load_skills(ROOT / "skills", replay_legacy=True), "feature": staged_skill(Path(self.tmp.name) / "fixture-skills")}
         self.enterContext(patch("agent.doctor.load_skills", return_value=skills))
         self.enterContext(patch.dict(SKILL_AUTHORITY, {"feature": "Fixture feature grants. "}))
         self.enterContext(patch.dict(os.environ, {"PATH": str(self.stubs)}))
@@ -872,16 +875,16 @@ class FeatureToolchainTests(unittest.TestCase):
                     if "=" in line)
 
     def test_a_host_that_does_not_enable_feature_probes_nothing(self):
-        self.config.enabled_skills = ["chat", "fix"]
+        self.config.enabled_skills = ["chat"]
         report = self.report()
         self.assertEqual(report["tools"], {"kw_ops": {"configured": False}})
         self.assertEqual((report["status"], report["findings"]), ("ok", []))
         self.assertEqual([self.seen(name) for name in ("go", "protoc", "lark-cli")], [None, None, None])
 
-    def test_a_ready_host_reports_each_entry_with_no_finding_and_names_only(self):
+    def test_legacy_host_reports_tool_readiness_and_required_profile_migration(self):
         report = self.report()
         feature = report["tools"]["feature"]
-        self.assertEqual((report["status"], report["findings"]), ("ok", []))
+        self.assertEqual((report["status"], self.codes(report)), ("attention", {"retired_execution_profiles"}))
         self.assertEqual((feature["missing"], feature["optional_missing"]), ([], []))
         self.assertEqual(feature["entries"]["go"],
                          {"found": True, "version": "1.26.6", "required": ">=1.25.1", "ok": True, "source": "default"})
@@ -925,7 +928,8 @@ class FeatureToolchainTests(unittest.TestCase):
                          (["buf", "node", "protoc"] + ([] if os.name == "nt" else ["python3"]), ["dotnet_sdk"]))
         finding = next(f for f in report["findings"] if f["code"] == "feature_toolchain_incomplete")
         self.assertEqual(finding["tools"], ["buf", "node", "protoc"] + ([] if os.name == "nt" else ["python3"]))
-        self.assertEqual((report["status"], self.codes(report)), ("attention", {"feature_toolchain_incomplete"}))
+        self.assertEqual((report["status"], self.codes(report)),
+                         ("attention", {"feature_toolchain_incomplete", "retired_execution_profiles"}))
 
     def test_go_must_satisfy_the_directives_in_farm_hives_go_mod(self):
         with patch.dict(os.environ, {"PATH": str(self.stubs) + os.pathsep + self.original_path}):
@@ -1080,7 +1084,7 @@ class FeatureToolchainTests(unittest.TestCase):
     def test_a_feature_host_without_lark_cli_is_the_finding_serve_would_refuse(self):
         self.config.lark_cli = {}
         report = self.report()
-        self.assertEqual(self.codes(report), {"lark_cli_unconfigured", "feature_toolchain_incomplete"})
+        self.assertEqual(self.codes(report), {"lark_cli_unconfigured", "feature_toolchain_incomplete", "retired_execution_profiles"})
         self.assertEqual(report["tools"]["feature"]["missing"], ["lark_cli"])
         self.assertIsNone(report["tools"]["feature"]["entries"]["lark_cli"]["profile"]["name"])
 

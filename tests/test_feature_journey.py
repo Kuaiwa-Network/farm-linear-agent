@@ -101,6 +101,9 @@ def git(*args, cwd):
                      "only with os.waitid (CPython 3.13+ on macOS) or a Windows Job Object")
 class CodeJobJourneyTests(unittest.TestCase):
 
+    enabled_skills = ['chat', 'fix', 'feature']
+    replay_legacy = True
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix="功能 旅程 ")
         self.addCleanup(tmp.cleanup)
@@ -114,7 +117,7 @@ class CodeJobJourneyTests(unittest.TestCase):
         config_path.write_text(json.dumps({
             "client_id": "journey-client", "client_secret": SECRET, "webhook_secret": SIGNING, "host": "journey",
             "runtime": "fake", "repos": {repo: f"{ORG}{repo}.git" for repo in REPOS}, "max_concurrent": 2,
-            "port": 0, "local_root": str(self.root / "local"), "enabled_skills": ["chat", "fix", "feature"],
+            "port": 0, "local_root": str(self.root / "local"), "enabled_skills": self.enabled_skills,
             "lark_cli": {"profile": PROFILE}}, ensure_ascii=False), encoding="utf-8")
         self.enterContext(patch.dict(os.environ, {
             "FARMBOT_LINEAR_STUB_DIR": str(self.stub), "FARMBOT_CONFIG": str(config_path),
@@ -139,7 +142,7 @@ class CodeJobJourneyTests(unittest.TestCase):
 
     def start_controller(self):
         """The controller as `serve` builds it; the test turns its loops."""
-        self.c = build(self.config)
+        self.c = build(self.config, replay_legacy=self.replay_legacy)
         self.addCleanup(self.stop_controller, self.c)
 
     @staticmethod
@@ -232,6 +235,11 @@ class CodeJobJourneyTests(unittest.TestCase):
         """The owner delegates the card from the Linear UI, without text; the item it created."""
         self.deliver(self.event("created", session, issue_id=issue_id, identifier=identifier))
         (item,) = self.c.ledger.items_for_session(session)
+        if self.replay_legacy and item['skill'] == 'work':
+            # Seed the pre-upgrade row before replaying its historical workers.
+            # Normal intake, including the single-worker journey, stays current.
+            self.c.ledger.connection.execute("UPDATE work_items SET execution_contract='staged-v1' WHERE id=?",
+                                             (item['id'],))
         return item["id"]
 
     def reply(self, text, *, author=OWNER, session=SESSION):
@@ -1166,9 +1174,9 @@ class CodeJobJourneyTests(unittest.TestCase):
         refusal leaves its claim intact."""
         self.publish(self.card(id=THIRD, identifier="FARM-3", label="修改"))
         with self.assertRaisesRegex(RuntimeError, "Bot/Code"):
-            enqueue(self.config, issue_ref=THIRD, skill="feature")
+            enqueue(self.config, replay_legacy=True, issue_ref=THIRD, skill="feature")
         self.assertEqual(self.c.ledger.unfinished_for_issue(THIRD), [])
-        queued = enqueue(self.config, issue_ref=ISSUE, skill="feature")
+        queued = enqueue(self.config, replay_legacy=True, issue_ref=ISSUE, skill="feature")
         session = f"local-{ISSUE}"
         self.assertEqual((queued["skill"], queued["session_id"], queued["target"]), ("feature", session, None))
         self.assertIsNone(self.c.ledger.session(session)["target"])

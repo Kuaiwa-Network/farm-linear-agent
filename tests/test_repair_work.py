@@ -17,6 +17,9 @@ from test_skills import opt_in_skill
 class RepairWorkTests(LedgerBase):
     def setUp(self):
         super().setUp()
+        # These cases exercise historical label-based repair intake. Current
+        # chat/work intake is covered by the single-worker and router journeys.
+        self.enterContext(patch('agent.skills.load_skills', return_value=SKILLS))
         # The CLI reads the host config for enabled_skills; these tests must never see this checkout's private one.
         patcher = patch.dict(os.environ, {"FARMBOT_CONFIG": str(Path(self.tmp.name) / "no-config.json")})
         patcher.start()
@@ -26,7 +29,7 @@ class RepairWorkTests(LedgerBase):
         self.ledger.observe_issue(issue(delegate_id=APP, labels=[]))
         self.ledger.ensure_session(session, ISSUE, delegated)
         self.ledger.set_session_target(session, PIN)
-        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=session, skill="chat")
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=session, skill="chat", execution_contract='staged-v1')
         self.ledger.push_inbox(chat["id"], "修复，保留现有排序规则")
         token = self.ledger.claim(chat["id"], worker_id="conversation")["token"]
         return chat, token
@@ -129,7 +132,7 @@ class RepairWorkTests(LedgerBase):
         chat, token = self.conversation()
         self.ledger.finish(chat["id"], token, "delivered",
                            {"summary": "Cause: missing refresh", "prs": [], "verification": "answered"})
-        followup = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="chat")
+        followup = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="chat", execution_contract='staged-v1')
         self.ledger.push_inbox(followup["id"], "好，修一下")
         context = self.ledger.issue_context(followup["id"])
         self.assertEqual(context["conversation_history"][0]["summary"], "Cause: missing refresh")
@@ -311,7 +314,7 @@ class RepairWorkTests(LedgerBase):
                 self.setUp()
                 self.ledger.observe_issue(issue(delegate_id=APP))
                 self.ledger.ensure_session(SESSION, ISSUE, True)
-                earlier = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill=skill, target=PIN)
+                earlier = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill=skill, target=PIN, execution_contract='staged-v1')
                 self.ledger.cancel(earlier["id"], "Stop")
                 chat, token = self.conversation()
                 api = self.stub_api(issue(delegate_id=APP, labels=[label],
@@ -326,7 +329,7 @@ class RepairWorkTests(LedgerBase):
         work, so it does not open a first start on a Code card."""
         self.ledger.observe_issue(issue(delegate_id=APP))
         self.ledger.ensure_session("mention", ISSUE, False)
-        stray = self.ledger.create_work_item(issue_id=ISSUE, session_id="mention", skill="fix", target=PIN)
+        stray = self.ledger.create_work_item(issue_id=ISSUE, session_id="mention", skill="fix", target=PIN, execution_contract='staged-v1')
         self.ledger.cancel(stray["id"], "Stop")
         chat, token = self.conversation()
         api = self.stub_api(self.feature_card())
@@ -337,7 +340,7 @@ class RepairWorkTests(LedgerBase):
     def test_a_request_from_a_work_item_gets_the_ledgers_refusal_not_the_labels(self):
         self.ledger.observe_issue(issue(delegate_id=APP))
         self.ledger.ensure_session(SESSION, ISSUE, True)
-        fix = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix", target=PIN)
+        fix = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix", target=PIN, execution_contract='staged-v1')
         self.ledger.push_inbox(fix["id"], "继续")
         token = self.ledger.claim(fix["id"], worker_id="w")["token"]
         api = self.stub_api(self.feature_card())
@@ -384,7 +387,7 @@ class RepairWorkTests(LedgerBase):
         """The delegation's own job on the card, a feature job that was stopped."""
         self.ledger.observe_issue(issue(delegate_id=APP))
         self.ledger.ensure_session(SESSION, ISSUE, True)
-        earlier = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="feature")
+        earlier = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="feature", execution_contract='staged-v1')
         self.ledger.cancel(earlier["id"], "Stop")
         return earlier
 

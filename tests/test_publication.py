@@ -85,7 +85,7 @@ class PublicationTests(unittest.TestCase):
     def test_scheduler_test_workspace_branch_passes_publication_policy(self):
         from types import SimpleNamespace
         from agent.scheduler import Scheduler
-        scheduler = Scheduler(None, None, None, self.trees, skill_root=Path(self.tmp.name),
+        scheduler = Scheduler(None, None, None, self.trees, replay_legacy=True, skill_root=Path(self.tmp.name),
                               db_path=Path(self.tmp.name) / 'ledger', runtime_name='fake', host='test',
                               issue_prefix='FBTEST')
         verifier = publication.PublicationVerifier(self.trees, api=self.verifier.api, issue_prefix='FBTEST')
@@ -107,7 +107,7 @@ class PublicationTests(unittest.TestCase):
     def test_scheduler_rejects_wrong_or_malformed_keys_before_creating_worktrees(self):
         from types import SimpleNamespace
         from agent.scheduler import Scheduler
-        scheduler = Scheduler(None, None, None, self.trees, skill_root=Path(self.tmp.name),
+        scheduler = Scheduler(None, None, None, self.trees, replay_legacy=True, skill_root=Path(self.tmp.name),
                               db_path=Path(self.tmp.name) / 'ledger', runtime_name='fake', host='test',
                               issue_prefix='FBTEST')
         for identifier in ('FARM-42', '../FBTEST-42', 'FBTEST-42/other', 'FBTEST-.*', None):

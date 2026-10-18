@@ -34,7 +34,7 @@ class MaintenanceTests(unittest.TestCase):
         self.addCleanup(self.ledger.close)
         self.ledger.observe_issue(issue())
         self.ledger.ensure_session(SESSION, ISSUE, delegation=True)
-        self.item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill='fix', target=PIN)
+        self.item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill='fix', target=PIN, execution_contract='staged-v1')
         self.id = self.item['id']
         self.store = Maintenance(self.ledger)
         self.launcher = FakeLauncher(self.root / 'runs')
@@ -42,7 +42,7 @@ class MaintenanceTests(unittest.TestCase):
 
     def scheduler_for(self, ledger):
         return Scheduler(ledger, self.launcher, SKILLS, FakeWorktrees(self.root / 'worktrees'),
-                         skill_root=ROOT / 'skills', db_path=self.path, runtime_name='fake', host='h')
+                         replay_legacy=True, skill_root=ROOT / 'skills', db_path=self.path, runtime_name='fake', host='h')
 
     def claim(self):
         self.ledger.set_worker(self.id, 123, 'h')
@@ -71,7 +71,7 @@ class MaintenanceTests(unittest.TestCase):
         other = '10000000-0000-4000-8000-000000000002'
         self.ledger.observe_issue(issue(other, identifier='FARM-2'))
         self.ledger.ensure_session('session-2', other, delegation=True)
-        return self.ledger.create_work_item(issue_id=other, session_id='session-2', skill='fix', target=PIN)
+        return self.ledger.create_work_item(issue_id=other, session_id='session-2', skill='fix', target=PIN, execution_contract='staged-v1')
 
     def queue_resource(self, item, kind='unity_slot'):
         if kind == 'server_slot':

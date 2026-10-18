@@ -52,7 +52,7 @@ class LifecycleLedgerTests(LedgerBase):
                 self.assertFalse(self.ledger.observe_issue(issue(status_type=status_type))['in_scope'])
                 self.ledger.ensure_session(SESSION, ISSUE, delegation=True)
                 with self.assertRaisesRegex(LedgerError, 'terminal'):
-                    self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill='fix', target=PIN)
+                    self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill='fix', target=PIN, execution_contract='staged-v1')
         self.assertTrue(self.ledger.observe_issue(issue(status='In Review', status_type='started'))['in_scope'])
         self.assertEqual(self.ledger.status()['items'], [])
 
@@ -70,7 +70,7 @@ class LifecycleLedgerTests(LedgerBase):
     def test_new_delegation_links_cancelled_fix_but_chat_does_not(self):
         job = self.new_item()
         self.ledger.cancel(job['id'], 'closed')
-        new = self.ledger.create_work_item(issue_id=ISSUE, session_id=job['session_id'], skill='fix', target=PIN)
+        new = self.ledger.create_work_item(issue_id=ISSUE, session_id=job['session_id'], skill='fix', target=PIN, execution_contract='staged-v1')
         self.assertEqual(new['predecessor_id'], job['id'])
         self.assertEqual(self.ledger.item(job['id'])['state'], 'cancelled')
 

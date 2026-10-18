@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .config import LARK_CLI_SKILLS
 from .dispatch import dispatch_message
+from .execution import single, skill_for
 from .launcher import _read_worker_text
 from .ledger import ACTIVE_STATES, LedgerError, plan_issue_branches
 from .maintenance import Maintenance
@@ -38,7 +39,8 @@ class Scheduler:
                  slot_entries=None, preflight=None, control_ledger_factory=None, publication=None, codex_workers=None,
                  config_path=None, issue_prefix='FARM', bot_name='FarmBot', kw_ops=None, enabled_skills=None,
                  lark_cli=None, default_server_environment="公共测试服", server_slots_root=None, go_dependencies=None,
-                 unity_pool=None):
+                 unity_pool=None, replay_legacy=False):
+        self.replay_legacy = replay_legacy
         self.publication = publication
         self.preflight = preflight
         self.control_ledger_factory = control_ledger_factory
@@ -89,6 +91,23 @@ class Scheduler:
 
     def _worktrees_for(self, skill, item, issue):
         paths = {}
+        if single(item):
+            branch = self._branch(issue)
+            previous, seen = item.get('predecessor_id'), {item['id']}
+            recovery = []
+            while previous and previous not in seen:
+                seen.add(previous)
+                prior = self.ledger.item(previous)
+                if prior['issue_id'] != item['issue_id']:
+                    raise LedgerError('recovery predecessor belongs to a different issue')
+                if not (self.ledger.cleanup_record(previous) or {}).get('done'):
+                    raise LedgerError('previous worker cleanup is not certified')
+                recovery.append(previous)
+                previous = prior.get('predecessor_id')
+            for repo in skill.writes:
+                paths[repo] = self.worktrees.add(repo, item['id'], branch,
+                                                refresh=not bool(item['publication_retries']), recovery_from=recovery)
+            return paths
         if item.get('root_repo') == COORDINATION_ROOT and skill.name == 'work':
             return paths  # Message routing must not fetch or alter retained candidates.
         if skill.writes:
@@ -199,19 +218,23 @@ class Scheduler:
                     "result": "the pool recorded no batch run for this reservation"}
 
     def launch(self, item):
+        if item['skill'] != 'chat' and not single(item) and not self.replay_legacy:
+            self._hold_legacy(item)
+            return None
         if not Maintenance(self.ledger).may_launch(item['id']):
             return None
-        prepare_coordination(self.ledger, item['id'], self.launcher, self.active)
+        if not single(item):
+            prepare_coordination(self.ledger, item['id'], self.launcher, self.active)
         current = self.ledger.item(item["id"])
         if current["state"] != "queued" or current["retry_not_before"] > self.ledger.clock():
             return None
         item = current  # the queued root/generation may have changed since the scheduler read its queue
-        skill = self.skills[item["skill"]]
+        skill = skill_for(item, self.skills[item["skill"]])
         # Only Codex's workspace-write sandbox holds a staged attempt to its one writable root.
         if not runtime_can_launch(skill, self.runtime_name):
             raise RuntimeError(f"repository-staged {skill.name} requires the Codex workspace-write sandbox")
         root = current_root(item.get("root_repo"), skill)
-        if skill.name == "work" or item.get("parent_id"):
+        if not single(item) and (skill.name == "work" or item.get("parent_id")):
             if repository_busy(self.ledger, item, self.skills, self.active, self.launcher):
                 return None
             if root == "Farm-Client":
@@ -310,7 +333,7 @@ class Scheduler:
         if self.unity_pool:
             tools["unity_pool"] = {"mode": "interactive", "editors": self.unity_pool["editors"],
                                    "tests": "worker MCP run_tests/get_test_job", "batch": "disabled"}
-        if skill.name in ("work", "fix", "feature") and root == "farm-hive":
+        if single(item) or skill.name in ("work", "fix", "feature") and root == "farm-hive":
             tools["server_tests"] = {"status": "configured" if self.server_slots_root else "unavailable",
                                      "resource": "server_slot"}
         if skill.name in ('work', 'feature', 'fix') and root in self.go_dependencies.get('modules', {}):
@@ -318,7 +341,11 @@ class Scheduler:
                                         'cache_root':self.go_dependencies['cache_root'],
                                         'go':self.go_dependencies['go'],
                                         'request':'prepare-go-dependencies', 'poll':'go-dependencies'}
-        if skill.name in ("work", "feature") and root == "Farm-Client":
+        if single(item) and self.go_dependencies:
+            tools['go_dependencies'] = {'status': 'configured', 'modules': self.go_dependencies['modules'],
+                'cache_root': self.go_dependencies['cache_root'], 'go': self.go_dependencies['go'],
+                'request': 'prepare-go-dependencies --repo REPOSITORY', 'poll': 'go-dependencies'}
+        if single(item) or skill.name in ("work", "feature") and root == "Farm-Client":
             # A configured slot may supply read-only generated projects/DLLs even before a reservation. This
             # exposes no Editor command or writable slot root, and the delivered typecheck validates readiness.
             writable_roots = [Path(self.db_path).parent.resolve(), *(Path(p).resolve() for p in source_roots)]
@@ -356,7 +383,7 @@ class Scheduler:
                                  'revalidation_required': True}
             else:
                 prior_context = context['handoff']
-        message = dispatch_message(item=item, issue=issue, skill_path=self.skill_root / skill.name / "SKILL.md",
+        message = dispatch_message(item=item, issue=issue, skill_path=skill.skill_md,
                                    worktrees=paths, db_path=self.db_path, runtime=self.runtime_name,
                                    guidance=self.guidance_for(item), budget=skill.budget,
                                    repo_root=repo_root, state_dir=self.launcher.state_dir(item["id"]),
@@ -365,7 +392,8 @@ class Scheduler:
                                    prior_context=prior_context, tools=tools, reads=reads)
         # The runtime's cwd is writable too. A read-only conversation must run
         # from its private state directory, not from the detached source checkout.
-        primary = (paths[write_repos[0]] if write_repos else self.launcher.state_dir(item["id"]))
+        primary = (self.launcher.state_dir(item['id']) if single(item) else
+                   paths[write_repos[0]] if write_repos else self.launcher.state_dir(item["id"]))
         # `python3 -m agent` must resolve from any worktree, so FarmBot's root leads the worker's PYTHONPATH.
         pythonpath = os.pathsep.join(p for p in (str(repo_root), os.environ.get("PYTHONPATH", "")) if p)
         # A worktree's commits land in FarmBot's bare clone: the parts of it git writes for them are writable too,
@@ -407,6 +435,14 @@ class Scheduler:
             raise
         self.active[item["id"]] = handle
         return handle
+
+    def _hold_legacy(self, item):
+        if item['stage'] == 'legacy-adoption-required':
+            return
+        with self.ledger._transaction():
+            self.ledger.connection.execute("UPDATE work_items SET stage='legacy-adoption-required' WHERE id=? AND state='queued'",
+                                          (item['id'],))
+            self.ledger._audit(item['id'], 'legacy_execution_held', 'explicit adoption required; candidates and reports retained')
 
     def _notify(self, item_id, kind, body, *, item=None):
         """Best-effort session activity for outcomes the worker cannot report itself: it is dead or never ran.
@@ -832,12 +868,21 @@ class Scheduler:
         with self.lock:
             if Maintenance(ledger).requested():
                 return None
-            request = next(iter(ledger.reservation_queue(kind)), None)
+            options['single_only'] = not self.replay_legacy
+            request = next(iter(ledger.reservation_queue(kind, single_only=not self.replay_legacy)), None)
             if request is None:
                 return None
             if request["mode"] != "interactive":
                 return acquire(ledger, kind, **options)
             item = ledger.item(request["item_id"])
+            if not single(item) and not self.replay_legacy:
+                return None
+            if single(item):
+                # This request already has a running worker and its seat.
+                if (item['id'] not in self.active or item['state'] != 'running'
+                        or item['lease_expires_at'] <= ledger.clock() or item['withdraw_deadline'] is not None):
+                    return None
+                return acquire(ledger, kind, expected_reservation=request['reservation_id'], **options)
             reserved = ledger.pending_unity_workers(self.host)
             # await-resource retires the claim before the old process exits.
             # Display this actual blocker even when that old process fills the pool.
@@ -947,16 +992,21 @@ class Scheduler:
             parents = self.ledger.connection.execute("SELECT id FROM work_items w "
                 "WHERE parent_id IS NULL AND skill='work' AND state='awaiting_input' AND withdraw_deadline IS NULL "
                 "AND EXISTS (SELECT 1 FROM work_items t WHERE t.parent_id=w.id)").fetchall()
-            for row in parents:
-                wake_parent(self.ledger, row["id"])
+            if self.replay_legacy:
+                for row in parents:
+                    wake_parent(self.ledger, row["id"])
             queue = self.ledger.queue()
         # The worker CLI runs inside its repository sandbox. Only this host
         # path may fill missing farmgui objects for a Client continuation.
         from .fgui_history import refresh_pending
-        refresh_pending(self.ledger, self.worktrees)
+        if self.replay_legacy:
+            refresh_pending(self.ledger, self.worktrees)
         launched = 0
         for item in queue:
             with self.lock:
+                if item['skill'] != 'chat' and not single(item) and not self.replay_legacy:
+                    self._hold_legacy(item)
+                    continue
                 if not Maintenance(self.ledger).may_launch(item['id']):
                     continue
                 task_enabled = (item.get("parent_id") and "work" in self.enabled_skills
@@ -972,14 +1022,21 @@ class Scheduler:
                     continue  # a prepared Unity worker later in the queue owns this seat
                 if item["skill"] not in self.skills or item["id"] in self.active:
                     continue
+                # The initial rollout runs one issue owner at a time, including
+                # a worker waiting for its resource. Chat remains independent.
+                if item['skill'] != 'chat' and any(
+                        self.ledger.item(key)['skill'] != 'chat' for key in self.active):
+                    if single(item) or any(single(self.ledger.item(key)) for key in self.active):
+                        continue
                 # At most one attempt of any exclusive skill at a time (spec §5.8, D16; P8). A waiting one is only
                 # passed over, so it keeps its place in the queue, and fix and chat go on up to max_concurrent.
                 if not item.get("parent_id") and self.skills[item["skill"]].exclusive and self._exclusive_running(exclude=item["id"]):
                     continue
-                prepare_coordination(self.ledger, item['id'], self.launcher, self.active)
+                if not single(item):
+                    prepare_coordination(self.ledger, item['id'], self.launcher, self.active)
                 item = self.ledger.item(item['id'])
-                root = current_root(item.get("root_repo"), self.skills[item["skill"]])
-                if item["skill"] == "work" or item.get("parent_id"):
+                root = current_root(item.get("root_repo"), skill_for(item, self.skills[item["skill"]]))
+                if not single(item) and (item["skill"] == "work" or item.get("parent_id")):
                     owner = repository_owner(item)
                     if item.get("parent_id"):
                         parent = self.ledger.item(owner)

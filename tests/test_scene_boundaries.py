@@ -12,7 +12,7 @@ from agent.worktrees import Worktrees
 import test_scene_delivery as fixtures
 from test_worktrees import git
 
-SKILLS = load_skills(Path(__file__).resolve().parents[1] / 'skills')
+SKILLS = load_skills(Path(__file__).resolve().parents[1] / 'skills', replay_legacy=True)
 HANDOFF = {'facts': [], 'hypotheses': [], 'checks': [], 'repositories': [], 'next_actions': ['parent prerequisite repair']}
 
 

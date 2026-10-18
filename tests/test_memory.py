@@ -72,7 +72,7 @@ class MemoryLedgerTests(LedgerBase):
                     lambda: self.ledger.memory_forget(item, presented, saved["id"], 1, "obsolete")]
         self.ledger.observe_issue(issue(id=OTHER))
         self.ledger.ensure_session("s2", OTHER, delegation=True)
-        other = self.ledger.create_work_item(issue_id=OTHER, session_id="s2", skill="chat")
+        other = self.ledger.create_work_item(issue_id=OTHER, session_id="s2", skill="chat", execution_contract='staged-v1')
         wrong = self.ledger.claim(other["id"], worker_id="other")["token"]
         for presented in ("bad", wrong):
             for call in calls(presented):
@@ -98,7 +98,7 @@ class MemoryLedgerTests(LedgerBase):
         self.assertEqual(second["actor_kind"], "operator")
         self.ledger.observe_issue(issue(id=OTHER))
         self.ledger.ensure_session("s2", OTHER, delegation=True)
-        other = self.ledger.create_work_item(issue_id=OTHER, session_id="s2", skill="chat")
+        other = self.ledger.create_work_item(issue_id=OTHER, session_id="s2", skill="chat", execution_contract='staged-v1')
         other_token = self.ledger.claim(other["id"], worker_id="other")["token"]
         third = self.ledger.memory_save(other["id"], other_token, NOTE)
         self.assertNotEqual(third["id"], first["id"])

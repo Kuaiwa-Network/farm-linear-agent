@@ -72,9 +72,9 @@ class Fixture:
         self.unity_binary = root / "unity-binary"
         self.unity_binary.touch()
         config = Config(client_id="client", client_secret="s", webhook_secret="signing-secret", host="test", runtime="fake",
-                        repos=remotes, max_concurrent=2, port=0, local_root=root / "local",
+                        repos=remotes, max_concurrent=2, port=0, local_root=root / "local", enabled_skills=['chat', 'fix'],
                         slots=[{"id": SLOT, "repo": "Farm-Client", "unity": str(self.unity_binary)}])
-        self.c = build(config)
+        self.c = build(config, replay_legacy=True)
         self.addCleanup(self.c.lifecycle.ledger.close)
         self.addCleanup(self.c.progress.ledger.close)
         self.addCleanup(self.c.recovery.close)
@@ -263,7 +263,7 @@ class TwoPhaseTests(unittest.TestCase, Fixture):
         (self.stub / f"issue-{issue_ref}.json").write_text(
             json.dumps(issue(id=issue_ref, identifier=identifier, branch_name=f"farmbot/{identifier.lower()}",
                              labels=["Bug"], delegate_id=APP)), encoding="utf-8")
-        item_id = enqueue(self.c.config, issue_ref=issue_ref, skill="fix", commit=commit)["id"]
+        item_id = enqueue(self.c.config, issue_ref=issue_ref, skill="fix", commit=commit, replay_legacy=True)["id"]
         self.items.append(item_id)
         self.scripts[item_id] = [
             ["claim", "--item", "{item}", "--worker-id", "fake"],

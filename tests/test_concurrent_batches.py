@@ -22,7 +22,7 @@ class ConcurrentBatchTests(SlotFixture):
         item = self.ledger.create_work_item(
             issue_id=issue_id, session_id=session, skill="fix",
             target={"repository": "Farm-Client", "requested_ref": "main", "commit_sha": commit,
-                    "server_environment": "test", "selected_at": SELECTED_AT})
+                    "server_environment": "test", "selected_at": SELECTED_AT}, execution_contract='staged-v1')
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
         self.ledger.await_resource(item["id"], token, "unity_slot", "batch", skill=SKILLS["fix"])
         return item["id"]

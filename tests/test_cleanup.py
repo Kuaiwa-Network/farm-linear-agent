@@ -363,7 +363,7 @@ class SelfExitedWorkerCleanupTests(unittest.TestCase):
                           '    time.sleep(0.02)\n', encoding='utf-8')
         self.launcher = Launcher(root / 'runs', RUNTIMES['fake']._replace(command=[sys.executable, str(worker)]), 'h')
         self.scheduler = Scheduler(self.ledger, self.launcher, test_scheduler.SKILLS, self.trees,
-                                   skill_root=test_scheduler.ROOT / 'skills', db_path=root / 'ledger.sqlite3',
+                                   replay_legacy=True, skill_root=test_scheduler.ROOT / 'skills', db_path=root / 'ledger.sqlite3',
                                    runtime_name='fake', host='h', max_concurrent=1, api=self.api)
         self.addCleanup(self.stop_workers)
 

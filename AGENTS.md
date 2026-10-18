@@ -32,10 +32,10 @@ keep runtime authority and behavior changes in those sources and their tests.
 - `agent/slots.py`, `agent/unity.py`, `agent/unity_mcp.py`, `agent/identity.py`: Unity
   resource ownership, Editor discovery, MCP and verification evidence.
 - `agent/__main__.py`, `agent/dispatch.py`, `skills/`, `references/`: worker-facing
-  CLI, launch context and instructions; `skills/work` owns general issue jobs,
-  reusing `skills/feature` for code and `skills/fgui`/`skills/scene` for durable
-  presentation tasks. FGUI retains certified export/Client gates; legacy profiles
-  remain available during rollout.
+  CLI, launch context and instructions; `skills/work` is the single issue owner.
+  `agent/worker_dispatch.py` and `agent/worker_resources.py` provide its authority
+  and continuing-worker resource bridge. Legacy profiles and
+  `agent/legacy_dispatch.py` remain for historical state and offline replay only.
 - `agent/skills.py`, `agent/stages.py`, `agent/uploads.py`, `agent/foreign_work.py`: skill
   manifests (opt-in and exclusive skills included) and per-host enablement, repository
   stages, Linear upload downloads and the foreign-work report.

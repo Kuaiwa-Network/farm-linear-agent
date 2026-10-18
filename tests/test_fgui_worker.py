@@ -18,7 +18,7 @@ from test_ledger import ISSUE, SESSION, issue
 from test_lark_cli import BLOCK, SECRET
 
 ROOT = Path(__file__).resolve().parents[1]
-SKILLS = load_skills(ROOT/"skills")
+SKILLS = load_skills(ROOT/"skills", replay_legacy=True)
 LARK = {"found": True, "version": "1.0.82", "required": None, "ok": True,
         "profile": {"name": "farmbot", "home": None, "exists": True, "other_profiles": 0,
                     "user_logins": 0, "master_key_file": False}}
@@ -51,7 +51,7 @@ class FguiScopeTests(unittest.TestCase):
         self.addCleanup(ledger.close)
         ledger.observe_issue(issue())
         ledger.ensure_session(SESSION, ISSUE, delegation=True)
-        item = ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fgui")
+        item = ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fgui", execution_contract='staged-v1')
         token = ledger.claim(item["id"], worker_id="ui-scope")["token"]
         authoring = replace(SKILLS["fgui"], writes=("farmgui",), resources=())
         with self.assertRaisesRegex(LedgerError, "not a fgui target"):
@@ -159,7 +159,7 @@ class FguiToolchainTests(unittest.TestCase):
         imaging = next(argv for argv, _ in self.commands if "-c" in argv)
         self.assertEqual(imaging[0:3], [sys.executable, "-I", "-B"])
         self.assertFalse(Paths(self.config).ledger.exists())
-        self.assertEqual({f["code"] for f in report["findings"]}, {"ledger_unreadable"})
+        self.assertEqual({f["code"] for f in report["findings"]}, {"ledger_unreadable", "retired_execution_profiles"})
         self.assertNotIn(SECRET, json.dumps(report))
         self.assertNotIn(BLOCK["app_id"], json.dumps(report))
 

@@ -13,10 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def instructions(skill):
-    text = (ROOT / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+    folder = ROOT / 'skills' / 'legacy' / skill if skill in ('work', 'fix') else ROOT / 'skills' / skill
+    text = (folder / "SKILL.md").read_text(encoding="utf-8")
     if skill == 'feature':
-        assert '../work/code-stages.md' in text
-        text += (ROOT / 'skills/work/code-stages.md').read_text(encoding='utf-8')
+        assert '../legacy/work/code-stages.md' in text
+        text += (ROOT / 'skills/legacy/work/code-stages.md').read_text(encoding='utf-8')
     return " ".join(text.split())
 
 

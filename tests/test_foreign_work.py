@@ -77,7 +77,7 @@ class ForeignWorkTests(unittest.TestCase):
         self.addCleanup(self.ledger.close)
         self.ledger.observe_issue(issue(attachments=[OWN, HUMAN, ELSEWHERE, "https://linear.app/example/document/spec-1"]))
         self.ledger.ensure_session(SESSION, ISSUE, delegation=True)
-        previous = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix")
+        previous = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix", execution_contract='staged-v1')
         self.plan(previous["id"], {"prs": {"farm-hive": [
             {"branch": "farmbot/farm-1-config", "role": "config", "head": "b" * 40}]}})
         self.ledger.cancel(previous["id"], "Stop")

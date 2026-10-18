@@ -29,6 +29,8 @@ class SessionProgress:
         """What holds a queued job back: the first of a retry delay, its predecessor's cleanup, a failing status read
         and a card no longer delegated to this app, which only work the delegation authorised depends on
         (withdrawn-work design C6, §5.1 commit 5); else it waits for an execution resource."""
+        if item['stage'] == 'legacy-adoption-required':
+            return '旧流程已暂停，源码和报告已保留；等待操作员显式接续到单 worker 流程。'
         if item["retry_not_before"] > self.ledger.clock():
             return "工作已保留，正在等待重试。"
         if item["predecessor_id"]:
@@ -86,6 +88,14 @@ class SessionProgress:
             body = self._resource_body(item)
         elif state == "running":
             body = f"工作仍在处理中；已记录阶段：{item['stage'][:120]}。"
+            from .execution import single
+            if single(item):
+                body = {'waiting-for-unity_slot': '同一 worker 正在等待 Unity 资源，候选和已完成报告保持不变。',
+                        'waiting-for-unity': '同一 worker 正在等待 Unity 资源。',
+                        'waiting-for-server_slot': '同一 worker 正在等待隔离的测试服务；具体容量等待原因见 Monitor。',
+                        'unity-preparing': 'Unity 已分配，正在准备原候选；worker 保持运行。',
+                        'resource-ready': '资源已就绪，由同一 worker 继续使用；就绪不代表测试通过。',
+                        'resource-preparation-failed': '资源准备失败，worker 正在检查原因和已保存证据。'}.get(item['stage'], body)
             checkpoint = self.db.execute("SELECT max(created_at) FROM audit WHERE item_id=? AND kind='checkpoint'",
                                          (item["id"],)).fetchone()[0]
             body += (f"最近保存检查点距今 {max(0, int((self.ledger.clock() - checkpoint) / 60))} 分钟。"

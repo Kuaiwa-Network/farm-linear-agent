@@ -4,6 +4,7 @@
   "intents": ["label:Bot/修改"],
   "writes": ["Farm-Client", "farm-hive", "farmgui", "common", "Farm-Contract"],
   "staged": true,
+  "opt_in": true,
   "resources": ["unity_slot", "server_slot"],
   "gates": ["pr_review"],
   "mcp": ["kw_ops"],

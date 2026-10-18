@@ -13,7 +13,7 @@ from agent.workflow import (JobWorktrees, await_tasks, client_ready, delegate_ta
 import test_ledger as fixtures
 import test_scheduler as scheduler_fixtures
 
-SKILLS = load_skills(Path(__file__).resolve().parents[1] / "skills")
+SKILLS = load_skills(Path(__file__).resolve().parents[1] / "skills", replay_legacy=True)
 HANDOFF = {"facts": [], "hypotheses": [], "checks": [], "repositories": [], "next_actions": ["continue"]}
 
 
@@ -91,7 +91,7 @@ class GeneralWorkflowTests(unittest.TestCase):
         self.assertEqual(self.ledger.stop_target(fixtures.SESSION)[0]["id"], self.parent)
         self.assertEqual(len(task_views(self.ledger, self.parent)), 2)
         with self.assertRaisesRegex(LedgerError, "active work item"):
-            self.ledger.create_work_item(issue_id=fixtures.ISSUE, session_id=fixtures.SESSION, skill="fix")
+            self.ledger.create_work_item(issue_id=fixtures.ISSUE, session_id=fixtures.SESSION, skill="fix", execution_contract='staged-v1')
 
     def test_partial_answers_keep_attribution_and_wake_only_target_task(self):
         ui, scene = self.task(), self.task("scene", "scene")
@@ -203,7 +203,7 @@ class GeneralWorkflowTests(unittest.TestCase):
 
     def test_scene_cannot_be_started_outside_general_job(self):
         with self.assertRaisesRegex(LedgerError, "internal presentation capability"):
-            self.ledger.create_work_item(issue_id=fixtures.ISSUE, session_id=fixtures.SESSION, skill="scene")
+            self.ledger.create_work_item(issue_id=fixtures.ISSUE, session_id=fixtures.SESSION, skill="scene", execution_contract='staged-v1')
 
     def test_legacy_client_gameplay_waits_for_server_and_certified_presentation(self):
         ui = self.task()
@@ -321,7 +321,7 @@ class GeneralWorkflowTests(unittest.TestCase):
         self.ledger.pin_task_client_base(previous["id"], previous["generation"], "b" * 40)
         self.ledger.cancel(self.parent, "Stop")
         self.parent = self.ledger.create_work_item(issue_id=fixtures.ISSUE, session_id=fixtures.SESSION,
-                                                  skill="work", target=pin)["id"]
+                                                  skill="work", target=pin, execution_contract='staged-v1')["id"]
         self.token = self.ledger.claim(self.parent, worker_id="successor")["token"]
         self.save()
         task = self.task("new-ui-key")

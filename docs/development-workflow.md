@@ -104,24 +104,17 @@ What does not separate them:
   controller lock and reject fake/stub integrations for live operation.
 - `issue_prefix` selects the team key accepted for publishing; it defaults to
   `FARM`, the key of the real 农场 issues a development profile tests.
-- The Code worker (`feature`) is opt-in: TestBot runs it only when its profile's
-  `enabled_skills` names it and `lark_cli` selects the FarmBot Feishu app through a profile or
-  the explicit environment variant (Setting up TestBot). A Code job runs for days and publishes real
-  draft PRs in Farm-Contract, common and farm-hive, and branches such as
-  `farmbot/<key>-config` in common.
-- `tests/test_feature_journey.py` drives Code jobs through the whole controller
-  offline, with the fake worker, the stub Linear and local Git remotes for all five
-  repositories.
-- The UI worker (`fgui`) is separately opt-in and exclusive. It authors farmgui
-  and posts approximate previews for named human visual approval. Actual approval
-  and an explicit export request permit the configured native certified publisher,
-  scoped Client assets/metadata and reasoned dependency entries, then actual guard
-  and interactive Unity package-loading checks. Its `lark_cli` routes match Code's.
-  `tests/test_fgui_journey.py` tests real-controller intake, corrections, explicit
-  continuation, preview retries and Stop/recovery with native tools and local fixtures.
-  Scripted publisher/Editor fixtures do not certify real visual judgment, licensed
-  export, live app-token upload, actual Client guards or Unity acceptance. A newly
-  approved TestBot UI card and separately authorized final-host release remain.
+- Current intake enables `chat` and `work`. One Codex worker owns each delegated
+  fix or feature across all five repositories, including UI and tests. It stays
+  alive while acquiring resources. No presentation subtask or repository handoff
+  is created in this first rollout. See [the operating contract](operating-contract.md).
+- `tests/test_single_worker_journey.py` runs fix and feature journeys through real
+  local Git, the launcher, worker CLI and stub Linear. Historical feature/UI
+  journeys remain explicit offline replay fixtures for retained state; their
+  stage gates are not the current runtime contract.
+- Scripted publisher/Editor fixtures do not certify model judgment, licensed
+  export, live app-token upload or real Unity acceptance. A separately authorized
+  TestBot run on a selected issue remains necessary for those checks.
 - [Mac/Windows CI](ci.md) runs the offline suite with Python 3.13 and records evidence.
 - [Optional native Windows Git authentication](windows-native-git.md) records the
   restricted-worker TLS/helper-shell gap and a native callback recipe using the
@@ -200,15 +193,14 @@ existing production data or copy its marker.
      can wrap across terminal lines, and a one-line paste saves only part of it;
      test it with an empty `CLAUDE_CONFIG_DIR` before use. Copying Keychain
      credentials or `~/.claude.json` does not work.
-   - `claude` cannot run `fix`, `feature` or `fgui`: the scheduler refuses repository-staged skills under
-     it (the operating contract's Authority section). A `claude` instance still
-     accepts and acknowledges a `fix` delegation, and the item then fails at launch;
-     a live write-worker run needs `codex`.
+   - A live write-worker run needs `codex`; `claude` does not provide the enforced
+     owned-worktree write boundary. Use `enabled_skills: ["chat", "work"]` for
+     current intake. Legacy execution profiles are refused by the current service.
    - kw_ops reaches Codex workers only. Export the profile's `token_env` variable in the wrapper
      that starts `serve`, never in the profile itself.
-   - `feature` and `fgui` workers read the 策划案 with lark-cli as FarmBot's own Feishu app; set it up as
-     [lark-cli for feature workers](#lark-cli-for-feature-workers) describes before enabling
-     either opt-in worker.
+   - When an issue needs a linked 策划案, configure the read-only FarmBot Feishu app
+     as [the document-reader setup](#lark-cli-for-feature-workers) describes.
+     Missing optional document-reader configuration does not block unrelated work.
 5. **Endpoint.** Run
    `cloudflared tunnel --url http://127.0.0.1:<port> --no-autoupdate --protocol http2`.
    A quick tunnel's hostname changes on every restart and FarmBot never learns it,
@@ -220,11 +212,11 @@ existing production data or copy its marker.
      Its `skills` block lists the loaded and the enabled skills;
      `enabled_skills_invalid` means `serve` would refuse the profile's
      `enabled_skills`; `skill_runtime_unsupported` means the profile's `runtime`
-     cannot launch an enabled skill, as `claude` cannot launch `fix`, so each of
-     that skill's jobs would fail at launch. On a profile that enables `feature` it
-     also reports `tools.feature`: `feature_toolchain_incomplete` names the tools to
-     install first, and `lark_cli_unconfigured` means `serve` would refuse the profile.
-     Enabling `fgui` adds `tools.fgui`: the selected native Python, Git LFS,
+     cannot launch an enabled skill, as `claude` cannot launch `work`.
+     `retired_execution_profiles` requires migration before startup. For `work`,
+     tool availability is reported with `optional_for_work`; the actual issue's
+     needs determine which missing tools need preparation. `tools.feature`
+     describes code/document tools, and `tools.fgui` describes native Python, Git LFS,
      pinned Pillow, prepared CJK font identity and the shared bot document reader.
      Its optional `tools.fgui.export` block verifies the four explicitly selected
      native publisher hashes. It does not execute the exporter, verify a license,
@@ -250,7 +242,7 @@ existing production data or copy its marker.
    `monitor` block to `{"bind": "0.0.0.0", "port": 8781}` (the template's binds
    loopback only) and run
    `python3 -m agent.service monitor --config /absolute/profile.json` beside the
-   controller; see the README's office status monitor section. macOS may ask
+   controller. macOS may ask
    whether Python may accept incoming connections. Edit the profile with a command
    that prints nothing from it, never with a tool that echoes file contents.
 
@@ -265,7 +257,7 @@ Verify the VM disk's location separately before reserving more disk space.
 
 ## lark-cli for feature workers
 
-A `feature` or `fgui` worker reads the 策划案 with lark-cli as FarmBot's own read-only Feishu app, never with a
+A `work` worker reads the 策划案 with lark-cli as FarmBot's own read-only Feishu app, never with a
 personal login (spec §5.4, D12). The host config names the lark-cli profile that holds the app, and
 FarmBot never stores the app ID or secret.
 
@@ -383,7 +375,7 @@ token source are refused. Supply the value privately to the controller process t
 credential management. This change installs no credential loader and does not copy a Windows DPAPI
 profile into worker accounts.
 
-Only Codex `feature` and `fgui` workers receive the configured ID and secret as `LARKSUITE_CLI_APP_ID` and
+Codex `work` workers (and legacy `feature`/`fgui` replay) receive the configured ID and secret as `LARKSUITE_CLI_APP_ID` and
 `LARKSUITE_CLI_APP_SECRET`, plus forced `LARKSUITE_CLI_STRICT_MODE=bot`. The source alias is removed
 from every worker, Unity run, Editor launch and diagnostic child, even after environment overrides.
 Other workers retain no lark credential; user/tenant access tokens, proxy keys and config-directory

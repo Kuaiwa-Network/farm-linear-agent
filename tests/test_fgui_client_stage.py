@@ -29,7 +29,7 @@ class UiClientStageTests(unittest.TestCase):
         self.scheduler.enabled_skills.add("fgui")
         self.ledger.observe_issue(fixtures.issue())
         self.ledger.ensure_session(fixtures.SESSION, fixtures.ISSUE, delegation=True)
-        self.item = self.ledger.create_work_item(issue_id=fixtures.ISSUE, session_id=fixtures.SESSION, skill="fgui")
+        self.item = self.ledger.create_work_item(issue_id=fixtures.ISSUE, session_id=fixtures.SESSION, skill="fgui", execution_contract='staged-v1')
         self.trees.stage_base = Mock(return_value=BASE)
         self.trees.add_stage = Mock(side_effect=lambda repo, item, branch, baseline, **kw: self.trees.add(repo, item, branch))
 

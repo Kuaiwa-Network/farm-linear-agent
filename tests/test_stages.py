@@ -8,7 +8,7 @@ from agent.stages import current_root, runtime_can_launch, write_repositories
 from test_skills import staged_skill, write_skill
 
 ROOT = Path(__file__).resolve().parents[1]
-SKILLS = load_skills(ROOT / "skills")
+SKILLS = load_skills(ROOT / "skills", replay_legacy=True)
 
 
 class StageTests(unittest.TestCase):

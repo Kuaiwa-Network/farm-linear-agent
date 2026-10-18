@@ -106,7 +106,7 @@ class DocumentReaderCliTests(unittest.TestCase):
         self.ledger.observe_issue(issue(id=issue_id))
         session = "session-" + skill
         self.ledger.ensure_session(session, issue_id, delegation=True)
-        item = self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill="work" if skill == "scene" else skill)
+        item = self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill="work" if skill == "scene" else skill, execution_contract='staged-v1')
         if skill == "scene":
             # Internal presentation rows normally come from delegation; this fixture tests the CLI's role fence only.
             self.ledger.connection.execute("UPDATE work_items SET skill=? WHERE id=?", (skill, item["id"]))
