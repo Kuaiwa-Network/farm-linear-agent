@@ -239,16 +239,17 @@ class PageTests(unittest.TestCase):
         self.assertIn("可用物理内存 2.00 GiB，需 8.00 GiB", rendered[6])
         self.assertIn("超过总预算 8.00 GiB", rendered[6])
 
-    def test_general_work_describes_one_owner_without_presentation_subtasks(self):
+    def test_general_work_describes_one_owner_with_optional_native_subagents(self):
         for enabled in (["chat", "work"], ["chat", "fix", "feature", "work"]):
             with self.subTest(enabled=enabled):
                 rows = self.capacity_rows({"enabled_skills": enabled, "max_workers": 4,
                                            "workers_used": 4, "unity_slots": 2, "server_slots": 3})
                 self.assertEqual(rows["工作流"]["pills"], [["任务 已启用", "pill info"], ["对话 已启用", "pill info"]])
                 self.assertIn("不按 Bot 标签分流", rows["工作流"]["text"])
-                self.assertEqual(rows["任务能力"]["pills"], [["单 worker 负责全程", "pill info"]])
+                self.assertEqual(rows["任务能力"]["pills"], [["主 worker 负责全程", "pill info"]])
                 self.assertIn("工具和审批", rows["任务能力"]["text"])
-                self.assertIn("当前不创建子任务", rows["任务能力"]["text"])
+                self.assertIn("可自主使用原生 subagent", rows["任务能力"]["text"])
+                self.assertIn("负责整合与交付", rows["任务能力"]["text"])
                 if "fix" in enabled:
                     self.assertIn("维护暂停时显式接续", rows["需迁移的旧配置"]["text"])
                 else:

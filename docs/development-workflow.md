@@ -104,10 +104,11 @@ What does not separate them:
   controller lock and reject fake/stub integrations for live operation.
 - `issue_prefix` selects the team key accepted for publishing; it defaults to
   `FARM`, the key of the real 农场 issues a development profile tests.
-- Current intake enables `chat` and `work`. One Codex worker owns each delegated
+- Current intake enables `chat` and `work`. One main Codex worker owns each delegated
   fix or feature across all five repositories, including UI and tests. It stays
-  alive while acquiring resources. No presentation subtask or repository handoff
-  is created in this first rollout. See [the operating contract](operating-contract.md).
+  alive while acquiring resources and chooses when native subagents help. No
+  controller-managed presentation task or repository handoff is created.
+  See [the operating contract](operating-contract.md).
 - `tests/test_single_worker_journey.py` runs fix and feature journeys through real
   local Git, the launcher, worker CLI and stub Linear. Historical feature/UI
   journeys remain explicit offline replay fixtures for retained state; their

@@ -1,6 +1,6 @@
 ---
 name: work
-description: One worker owns a delegated bug fix or feature through implementation, verification and draft delivery.
+description: One main worker owns a delegated bug fix or feature, using native subagents when useful.
 ---
 
 # Issue owner
@@ -14,9 +14,20 @@ authorization rather than asking again for routine edits.
 
 Use all necessary owned worktrees in the launch context. Implement the required
 source, UI assets, Client metadata, server changes, tests, generated files and
-CI registration yourself. Change directories directly. Do not hand off between
-repositories or create subagents in this first rollout. Use existing repository
-tools; do not expand a small issue into unrelated cleanup.
+CI registration. Change directories directly. Use existing repository tools;
+do not expand a small issue into unrelated cleanup.
+
+Use native Codex subagents at your discretion when independent work benefits
+from delegation. Small or tightly dependent work can stay with you. For example,
+independent UI and server changes can run in parallel; Client integration waits
+for the UI outputs it needs. Give helpers a clear scope, owned paths, repository
+instructions and relevant decisions. Coordinate conflicting writes yourself.
+You own integration, verification and delivery. Helpers respect the same
+permissions and report results or blockers to you; only you manage the FarmBot
+claim, shared resources, human questions, publication and finish. Native helpers
+do not use the retired controller-managed presentation task workflow. Settle
+helpers before parking, releasing resources they use, handoff or finish, and
+save their completed work in your checkpoint for recovery.
 
 Read [the concise CLI guide](../../references/single-worker-cli.md). Claim once
 using `startup.start_argv`; it saves the token privately. Use `execution.python`
@@ -60,8 +71,13 @@ Missing art is a concrete human question; do not invent final assets.
 
 Keep source commits, candidate SHAs, report paths, failures and next action in a
 concise checkpoint. Reports belong in `state_dir`, never source commits. A human
-question parks only when a real decision/input is missing. Read and acknowledge
-the actual attributed replies; routine technical repair needs no new permission.
+question parks only when a real decision/input is missing. Draft or update a
+contract yourself when requirements are clear. Ask about unresolved business
+semantics, explicitly required approval, or missing essential assets/access after
+checking available inputs. Explain the blocker, options and recommendation via
+`await-input --reason question` after saving progress and releasing resources.
+Normal resource queueing is not a human question. Read and acknowledge the actual
+attributed replies; routine technical repair needs no new permission.
 
 Review the final diff and required verification yourself. Use `verify-publication`
 before pushing each exact issue branch or creating/updating its draft PR. Publish

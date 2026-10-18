@@ -11,6 +11,12 @@ ambiguous outcome, inspect the process/claim result; never blindly claim again.
 Use `--db DATABASE` before the command and `--item ITEM --token-file STATE_DIR/token`
 for authenticated commands. The token itself must never appear in logs.
 
+The main worker may use native Codex subagents for bounded work within the same
+permissions. Helpers report to the main worker; they do not claim this issue or
+call its lifecycle/resource/publication commands. The main worker coordinates
+shared resources and human questions, integrates results, settles helpers before
+parking or finish, and checkpoints their work. No FarmBot child task is created.
+
 | Command | Additional arguments and purpose |
 | --- | --- |
 | `fetch-issue` | No token arguments. Read live issue facts before delivery or after a new request. |

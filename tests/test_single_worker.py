@@ -197,6 +197,13 @@ class SingleWorkerTests(LedgerBase):
         self.assertNotIn('capabilities', payload)
         self.assertNotIn('code-stages.md', prompt)
         self.assertNotIn('handoff-repository', prompt)
+        self.assertIn('Use native Codex subagents at your discretion', prompt)
+        self.assertIn('only you manage the FarmBot claim', prompt)
+        self.assertIn('Do not create controller-managed presentation tasks', prompt)
+        self.assertIn('Settle helpers before parking', prompt)
+        self.assertIn('Draft/update contracts yourself when requirements are clear', prompt)
+        self.assertIn('Normal resource queueing is not a human question', prompt)
+        self.assertNotIn('Do not create subagents', prompt)
         self.assertEqual(self.launcher.spawned[0][4], str(self.launcher.state_dir(self.key)))
 
     def test_candidate_resource_keeps_claim_pid_and_needs_no_baseline_or_resume(self):
@@ -248,9 +255,23 @@ class SingleWorkerTests(LedgerBase):
             self.ledger.finish(self.key, self.token, 'delivered', report)
 
     def test_delivery_requires_resolution_of_actual_human_question(self):
+        from agent.__main__ import parser, run
         from test_ledger import OWNER
         self.claim_owner()
-        self.ledger.await_input(self.key, self.token, 'Should the limit reset daily or weekly?')
+        body = 'The contract does not specify the reset period. Daily or weekly? I recommend daily.'
+        args = parser().parse_args(['--db', str(self.path), 'await-input', '--item', self.key,
+            '--token', self.token, '--question', body, '--reason', 'question'])
+        api = Mock(app_user_id='test-app')
+        api.issue_status.return_value = issue(delegate_id='test-app')
+        api.awaiting_reply.return_value = True
+        with patch('agent.__main__.configured_bot_name', return_value='TestBot'):
+            parked = run(args, self.ledger, lambda: api)
+        self.assertEqual(parked['state'], 'awaiting_input')
+        self.assertEqual(parked['checkpoint']['handoff'], 'Continue original candidate')
+        api.create_activity.assert_called_once()
+        session, content = api.create_activity.call_args.args
+        self.assertEqual((session, content['type']), (SESSION, 'elicitation'))
+        self.assertIn(body, content['body'])
         question = self.ledger.human_question(self.key)
         self.ledger.push_inbox(self.key, 'Daily.', author=OWNER, resume_waiting=True)
         self.token = self.ledger.claim(self.key, worker_id='resumed-owner')['token']

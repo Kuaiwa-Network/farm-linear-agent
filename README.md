@@ -1,13 +1,14 @@
 # farm-linear-agent
 
 One Linear agent for the 农场 team. Delegate an issue for work; @mention it to
-talk. The default profiles are `chat` and `work`. One worker owns each bug fix or
+talk. The default profiles are `chat` and `work`. One main worker owns each bug fix or
 feature across all necessary repositories, UI changes, tests and draft delivery.
 
 The worker stays alive while waiting for Unity or server services. It tests the
 candidate first; baseline testing is optional diagnosis. There are no compulsory
 repository handoffs, presentation subtasks or semantic closeout approvals.
-This first rollout runs one write job at a time and defers subagents.
+This first rollout runs one write job at a time. The main worker chooses when
+native Codex subagents help and remains responsible for integration and delivery.
 
 Read [the operating contract](docs/operating-contract.md),
 [the migration guide](docs/general-workflow.md) and

@@ -281,7 +281,9 @@ class Launcher:
         roots = [str(self.state_dir(item_id)), *(str(path) for path in writable)]
         settings = {"sandbox_workspace_write": {"writable_roots": roots, "network_access": True}}
         if self.runtime.name == "codex":
-            settings["features"] = {"memories": False}
+            # Native helpers stay inside this issue's Codex session and permission policy;
+            # enabling the tools does not create another FarmBot job or claim.
+            settings["features"] = {"memories": False, "multi_agent": True}
             if os.name == "nt":
                 # An isolated CODEX_HOME must not inherit a disabled native sandbox default.
                 settings["windows"] = {"sandbox": self.codex_windows_sandbox}

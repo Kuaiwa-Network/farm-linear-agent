@@ -267,7 +267,7 @@
       return pills;
     };
     const tasks = el("div", "pills");
-    tasks.append(pill(general ? "单 worker 负责全程" : "任务未启用", general ? "info" : "neutral"));
+    tasks.append(pill(general ? "主 worker 负责全程" : "任务未启用", general ? "info" : "neutral"));
     const retired = [...enabled].filter((name) => !["work", "chat"].includes(name));
     const known = typeof capacity.workers_used === "number";
     const full = known && capacity.workers_used >= capacity.max_workers;
@@ -277,7 +277,7 @@
                      el("p", "muted", general ? "新委派统一使用任务工作流，不按 Bot 标签分流。"
                                               : "尚未启用任务工作流，不能执行新的业务任务。"))),
             row("two", cell("label muted", "任务能力"),
-                cell("main", tasks, el("p", "muted", general ? "同一 worker 按需修改各仓库、处理 UI 和测试；当前不创建子任务。工具和审批要求仍然有效。"
+                cell("main", tasks, el("p", "muted", general ? "主 worker 按需修改各仓库、处理 UI 和测试，可自主使用原生 subagent，并负责整合与交付。工具和审批要求仍然有效。"
                                                              : "启用 work 后由同一 worker 完成任务。"))),
             ...(retired.length ? [row("two", cell("label muted", "需迁移的旧配置"),
                 cell("main", retired.map((name) => SKILL[name] || name).join("、"),

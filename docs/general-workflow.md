@@ -4,8 +4,9 @@ New work uses [one issue owner](operating-contract.md) for bug fixes, features
 and UI changes. The main worker has the necessary owned repositories together
 and continues through implementation, candidate testing and draft delivery.
 There are no compulsory repository handoffs, presentation subtasks or baseline
-comparison rounds. Subagents are deferred until this single-worker path has
-passed real issue acceptance.
+comparison rounds. The main worker may use native Codex subagents for useful
+independent work and remains responsible for integration, verification and
+delivery. These helpers do not create separate FarmBot jobs or claims.
 
 The worker follows [work/SKILL.md](../skills/work/SKILL.md) and
 [the concise CLI guide](../references/single-worker-cli.md). Repository-specific
