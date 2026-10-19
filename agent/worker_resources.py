@@ -41,9 +41,26 @@ def request(args, ledger, config, token):
     plan_issue_branches({'prs': {repo: [{'role': 'issue', 'branch': branch}]}},
                         ledger.issue(item['issue_id'])['identifier'], config.issue_prefix, reserved=True)
     test_plan = None
+    integration_plan = None
+    if getattr(args, 'integration_plan', None):
+        from .integration import validate_plan
+        from .resource_admission import validate_settings
+        if args.resource!='unity_slot' or args.mode!='interactive' or not config.server_slots:
+            raise LedgerError('combined verification requires Unity and configured server services')
+        if getattr(args, 'server_test_plan', None):
+            raise LedgerError('combined verification uses a full server lease; do not mix a Go test plan')
+        budgets = validate_settings(config.resource_admission)
+        if budgets['unity_mib'] + budgets['server_mib'] > budgets['max_reserved_mib']:
+            raise LedgerError('integration needs budget for one Unity Editor plus one full server lease')
+        integration_plan = validate_plan(json.loads(Path(args.integration_plan).read_text(encoding='utf-8')))
+        trees.verification_commit('farm-hive', item['id'], integration_plan['server_commit'])
+        branch = trees.git_in(paths.worktrees / item['id'] / 'farm-hive', 'branch', '--show-current')
+        plan_issue_branches({'prs': {'farm-hive':[{'role':'issue','branch':branch}]}},
+                            ledger.issue(item['issue_id'])['identifier'], config.issue_prefix, reserved=True)
     if args.resource == 'server_slot' and args.server_test_plan:
         test_plan = json.loads(Path(args.server_test_plan).read_text(encoding='utf-8'))
-    return queue_resource(ledger, item['id'], token, args.resource, args.mode, args.commit, test_plan=test_plan)
+    return queue_resource(ledger, item['id'], token, args.resource, args.mode, args.commit,
+                          test_plan=test_plan, integration_plan=integration_plan)
 
 
 def status(args, ledger, config, token):
@@ -57,6 +74,15 @@ def status(args, ledger, config, token):
             from .server_slots import read_resource
             reservation = ledger.reservation(result['reservation_id'])
             result['services'] = read_resource(ledger.slot(reservation['resource']), reservation, paths.server_slots)
+        else:
+            from .integration import companion
+            reservation = companion(ledger, ledger.reservation(result['reservation_id']))
+            if reservation:
+                from .server_slots import read_resource
+                trees = Worktrees(paths.repos, paths.worktrees, config.repos)
+                source = trees.read_candidate('farm-hive', item['id'], reservation['commit_sha'])
+                result['integration'] = {**read_resource(ledger.slot(reservation['resource']), reservation, paths.server_slots),
+                                         'plan':reservation['integration']['plan'], 'source':str(source)}
     return result
 
 

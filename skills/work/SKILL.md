@@ -75,6 +75,13 @@ subprocesses; stop them before release. Do not touch live services or administer
 Docker. Server containers remain owned by the host and are recycled only after
 it can establish process quiescence.
 
+If acceptance requires Client and Server candidates online together, follow
+[single Client/game-server verification](../../references/client-server-integration.md).
+Request its atomic pair and stay in this worker. Use the pinned server source and
+reserved Unity instance, exercise actual scenarios and retain both SHAs/results.
+Independent single-side checks need no pair. Release safely before delivery or
+human waits; missing evidence never becomes a pass.
+
 For FairyGUI, edit the affected packages and use the repository's preview and
 validation tools. Request human visual review only when the task/repository
 requires it. `publish-ui` exports explicit package names/IDs with the configured

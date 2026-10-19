@@ -360,6 +360,8 @@ class RecoveryStore:
                         self.db.execute("""INSERT INTO reservations(reservation_id,item_id,generation,kind,mode,commit_sha,state,created_at)
                             VALUES(?,?,?,?,?,?,'queued',?)""",
                             (replacement, item['id'], item['generation'], old['kind'], old['mode'], old['commit_sha'], self.ledger.clock()))
+                        from .integration import copy_plan
+                        copy_plan(self.ledger, old['reservation_id'], replacement)
                         self.ledger._audit(item['id'], 'reservation', 'requeued',
                             {'reservation_id': replacement, 'commit_sha': old['commit_sha'],
                              **({'client_base_commit': client_base} if client_base else {}),

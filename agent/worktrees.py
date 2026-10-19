@@ -1009,6 +1009,29 @@ class Worktrees:
         except WorktreeError:
             return None
 
+    def read_candidate(self, repo, item_id, commit):
+        """Detached exact-candidate source; no clone config or writable source grant."""
+        if repo not in self.remotes or not isinstance(commit, str) or not self.COMMIT.fullmatch(commit):
+            raise WorktreeError('invalid read candidate')
+        root = self.reads_root(item_id)
+        path = root / f'{repo}@{commit}'
+        if any(_is_link(p) for p in (self.worktrees_root, root, path)):
+            raise WorktreeError('symlinked read candidate')
+        objects = (self.ensure_clone(repo) / 'objects').absolute()
+        if path.exists():
+            if (not self._own_read_checkout(path, self.remotes[repo], objects)
+                    or self.head(path) != commit or not self.slot_clean(path)):
+                raise WorktreeError('read candidate identity or source changed; preserve evidence')
+            return path
+        path.mkdir(parents=True)
+        _git('init', '--quiet', str(path), cwd=path, config=READ_ONLY_GIT)
+        _git('config', 'remote.origin.url', self.remotes[repo], cwd=path, config=READ_ONLY_GIT)
+        info = path / '.git' / 'objects' / 'info'
+        info.mkdir(parents=True, exist_ok=True)
+        (info / 'alternates').write_text(f'{objects}\n', encoding='utf-8', newline='\n')
+        _git('checkout', '--quiet', '--detach', commit, cwd=path, config=READ_ONLY_GIT)
+        return path
+
     @staticmethod
     def _own_read_checkout(path, url, objects):
         """Whether `path` is a read-only checkout this class made for `url` and its clone's `objects`: its own `.git`

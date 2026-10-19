@@ -134,6 +134,8 @@ def parser():
     cmd('publish-ui', '--item', '--packages', token=True)
     resource.add_argument('--checkpoint', help='save this checkpoint before requesting the resource')
     resource.add_argument("--server-test-plan", help="JSON file with exact packages, tests and race selection")
+    resource.add_argument('--integration-plan', help='single-client/game-server plan, from the Client stage')
+    integration = cmd('run-integration', '--item', '--client-command', token=True)
     resource.add_argument("--server-scope-reason", help="concrete coverage reason for broader or named-only server checks")
     resource.add_argument("--mode", required=True, choices=["interactive", "batch"])
     resource.add_argument("--commit", help="full SHA of the clean Farm-Client worktree HEAD to verify; default: baseline")
@@ -1107,6 +1109,27 @@ def run(args, ledger, api_factory):
                     raise LedgerError("verification must use the configured host ledger")
                 mode = "interactive"
         request_options = {}
+        integration_file = getattr(args, 'integration_plan', None)
+        if integration_file:
+            from .integration import validate_plan
+            if (args.resource!='unity_slot' or mode!='interactive' or args.baseline or not args.commit
+                    or current_root(item['root_repo'], skill)!='Farm-Client'):
+                raise LedgerError('integration requires an interactive Client candidate request')
+            require_listed_resource(skill, 'server_slot')
+            config = load_config(secure_permissions=False)
+            if not config.server_slots or Path(args.db).resolve()!=Paths(config).ledger.resolve():
+                raise LedgerError('integration requires this configured host server pool and ledger')
+            from .resource_admission import validate_settings
+            budget = validate_settings(config.resource_admission)
+            if budget['unity_mib'] + budget['server_mib'] > budget['max_reserved_mib']:
+                raise LedgerError('integration needs budget for one Unity Editor plus one full server lease')
+            plan = validate_plan(read_json(integration_file))
+            from .workflow import JobWorktrees
+            from .worktrees import Worktrees
+            paths = Paths(config)
+            trees = JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger)
+            trees.verification_commit('farm-hive', args.item, plan['server_commit'])
+            request_options['integration_plan'] = plan
         repair_source = getattr(args, 'repair_candidate_reservation', None)
         if repair_source is not None and (args.resource != 'unity_slot' or args.baseline or not args.commit
                 or item['skill'] not in ('work', 'feature', 'fix') or c != 'await-resource'):
@@ -1253,6 +1276,9 @@ def run(args, ledger, api_factory):
             raise LedgerError('only Client code jobs may continue a comparison baseline')
         return ledger.await_resource(args.item, token, args.resource, mode, skill=skill,
                                      commit_sha=selected_commit, **request_options)
+    if c == 'run-integration':
+        from .integration_runtime import run_owned
+        return run_owned(ledger, args, resolve_token(args))
     if c == "release-resource":
         # The worker's own verdict, not the pool's: the pool re-checks quiescence before acting on a slot
         # this worker may have wedged (spec §7). Both outcomes are verified against the reservation's own

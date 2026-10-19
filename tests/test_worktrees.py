@@ -22,6 +22,21 @@ def git(*args, cwd, allow_failure=False):
 
 
 class WorktreeTests(unittest.TestCase):
+    def test_exact_read_candidate_keeps_issue_commit_without_source_or_clone_write_grant(self):
+        path = self.trees.add('Farm-Client', 'item-1', 'farmbot/fix')
+        (path / 'candidate.txt').write_text('unmerged candidate', encoding='utf-8')
+        git('add', '.', cwd=path)
+        git('commit', '-qm', 'candidate', cwd=path)
+        commit = self.trees.head(path)
+        snapshot = self.trees.read_candidate('Farm-Client', 'item-1', commit)
+        self.assertEqual(self.trees.head(snapshot), commit)
+        self.assertTrue((snapshot / '.git').is_dir())
+        self.assertEqual((snapshot / 'candidate.txt').read_text(encoding='utf-8'), 'unmerged candidate')
+        self.assertEqual(self.trees.read_candidate('Farm-Client', 'item-1', commit), snapshot)
+        (snapshot / 'candidate.txt').write_text('tampered', encoding='utf-8')
+        with self.assertRaisesRegex(WorktreeError, 'changed'):
+            self.trees.read_candidate('Farm-Client', 'item-1', commit)
+
     def test_equal_whole_tree_preserves_distinct_commits_and_refuses_replacement_objects(self):
         path = self.trees.add('Farm-Client', 'item-1', 'farmbot/fix')
         base = self.trees.head(path)

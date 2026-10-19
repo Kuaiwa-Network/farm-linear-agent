@@ -578,6 +578,11 @@ class Ledger:
                     ON reservations(item_id)
                     WHERE state IN ('queued','active','cancel_requested');
                 CREATE INDEX IF NOT EXISTS reservations_queue ON reservations(kind, state, sequence);
+                CREATE TABLE IF NOT EXISTS integration_leases (
+                    reservation_id TEXT PRIMARY KEY REFERENCES reservations(reservation_id),
+                    plan TEXT NOT NULL,
+                    server_slot TEXT
+                );
                 CREATE TABLE IF NOT EXISTS identity_observations (
                     observation_id TEXT PRIMARY KEY,
                     item_id TEXT NOT NULL REFERENCES work_items(id),
@@ -1825,7 +1830,7 @@ class Ledger:
     def await_resource(self, item_id, token, resource, mode, *, skill, commit_sha=None, issue_prefix="FARM",
                        comparison_candidate=None, server_test_plan=None, continuation=None, server_base_commit=None,
                        reuse_candidate_reservation=None, client_base_commit=None, client_repair=None,
-                       resume_baseline_reservation=None):
+                       resume_baseline_reservation=None, integration_plan=None):
         """Park the claimed item until the pool grants `resource`.
 
         The ledger reads no manifests: `skill` is the item's loaded skill, which the worker CLI passes, as for
@@ -1837,6 +1842,13 @@ class Ledger:
         if single(self._owned(item_id, token)):
             raise LedgerError('single-worker resources require the claim-bound worker resource request')
         _text(resource, "resource")
+        if integration_plan is not None:
+            from .integration import validate_plan as validate_integration_plan
+            integration_plan = validate_integration_plan(integration_plan)
+            if (resource != 'unity_slot' or mode != 'interactive' or skill.name not in ('work','feature','fix')
+                    or comparison_candidate is not None or continuation is not None or client_repair is not None
+                    or commit_sha is None):
+                raise LedgerError('integration requires a separate interactive Client candidate request')
         if reuse_candidate_reservation is not None and comparison_candidate is None:
             raise LedgerError('candidate reuse requires an explicit comparison baseline')
         if resume_baseline_reservation is not None and (resource != 'unity_slot' or comparison_candidate is None
@@ -1972,6 +1984,9 @@ class Ledger:
                 """INSERT INTO reservations(reservation_id,item_id,generation,kind,mode,commit_sha,state,created_at)
                    VALUES(?,?,?,?,?,?,'queued',?)""",
                 (reservation_id, row["id"], row["generation"], resource, mode, selected_commit, self.clock()))
+            if integration_plan is not None:
+                self.connection.execute('INSERT INTO integration_leases(reservation_id,plan) VALUES(?,?)',
+                                        (reservation_id, _json(integration_plan)))
             self._set_state(row["id"], "awaiting_resource", f"needs {resource}:{mode}", token=None,
                             lease_expires_at=None, worker_pid=None, needs_resource=f"{resource}:{mode}")
             self._audit(row["id"], "reservation", "queued", details={"reservation_id": reservation_id, "mode": mode,
@@ -2195,6 +2210,18 @@ class Ledger:
             self._audit(slot_id, "unity_editor_start", "persistent Editor startup")
             return self.slot(slot_id)
 
+    def begin_idle_editor_close(self, slot_id, *, host):
+        """Fence a verified idle Editor against acquisition before its slow close."""
+        with self._transaction():
+            slot = self._slot_row(slot_id)
+            if (slot['host'] != host or slot['kind'] != 'unity_slot' or slot['state'] != 'idle_open'
+                    or self.active_reservation_on(slot_id)):
+                return None
+            self.connection.execute("UPDATE slots SET state='switching',updated_at=? WHERE slot_id=?",
+                                    (self.clock(), slot_id))
+            self._audit(slot_id, 'unity_editor_close', 'reclaim idle Editor for waiting server')
+            return self.slot(slot_id)
+
     def interactive_unity_requests(self, host):
         """Retain FIFO, candidates and claims while migrating only ungranted local Unity requests."""
         with self._transaction():
@@ -2210,7 +2237,7 @@ class Ledger:
                             {"reservation_id": row["reservation_id"]})
             return len(rows)
 
-    def acquire(self, kind, *, owner, host, exclude_resources=(), expected_reservation=None, single_only=False):
+    def acquire(self, kind, *, owner, host, exclude_resources=(), expected_reservation=None, single_only=False, server_resources=None):
         """Grant FIFO, except for a baseline's one-turn continuation on its released slot.
 
         There is deliberately no kind-wide "is anything active?" pre-check. It would read as an optimisation
@@ -2240,7 +2267,24 @@ class Ledger:
             free.sort(key=lambda s: (order.index(s["state"]), s["slot_id"]))
             if not free:
                 return None
+            from .integration import get as integration_request
+            integration = integration_request(self, row['reservation_id'])
+            if integration:
+                # A combined request joins server FIFO too, but never holds half a lease.
+                server_waiters = [r for r in self.reservation_queue('server_slot', single_only=single_only) if r['sequence'] < row['sequence']]
+                servers = [s for s in self.slots(kind='server_slot', host=host) if s['state']=='idle_closed'
+                           and (server_resources is None or s['slot_id'] in server_resources)
+                           and self.active_reservation_on(s['slot_id']) is None]
+                if server_waiters or not servers:
+                    return None
+                server = servers[0]
+                self.connection.execute('UPDATE integration_leases SET server_slot=? WHERE reservation_id=?',
+                                        (server['slot_id'], row['reservation_id']))
+                self.connection.execute("UPDATE slots SET state='switching',updated_at=? WHERE slot_id=?",
+                                        (self.clock(), server['slot_id']))
             slot = free[0]
+            if self.active_reservation_on(slot['slot_id']):
+                raise LedgerError(f"{slot['slot_id']} is free but a reservation still holds it; the slot was returned to the pool early")
             token = "res_" + secrets.token_urlsafe(32)
             try:
                 self.connection.execute(
@@ -2354,8 +2398,9 @@ class Ledger:
         still owns.
         """
         row = self.connection.execute(
-            "SELECT * FROM reservations WHERE resource=? AND state IN ('active','cancel_requested')",
-            (slot_id,)).fetchone()
+            "SELECT r.* FROM reservations r LEFT JOIN integration_leases i ON i.reservation_id=r.reservation_id "
+            "WHERE (r.resource=? OR i.server_slot=?) AND r.state IN ('active','cancel_requested')",
+            (slot_id, slot_id)).fetchone()
         return self._reservation_view(row) if row else None
 
     def last_reservation_on(self, slot_id):
@@ -2409,6 +2454,11 @@ class Ledger:
             row = self._reservation_owned(reservation_id, token)
             if row["state"] in ("released", "cancelled"):
                 return row["state"]
+            from .integration import get as integration_request
+            combined = integration_request(self, reservation_id)
+            if combined and any(self.slot(slot)['state']=='held'
+                                for slot in (row['resource'], combined['server_slot']) if slot):
+                raise LedgerError('combined resource is held; verified controller recovery is required')
             state = "cancelled" if row["state"] == "cancel_requested" else "released"
             self.connection.execute(
                 "UPDATE reservations SET state=?,released_at=?,release_reason=? WHERE reservation_id=?",
@@ -2416,6 +2466,9 @@ class Ledger:
             if row["resource"]:
                 self.connection.execute("UPDATE slots SET state='switching',updated_at=? WHERE slot_id=?",
                                         (self.clock(), row["resource"]))
+            if combined and combined['server_slot']:
+                self.connection.execute("UPDATE slots SET state='switching',updated_at=? WHERE slot_id=?",
+                                        (self.clock(), combined['server_slot']))
             self._audit(row["item_id"], "reservation", state, details={"reservation_id": reservation_id,
                                                                       "reason": reason[:200]})
             self.connection.execute("UPDATE work_items SET stage='working',needs_resource=NULL WHERE id=? "
@@ -2476,6 +2529,8 @@ class Ledger:
                    attempts,created_at,server_test_plan) VALUES(?,?,?,?,?,?,'queued',?,?,?)""",
                 (fresh, row["item_id"], row["generation"], row["kind"], row["mode"], row["commit_sha"],
                  row["attempts"] + 1, self.clock(), row["server_test_plan"]))
+            from .integration import copy_plan
+            copy_plan(self, reservation_id, fresh)
             self._audit(row["item_id"], "reservation", "requeued", details={"reservation_id": fresh,
                 **({'client_repair': repair, 'commit_sha': row['commit_sha']} if repair else {}),
                 **({'client_base_commit': client_base, 'commit_sha': row['commit_sha']} if client_base else {}),
@@ -2556,7 +2611,9 @@ class Ledger:
         """A technical deadline preserves evidence and never becomes an automatic retry."""
         with self._transaction():
             reservation = self.reservation(reservation_id)
-            if not reservation or reservation['kind'] != 'server_slot' or reservation['state'] != 'active':
+            from .integration import get as integration_request
+            if (not reservation or reservation['state'] != 'active' or
+                    (reservation['kind'] != 'server_slot' and not integration_request(self, reservation_id))):
                 return False
             row = self._row(reservation['item_id'])
             if (row['generation'] != reservation['generation'] or row['state'] not in

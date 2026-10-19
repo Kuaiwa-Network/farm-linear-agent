@@ -78,6 +78,18 @@ Editor or edit its slot directory. Collect actual nonzero results and
 return Unity to quiet Edit Mode before release-resource. An ambiguous test launch must be reconciled, not retried
 blindly. Stop your own local server processes before releasing services. A quiescent release is checked by the host.
 Keep normal native sandboxing and automatic review; never change the sandbox backend or bypass a denial.
+For acceptance requiring both candidates online, request one interactive unity_slot with --integration-plan
+and the clean Client --commit. The plan pins the clean owned farm-hive commit, one server argv and scenarios.
+This is one atomic combined lease; never acquire the resources separately. Stay in this worker and read
+resource-status.integration for isolated services and exact read-only server source. Run that candidate with
+run-integration --client-command FILE, a JSON argv for a private script driving only the reserved Unity
+instance through the claim-bound Unity CLI. Assert application handshake, expected candidate versions and
+all scenarios, failing on gaps, skips or wrong endpoints. TCP readiness or zero process exit alone is not
+application acceptance. Never start another Client, edit the snapshot, administer Docker or use shared/live
+servers. Retain both SHAs, scenarios, commands, logs and report; repository test requirements still apply.
+If teardown is false, release unclean and exit. Otherwise settle Unity, restore temporary connection settings
+and release the single reservation. Services are recycled only after verified worker teardown. Read
+references/client-server-integration.md for the exact contract.
 Only listed source worktrees and granted Git object/index/ref paths are writable. Never alter clone config,
 hooks or attributes. Keep credentials/tokens and run reports private in state_dir. Preserve owned process containment.
 You may commit with git -c user.name=FarmBot -c user.email=farmbot@localhost commit. Never rewrite published history.

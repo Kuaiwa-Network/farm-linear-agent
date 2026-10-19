@@ -42,7 +42,7 @@ def validate_progress(progress):
         raise LedgerError('checkpoint summary must be text')
 
 
-def queue_resource(ledger, item_id, token, resource, mode, commit, *, test_plan=None):
+def queue_resource(ledger, item_id, token, resource, mode, commit, *, test_plan=None, integration_plan=None):
     from uuid import uuid4
     from .ledger import COMMIT_SHA, LedgerError, _json
     from .maintenance import Maintenance
@@ -53,6 +53,11 @@ def queue_resource(ledger, item_id, token, resource, mode, commit, *, test_plan=
         raise LedgerError('Unity uses interactive mode; server services use batch mode')
     if not isinstance(commit, str) or not COMMIT_SHA.fullmatch(commit):
         raise LedgerError('resource requires the clean full candidate SHA')
+    if integration_plan is not None:
+        from .integration import validate_plan as validate_integration
+        if resource!='unity_slot' or mode!='interactive':
+            raise LedgerError('combined verification requires interactive Unity')
+        integration_plan = validate_integration(integration_plan)
     if resource == 'server_slot':
         if test_plan is None:
             raise LedgerError('server resource requires the actual scoped test plan')
@@ -72,6 +77,9 @@ def queue_resource(ledger, item_id, token, resource, mode, commit, *, test_plan=
             "commit_sha,state,created_at,server_test_plan) VALUES(?,?,?,?,?,?,'queued',?,?)",
             (reservation, item_id, row['generation'], resource, mode, commit, ledger.clock(),
              _json(test_plan) if test_plan else None))
+        if integration_plan:
+            ledger.connection.execute('INSERT INTO integration_leases(reservation_id,plan) VALUES(?,?)',
+                                      (reservation, _json(integration_plan)))
         # Keep the claim, process and its seat. The controller prepares only the
         # external resource; it never launches another worker to receive it.
         ledger.connection.execute('UPDATE work_items SET stage=?,needs_resource=?,updated_at=? WHERE id=?',
@@ -179,11 +187,17 @@ def resource_status(ledger, item_id, token):
     ready = reservation['state'] == 'active' and slot is not None and slot['state'] in ('interactive_busy', 'batch_busy') and any(
         json.loads(r['details']).get('reservation_id') == reservation['reservation_id']
         for r in ledger.connection.execute("SELECT details FROM audit WHERE item_id=? AND kind='resource_ready'", (item_id,)))
+    from .integration import companion
+    paired = companion(ledger, reservation)
+    paired_slot = ledger.slot(paired['resource']) if paired else None
+    if paired_slot and paired_slot['state']!='batch_busy':
+        ready = False
     result = {key: reservation.get(key) for key in ('reservation_id', 'kind', 'mode', 'commit_sha', 'state', 'wait_detail', 'release_reason')}
     result['ready'] = ready
     result['wait_detail'] = json.loads(row['wait_detail']) if row['wait_detail'] else None
     if slot and reservation['state'] == 'active':
-        result['state'] = 'held' if slot['state'] == 'held' else 'ready' if ready else 'preparing'
+        result['state'] = ('held' if slot['state']=='held' or paired_slot and paired_slot['state']=='held'
+                           else 'ready' if ready else 'preparing')
     if ready:
         result.update(slot=slot['slot_id'], instance=slot['instance'], folder=slot['folder'])
     return result

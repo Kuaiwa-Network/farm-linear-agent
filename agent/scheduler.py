@@ -202,8 +202,12 @@ class Scheduler:
         """(the item's active reservation or None, whether it stops this launch): one granted to an earlier
         generation of the item, or on a slot held for recovery, is not this attempt's to use."""
         reservation = self.ledger.active_reservation(item["id"])
+        from .integration import get as integration_request
+        combined = integration_request(self.ledger, reservation['reservation_id']) if reservation else None
         stops = reservation is not None and (reservation["generation"] != item["generation"]
-                                             or self.ledger.slot(reservation["resource"])["state"] == "held")
+                                             or self.ledger.slot(reservation["resource"])["state"] == "held"
+                                             or combined and combined['server_slot'] and
+                                             self.ledger.slot(combined['server_slot'])['state']=='held')
         return reservation, stops
 
     @staticmethod
@@ -316,6 +320,17 @@ class Scheduler:
                             "token_file": str(Path(state_dir) / "reservation.token")}
                 self.worktrees.verification_commit("farm-hive", item["id"], reservation["commit_sha"])
             if reservation["kind"] == "unity_slot" and reservation["mode"] == "interactive":
+                from .integration import companion
+                server_reservation = companion(self.ledger, reservation)
+                if server_reservation:
+                    from .server_slots import read_resource
+                    server_slot = self.ledger.slot(server_reservation['resource'])
+                    server_resource = read_resource(server_slot, server_reservation, self.server_slots_root)
+                    self.worktrees.verification_commit('farm-hive', item['id'], server_reservation['commit_sha'])
+                    snapshot = self.worktrees.read_candidate('farm-hive', item['id'], server_reservation['commit_sha'])
+                    reads['farm-hive'] = snapshot
+                    resource['integration'] = {**server_resource, 'plan':server_reservation['integration']['plan'],
+                                               'source':str(snapshot)}
                 # The server exists for this worker only while the reservation is held, and the worker pins
                 # its own MCP session with set_active_instance because HTTP selection is per session. The
                 # shape is the runtime's, not one guess for both: write_mcp_config's JSON writer emits
@@ -336,6 +351,9 @@ class Scheduler:
         if single(item) or skill.name in ("work", "fix", "feature") and root == "farm-hive":
             tools["server_tests"] = {"status": "configured" if self.server_slots_root else "unavailable",
                                      "resource": "server_slot"}
+        if single(item) or skill.name in ('work','fix','feature') and root=='Farm-Client':
+            tools['client_server_tests'] = {'status':'configured' if self.server_slots_root else 'unavailable',
+                                             'request':'await-resource --resource unity_slot --mode interactive --integration-plan'}
         if skill.name in ('work', 'feature', 'fix') and root in self.go_dependencies.get('modules', {}):
             tools['go_dependencies'] = {'status':'configured', 'modules':self.go_dependencies['modules'][root],
                                         'cache_root':self.go_dependencies['cache_root'],
@@ -412,8 +430,8 @@ class Scheduler:
         if self.kw_ops_config and kw_ops_grant.keep_env is None:
             options["withheld_env"] = [self.kw_ops_config["token_env"]]
         worker_env = {"FARMBOT_DB": str(self.db_path), "PYTHONPATH": pythonpath}
-        if resource and resource["kind"] == "server_slot":
-            worker_env.update(resource["environment"])
+        if resource and (resource["kind"] == "server_slot" or resource.get("integration")):
+            worker_env.update((resource.get("integration") or resource)["environment"])
             worker_env['GOMAXPROCS'] = '2'  # Launcher owns attempt-local build/cache paths.
         if self.config_path is not None:
             # Every attempt, including resumes, uses the controller's selected file.

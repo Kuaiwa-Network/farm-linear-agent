@@ -65,6 +65,12 @@ live inspection. Constructing a production Ledger can migrate its database.
 
 ## Maintenance and rollout
 
+For scenarios requiring both candidates online, use
+[single Client/game-server verification](references/client-server-integration.md).
+It atomically reserves Unity plus isolated server services for the same worker.
+Idle fixed Editors may yield verified memory capacity to waiting server work;
+busy Editors retain their leases. This adds no deployment authority.
+
 A release or live restart requires operational authorization. For a planned stop:
 
 ```powershell

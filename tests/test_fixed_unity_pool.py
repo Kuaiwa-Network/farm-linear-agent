@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from agent.config import Config, load_config
 from agent.dispatch import dispatch_message
+from agent.ledger import Ledger
 from agent.resource_admission import ResourceAdmission
 from agent.slots import SlotError, SlotPool, fixed_editor_count, slot_entry
 from agent.scheduler import Scheduler
@@ -398,6 +399,73 @@ class FixedEditorPoolTests(SlotFixture):
         pool.tick()
         self.assertEqual(self.ledger.reservations()[0]["mode"], "batch")
         self.assertFalse(any(c[0] == "terminate" for c in self.mcp.calls))
+
+    def test_waiting_server_reclaims_idle_editor_and_does_not_rewarm_before_grant(self):
+        from agent.server_slots import ServerSlotPool
+        from test_server_slots import SETTINGS, Services
+        admission = ResourceAdmission({'unity_mib':8192, 'server_mib':8192, 'max_reserved_mib':13824},
+                                      observe=lambda: {'available_mib':100000, 'commit_mib':100000})
+        pool = self.fixed_pool(1, admission=admission)
+        pool.ensure()
+        self.ledger.observe_issue(issue())
+        self.ledger.ensure_session('server', ISSUE, True)
+        item = self.ledger.create_work_item(issue_id=ISSUE, session_id='server', skill='fix',
+            target={'repository':'farm-hive', 'requested_ref':'main', 'commit_sha':self.trees.head(self.origin),
+                    'server_environment':'test', 'selected_at':SELECTED_AT})
+        self.ledger.connection.execute("UPDATE work_items SET root_repo='farm-hive' WHERE id=?", (item['id'],))
+        token = self.ledger.claim(item['id'], worker_id='server')['token']
+        self.ledger.await_resource(item['id'], token, 'server_slot', 'batch', skill=SKILLS['fix'],
+                                   commit_sha=self.trees.head(self.origin))
+        services = Services()
+        server = ServerSlotPool(lambda: Ledger(self.root / 'ledger.sqlite3'),
+            SETTINGS, host='test', root=self.root / 'server-slots', state_dir=lambda item:self.root / 'runs' / item,
+            quiescent=lambda item:True, admission=admission, services=services)
+        self.addCleanup(server.close)
+        server.ensure()
+        self.assertEqual(server.tick()['granted'], 0)
+        pool.tick()
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'idle_closed')
+        pool.tick()
+        self.assertEqual(len([c for c in self.mcp.calls if c[0]=='start']), 1)
+        self.assertEqual(server.tick()['granted'], 1)
+        pool.tick()
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'idle_closed')
+        lease = services.started[0]
+        self.ledger.release(lease['reservation_id'], lease['token'], 'finished')
+        server.tick()
+        pool.tick()
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'idle_open')
+
+    def test_reclaim_refuses_busy_editors(self):
+        from unittest.mock import patch
+        admission = ResourceAdmission({}, observe=lambda:{'available_mib':1, 'commit_mib':1})
+        pool = self.fixed_pool(1)
+        pool.ensure()
+        pool.admission = admission
+        # A normal Unity lease is never reclaimed, even when heavy work waits.
+        item = self.waiting(ISSUE, self.trees.head(self.origin), 'interactive')
+        lease = self.ledger.acquire('unity_slot', owner='pool', host='test')
+        with patch.object(self.ledger, 'reservation_queue', return_value=[{'kind':'server_slot'}]):
+            pool.close_idle_for_memory()
+        self.assertEqual(self.ledger.active_reservation(item)['reservation_id'], lease['reservation_id'])
+        self.assertFalse(any(c[0]=='terminate' for c in self.mcp.calls))
+
+    def test_unverified_idle_editor_is_held_without_termination(self):
+        from unittest.mock import patch
+        pool = self.fixed_pool(1)
+        pool.ensure()
+        self.waiting(ISSUE, self.trees.head(self.origin), 'interactive')
+        pool.admission = ResourceAdmission({'unity_mib':8192, 'server_mib':8192, 'max_reserved_mib':13824},
+                                          observe=lambda:{'available_mib':100000, 'commit_mib':100000})
+        waiting = [{'reservation_id':'unleased-server', 'kind':'server_slot'}]
+        for failure in (False, RuntimeError('MCP disconnected')):
+            self.ledger.set_slot_state('unity_slot:1', 'idle_open')
+            with patch('agent.integration.server_pending', return_value=waiting), \
+                    patch.object(self.mcp, 'quiescent', side_effect=failure if isinstance(failure, Exception) else None,
+                                 return_value=False):
+                pool.close_idle_for_memory()
+            self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
+            self.assertFalse(any(c[0]=='terminate' for c in self.mcp.calls))
 
     def test_active_batch_requires_settled_activation(self):
         legacy = self.pool()

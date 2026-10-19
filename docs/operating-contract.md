@@ -261,6 +261,34 @@ historical job, or change its candidate.
 
 ## Migration and recovery
 
+### Combined Client/game-server verification
+
+Acceptance requiring both candidates online may request one combined lease through
+`await-resource --resource unity_slot --mode interactive --commit CLIENT_SHA --integration-plan FILE`.
+The same worker keeps its claim and seat while waiting; no second worker or stage
+handoff is created. One Unity and one full server slot are acquired together under
+shared admission. Waiting holds neither resource. Both owned clean SHAs are checked;
+the server source snapshot is detached and read-only. Pools start only dependency
+services and prepare the owned Editor. Game code and Client automation run inside
+worker containment through `run-integration`, with bounded startup/lease deadlines.
+TCP readiness is only transport readiness. The worker must assert application
+versions and actual scenarios; reports replace no repository test gate.
+
+Fixed idle Editors yield only when waiting server work needs memory. Acquisition
+is fenced before close, and ownership/quiescence checks remain mandatory. Busy or
+uncertain Editors are never reclaimed. Warmup waits behind server admission, then
+resumes when budget permits. A combined request retains or warms exactly one Editor;
+surplus idle Editors may yield. Insufficient total pair budget is refused by the CLI.
+
+The additive `integration_leases` table links one reservation to its plan and
+companion slot, preserving the one-open-reservation-per-item fence. Recovery retains
+both pins; uncertain setup holds resources and journals. Server cleanup still
+requires verified teardown of all worker attempts, including after release while
+the continuing worker lives. Settle pairs and preserve journals before rollback:
+older code cannot interpret companion ownership. See [the reference](../references/client-server-integration.md).
+
+### Existing execution contracts
+
 The schema adds `work_items.execution_contract`. Existing rows remain
 `staged-v1`; fresh work rows are `single-worker-v1`. Historical write jobs do not
 launch on the new production path or acquire new resources. Their state,

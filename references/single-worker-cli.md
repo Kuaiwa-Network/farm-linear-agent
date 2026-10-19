@@ -29,6 +29,7 @@ parking or finish, and checkpoints their work. No FarmBot child task is created.
 | `await-input` | `--question TEXT --reason question\|waiting`: save a checkpoint and release resources first; then exit. |
 | `resolve-question` | `--question-id ID --message-id ID` (repeatable), actual attributed replies only. |
 | `await-resource` | `--resource unity_slot --mode interactive --commit SHA`, or `server_slot --mode batch --commit SHA --server-test-plan FILE`. Stay in this worker. |
+| `run-integration` | `--client-command FILE`: JSON argv exercising reserved Unity against one isolated game server. Request an atomic pair with `await-resource --resource unity_slot --mode interactive --commit CLIENT_SHA --integration-plan FILE`; see [combined verification](client-server-integration.md). |
 | `resource-status` | Same claim. Returns queued/preparing/ready/held/settled state, precise capacity reason, commit and reservation token-file path. |
 | `cancel-resource` | `--reservation ID`: cancels only this claim's still-queued request. An acquired resource must settle normally. |
 | `unity-tools` | List actual MCP tool schemas after Unity is ready. |
