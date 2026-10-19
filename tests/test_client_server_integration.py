@@ -66,6 +66,13 @@ class PairTests(ServerPoolFixture):
         self.assertIsNone(self.acquire())
         self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'idle_closed')
 
+    def test_unavailable_server_backend_does_not_quarantine_a_healthy_editor(self):
+        self.request_pair()
+        self.admission.server_resources.pop('test')
+        self.assertIsNone(self.acquire())
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'idle_closed')
+        self.assertEqual(self.services.started, [])
+
     def test_false_free_companion_cannot_be_double_granted_and_hold_cannot_be_released_by_worker(self):
         self.request_pair()
         lease = self.acquire()

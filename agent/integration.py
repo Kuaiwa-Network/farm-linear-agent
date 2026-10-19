@@ -1,6 +1,6 @@
 """One Client reservation with an atomically fenced companion server slot.
 
-The game code runs only in the resumed worker, never in a controller command.
+The game code runs only in the issue worker, never in a controller command.
 """
 import json
 import re

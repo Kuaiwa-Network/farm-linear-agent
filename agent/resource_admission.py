@@ -100,6 +100,10 @@ class ResourceAdmission:
             if integration_request(ledger, request['reservation_id']):
                 extra += self.settings['server_mib']
                 options['server_resources'] = self.server_resources.get(options['host'], ())
+                if not options['server_resources']:
+                    ledger.resource_wait_detail(request['reservation_id'],
+                        {'observed_at':time.time(), 'blockers':['server_pool_unavailable']})
+                    return None
             detail = self.assess(ledger, options["host"], extra,
                                  kind='client_server' if integration_request(ledger, request['reservation_id']) else kind)
             if kind == "server_slot" or integration_request(ledger, request['reservation_id']):

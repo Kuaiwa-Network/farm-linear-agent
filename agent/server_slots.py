@@ -277,8 +277,6 @@ class ServerSlotPool:
         self.services, self.clock = services or DockerServices(settings), clock
         self.owner = hashlib.sha256(str(self.root).encode("utf-8")).hexdigest()
         self.ready = False
-        self.admission.server_resources[host] = tuple('server_slot:' + str(n)
-                                                     for n in range(1, self.settings['count'] + 1))
 
     def folder(self, slot):
         if not isinstance(slot, str) or not re.fullmatch(r"server_slot:[1-9][0-9]*", slot):
@@ -286,6 +284,8 @@ class ServerSlotPool:
         return self.root / ("slot-" + slot.split(":")[1])
 
     def ensure(self):
+        self.ready = False
+        self.admission.server_resources.pop(self.host, None)
         _safe_directory(self.root)
         self.services.preflight(self.settings["count"])
         for index in range(1, self.settings["count"] + 1):
@@ -300,6 +300,8 @@ class ServerSlotPool:
             if (folder / "lease.json").exists() and self.ledger.slot(slot)["state"] == "idle_closed":
                 self.ledger.set_slot_state(slot, "held")
         self.ready = True
+        self.admission.server_resources[self.host] = tuple('server_slot:' + str(n)
+                                                           for n in range(1, self.settings['count'] + 1))
 
     def _path(self, slot):
         return _safe_directory(self.folder(slot)) / "lease.json"
