@@ -50,6 +50,15 @@ class PairTests(ServerPoolFixture):
         self.assertEqual(self.ledger.slot(paired['resource'])['state'], 'switching')
         self.assertEqual(len(self.ledger.reservations()), 1)
 
+    def test_pair_keeps_the_stricter_unity_and_server_memory_floors(self):
+        self.request_pair()
+        self.admission.settings['server_min_available_mib'] = 1024
+        self.admission.observe = lambda:{'available_mib':11000, 'commit_mib':100000}
+        self.assertIsNone(self.acquire())
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'idle_closed')
+        self.admission.observe = lambda:{'available_mib':100000, 'commit_mib':100000}
+        self.assertIsNotNone(self.acquire())
+
     def test_server_capacity_wait_does_not_hold_unity(self):
         self.request_pair()
         for slot in self.ledger.slots(kind='server_slot'):

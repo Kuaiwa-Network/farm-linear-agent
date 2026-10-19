@@ -101,7 +101,7 @@ class ResourceAdmission:
                 extra += self.settings['server_mib']
                 options['server_resources'] = self.server_resources.get(options['host'], ())
             detail = self.assess(ledger, options["host"], extra,
-                                 kind='server_slot' if integration_request(ledger, request['reservation_id']) else kind)
+                                 kind='client_server' if integration_request(ledger, request['reservation_id']) else kind)
             if kind == "server_slot" or integration_request(ledger, request['reservation_id']):
                 detail["profile"] = profile(request["server_test_plan"]) if request["server_test_plan"] else "full"
                 ledger.resource_wait_detail(request["reservation_id"], detail)
@@ -129,10 +129,15 @@ class ResourceAdmission:
                 request = ledger.last_reservation_on(slot["slot_id"])
             used += self.cost(request or {"kind": slot["kind"]})
         prefix = "server_" if kind == "server_slot" else ""
+        available_floor = self.settings[prefix + 'min_available_mib']
+        commit_floor = self.settings[prefix + 'min_commit_mib']
+        if kind=='client_server':
+            available_floor = max(available_floor, self.settings['server_min_available_mib'])
+            commit_floor = max(commit_floor, self.settings['server_min_commit_mib'])
         result = {"observed_at": time.time(), "requested_mib": extra, "reserved_mib": used,
                   "budget_mib": self.settings["max_reserved_mib"],
-                  "required_available_mib": self.settings[prefix + "min_available_mib"] + extra,
-                  "required_commit_mib": self.settings[prefix + "min_commit_mib"] + extra,
+                  "required_available_mib": available_floor + extra,
+                  "required_commit_mib": commit_floor + extra,
                   "available_mib": None, "commit_mib": None, "blockers": []}
         if used + extra > result["budget_mib"]:
             result["blockers"].append("reservation_budget")

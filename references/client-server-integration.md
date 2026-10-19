@@ -4,8 +4,8 @@ Use this when acceptance requires both candidate versions online. Independent
 Client/Go tests remain separate; pure layout or server-independent work needs no
 combined lease. No deployment, shared server or production operation is authorized.
 
-After committing the clean Farm-Client and farm-hive candidates and
-completing its required standalone checks, save a validated checkpoint and run:
+After committing the clean Farm-Client and farm-hive candidates and completing
+their required standalone checks, save a checkpoint and run:
 
 ```text
 <selected-python> -m agent --db DATABASE await-resource --item ITEM --token-file STATE_DIR/token --resource unity_slot --mode interactive --commit FULL_CLIENT_SHA --integration-plan STATE_DIR/integration.json
@@ -22,15 +22,18 @@ Only `{host}` and `{port}` placeholders are supported: loopback and a
 controller-selected ephemeral port. Both clean owned commits are checked. One
 interactive Unity slot plus one full server slot are reserved in one transaction.
 A wait holds neither slot. Admission includes both costs and server memory floors;
-the CLI refuses a host whose total budget cannot fit one pair. Stay in this worker and poll resource-status.
+the CLI refuses a host whose total budget cannot fit one pair. Stay in this worker
+and poll `resource-status` while renewing.
 
 The same worker reads `resource-status.integration`: server commit,
 read-only detached source, canonical plan, loopback dependency endpoints, game
-port and deadline. Existing source write grants stay as configured; the exact snapshot is read-only. No additional server
+port and deadline. Existing source write grants stay as configured; the exact
+snapshot is read-only. No additional server
 checkout, slot folder or clone configuration write grant is added. Multiple Clients,
 multiple game nodes and human waits while holding a lease are outside this version.
 
-Prepare a private script driving the reserved Unity instance through MCP. It must
+Prepare a private script driving the reserved Unity instance through the
+claim-bound `unity-tool`/`unity-read` CLI. It must
 set the temporary game endpoint, verify expected candidate identities, execute all
 declared scenarios, check actual results and return nonzero for failures, skips or
 missing evidence. Restore temporary connection settings before release. Save its
@@ -55,7 +58,8 @@ Stop, claim revocation, startup failure, Client failure and deadlines stop both
 command trees. Shared Unity stays outside worker containment. Uncertain cleanup
 requires preserved evidence and an unclean release. Never reuse a numeric PID to
 kill an unknown process. Settle Unity, checkpoint, release the single reservation
-before delivery or human waits; Docker cleanup waits for all worker attempts' verified teardown.
+before delivery or human waits; Docker cleanup waits for all worker attempts'
+verified teardown.
 
 ## Upgrade and recovery
 
