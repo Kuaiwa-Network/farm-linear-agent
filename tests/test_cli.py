@@ -462,6 +462,9 @@ class CliTests(unittest.TestCase):
         self.check_server_resource_candidate("fix")
 
     def test_combined_request_checks_both_owned_candidates_budget_and_current_claim(self):
+        # macOS temp roots can use /var -> /private/var. Keep the managed fixture
+        # canonical, without relaxing server-slot rejection of links inside it.
+        self.root = self.root.resolve()
         from agent.ledger import Ledger
         from test_server_slots import SETTINGS, Services
         from test_client_server_integration import plan
