@@ -296,6 +296,18 @@ class StubLinear:
         raw = self.fetch_issue(issue_id)
         return {**raw, "updated_at": raw.get("updated_at") or "2026-09-21T00:00:00Z"}
 
+    def set_issue_workflow_state(self, issue_id, target, *, still_current=lambda: True):
+        raw = self.fetch_issue(issue_id)
+        if (not still_current() or raw.get('delegate_id') != self.app_user_id or raw.get('archived')
+                or raw.get('status_type') in ('completed', 'canceled', 'duplicate')):
+            return False
+        self._record('set_issue_workflow_state', issue_id=issue_id, target=target)
+        per_issue = self.directory / f'issue-{issue_id}.json'
+        source = per_issue if per_issue.is_file() else self.directory / 'issue.json'
+        raw.update(status=target, status_type='started')
+        source.write_text(json.dumps(raw, ensure_ascii=False), encoding='utf-8')
+        return True
+
     def create_comment(self, issue_id, body):
         number = len(list(self.directory.glob("comment-*.txt"))) + 1
         remote_id = f"stub-comment-{number}"

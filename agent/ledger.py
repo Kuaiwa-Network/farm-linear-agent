@@ -25,6 +25,7 @@ from .attention import QUESTION_KEY, question_from
 from .publication import SUFFIXES, PublicationError, is_issue_branch, issue_branch, suffix_of
 from .resource_recovery import RecoveryStore, SCHEMA as RECOVERY_SCHEMA
 from .maintenance import Maintenance, SCHEMA as MAINTENANCE_SCHEMA
+from .issue_workflow import SCHEMA as ISSUE_WORKFLOW_SCHEMA, request_update as request_workflow_update
 from .router import CONVERSATION_SKILLS, WRITE_SKILLS
 from .stages import current_root
 from .withdrawal import DEFAULT_GRACE_SECONDS, SILENT_GRACE_SECONDS
@@ -641,6 +642,7 @@ class Ledger:
             """)
             self.connection.executescript(RECOVERY_SCHEMA)
             self.connection.executescript(MAINTENANCE_SCHEMA)
+            self.connection.executescript(ISSUE_WORKFLOW_SCHEMA)
             # Columns added after the first ledgers were written; CREATE TABLE IF NOT EXISTS leaves those files as they were.
             for table, column, declaration in (("reservations", "server_test_plan", "TEXT"),
                                                 ("reservations", "wait_detail", "TEXT"),
@@ -844,7 +846,8 @@ class Ledger:
     def due_issue(self):
         row = self.connection.execute("""SELECT c.issue_id FROM issue_checks c WHERE c.due_at<=?
             AND (c.requested=1 OR EXISTS (SELECT 1 FROM work_items w WHERE w.issue_id=c.issue_id
-                AND w.state IN ('queued','running','awaiting_input','awaiting_resource','blocked')))
+                AND w.state IN ('queued','running','awaiting_input','awaiting_resource','blocked'))
+                OR EXISTS (SELECT 1 FROM issue_workflow_updates u WHERE u.issue_id=c.issue_id AND u.synced=0))
             ORDER BY c.checked_at,c.due_at,c.issue_id LIMIT 1""", (self.clock(),)).fetchone()
         return row["issue_id"] if row else None
 
@@ -1333,6 +1336,7 @@ class Ledger:
                 self.connection.execute("UPDATE work_items SET stage='unity-worker-starting' WHERE id=?", (item_id,))
             self.connection.execute("UPDATE job_cleanup SET worker_pid=?,done=0 WHERE item_id=?", (pid, item_id))
             self._audit(row["id"], "worker", f"pid {pid} on {host}")
+            request_workflow_update(self, row, 'In Progress')
             return self._view(self._row(row["id"]))
 
     SLOT_STATES = ("idle_closed", "idle_open", "switching", "interactive_busy", "batch_busy", "held")
@@ -3626,6 +3630,8 @@ class Ledger:
             state = "queued" if changed else outcome
             self._set_state(row["id"], state, evidence["summary"], token=None, lease_expires_at=None, worker_pid=None,
                             evidence=_json(evidence), generation=row["generation"] + int(state == "queued"))
+            if state == 'delivered':
+                request_workflow_update(self, self._row(row['id']), 'In Review')
             return self._view(self._row(row["id"]))
 
     @staticmethod

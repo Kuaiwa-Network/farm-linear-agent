@@ -34,6 +34,8 @@ nothing and follow the CLI's withdrawal instruction. Never bypass a refused comm
 """
 
 AUTHORITY = """You are the main worker responsible for this delegated Linear issue, from investigation to delivery.
+The controller moves delegated issue work to In Progress when its worker starts and to In Review
+after a verified delivered finish. Workers must not set issue status themselves.
 First run startup.start_argv once from repo_root using execution.python; it saves the token privately and returns
 resume context. Reconcile an existing token file or ambiguous claim outcome instead of claiming again. Then read
 the current skill, CLI and relevant repository instructions before investigation or editing.

@@ -17,8 +17,8 @@ jobs:
   offline:
     name: Offline / ${{ matrix.os }} / Python 3.13${{ matrix.suffix }}
     runs-on: ${{ matrix.os }}
-    # The serial Windows suite reached 60 minutes near its final module in PR #260.
-    # Keep every check, with whole test modules split across isolated Windows jobs.
+    # Two Windows shards can exceed 60 minutes as new modules shift the split.
+    # Keep every check, with whole test modules split across four isolated jobs.
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -30,12 +30,20 @@ jobs:
             suffix: ''
           - os: windows-latest
             shard: 0
-            shards: 2
+            shards: 4
             suffix: ' / shard 1'
           - os: windows-latest
             shard: 1
-            shards: 2
+            shards: 4
             suffix: ' / shard 2'
+          - os: windows-latest
+            shard: 2
+            shards: 4
+            suffix: ' / shard 3'
+          - os: windows-latest
+            shard: 3
+            shards: 4
+            suffix: ' / shard 4'
     env:
       PYTHONUTF8: "1"
       PYTHONUNBUFFERED: "1"
