@@ -132,13 +132,13 @@ def build(config, runtime_override=None, *, replay_legacy=False):
     recovery = RecoveryController(recovery_ledger, recovery_pool, host=config.host,
                                   evidence_root=paths.config_dir / 'resource-recovery',
                                   fence=scheduler.fence_resource_worker, api=api)
+    pool.single_only = not replay_legacy
     server_pool = (ServerSlotPool(lambda: Ledger(paths.ledger, check_same_thread=False), config.server_slots,
                                  host=config.host, root=paths.server_slots, state_dir=launcher.state_dir,
                                  single_only=not replay_legacy,
                                  quiescent=scheduler.resource_quiescent, admission=admission)
                    if config.server_slots else None)
     if server_pool:
-        pool.single_only = server_pool.single_only
         def prepare_integration(reservation):
             if not server_pool.ready:
                 raise ServerSlotError('server pool prerequisites unavailable')
