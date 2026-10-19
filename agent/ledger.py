@@ -2222,6 +2222,22 @@ class Ledger:
             self._audit(slot_id, 'unity_editor_close', 'reclaim idle Editor for waiting server')
             return self.slot(slot_id)
 
+    def companion_server_ready(self, slot_id, reservation_id, commit):
+        """Publish a combined lease's started server only while its hand-over still owns the fenced slot.
+
+        Anything else that moved the slot meanwhile, such as a server-pool hold, is kept rather than
+        overwritten; the caller then quarantines the pair with its journal already on disk.
+        """
+        with self._transaction():
+            slot = self._slot_row(slot_id)
+            holder = self.active_reservation_on(slot_id)
+            if slot['state'] != 'switching' or not holder or holder['reservation_id'] != reservation_id:
+                return None
+            self.connection.execute("UPDATE slots SET state='batch_busy',parked_commit=?,updated_at=? WHERE slot_id=?",
+                                    (commit, self.clock(), slot_id))
+            self._audit(slot_id, 'slot', 'batch_busy')
+            return self.slot(slot_id)
+
     def interactive_unity_requests(self, host):
         """Retain FIFO, candidates and claims while migrating only ungranted local Unity requests."""
         with self._transaction():
@@ -2456,8 +2472,7 @@ class Ledger:
                 return row["state"]
             from .integration import get as integration_request
             combined = integration_request(self, reservation_id)
-            if combined and any(self.slot(slot)['state']=='held'
-                                for slot in (row['resource'], combined['server_slot']) if slot):
+            if combined and row['resource'] and self.slot(row['resource'])['state'] == 'held':
                 raise LedgerError('combined resource is held; verified controller recovery is required')
             state = "cancelled" if row["state"] == "cancel_requested" else "released"
             self.connection.execute(
@@ -2467,8 +2482,11 @@ class Ledger:
                 self.connection.execute("UPDATE slots SET state='switching',updated_at=? WHERE slot_id=?",
                                         (self.clock(), row["resource"]))
             if combined and combined['server_slot']:
-                self.connection.execute("UPDATE slots SET state='switching',updated_at=? WHERE slot_id=?",
-                                        (self.clock(), combined['server_slot']))
+                # A held companion keeps its own fence for recover-server-slot, as settle_companion keeps a
+                # held Editor. Refusing here instead would raise out of SlotPool.settle on every tick and
+                # stop the whole Unity pool behind one server hold.
+                self.connection.execute("UPDATE slots SET state='switching',updated_at=? WHERE slot_id=? "
+                                        "AND state<>'held'", (self.clock(), combined['server_slot']))
             self._audit(row["item_id"], "reservation", state, details={"reservation_id": reservation_id,
                                                                       "reason": reason[:200]})
             self.connection.execute("UPDATE work_items SET stage='working',needs_resource=NULL WHERE id=? "

@@ -551,6 +551,9 @@ class SlotPool:
                 if self.ledger.reservation(reservation['reservation_id'])['state'] != 'active':
                     self.ledger.release(reservation['reservation_id'], reservation['token'], 'stopped during combined setup')
                     return False
+                # The reads root is outside worker write roots: the continuing worker's resource-status and
+                # run-integration only validate this snapshot, so it must exist before readiness.
+                self.worktrees.read_candidate('farm-hive', item_id, combined['plan']['server_commit'])
                 self.switch(slot_id, reservation['commit_sha'], 'interactive')
                 return self._resume_hand_over(reservation, self.last_observation)
             except Exception as exc:

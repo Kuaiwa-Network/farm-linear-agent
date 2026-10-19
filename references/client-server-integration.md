@@ -28,7 +28,8 @@ and poll `resource-status` while renewing.
 The same worker reads `resource-status.integration`: server commit,
 read-only detached source, canonical plan, loopback dependency endpoints, game
 port and deadline. Existing source write grants stay as configured; the exact
-snapshot is read-only. No additional server
+snapshot is read-only. The controller creates it during preparation, outside
+worker write roots; worker commands only validate it. No additional server
 checkout, slot folder or clone configuration write grant is added. Multiple Clients,
 multiple game nodes and human waits while holding a lease are outside this version.
 
@@ -68,5 +69,6 @@ its canonical plan and companion slot. Existing standalone leases retain their
 formats. Settle all combined leases and preserve server journals before rollback:
 older code does not understand their server ownership, even though the table is
 additive. Restart retains pins and journals; interrupted preparation is quarantined.
-Use verified `recover-server-slot` for server recovery and retain existing Unity
+Releasing the reservation never lifts a held server half: it stays held for verified
+`recover-server-slot`, while a held Editor still refuses release. Retain existing Unity
 recovery/worker teardown checks. Recovery proves no acceptance scenario passed.

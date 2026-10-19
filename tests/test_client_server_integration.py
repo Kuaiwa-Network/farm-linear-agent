@@ -13,6 +13,7 @@ from unittest.mock import patch
 from agent.integration import companion, get, validate_plan
 from agent.integration_runtime import execute
 from agent.ledger import LedgerError
+from agent.server_slots import ServerSlotError
 from agent.slots import SlotPool
 from test_server_slots import ServerPoolFixture, SKILLS
 
@@ -22,7 +23,24 @@ def plan():
             'scenarios':['client action persists on server and returns to Client'], 'startup_seconds':3}
 
 
-class PairTests(ServerPoolFixture):
+class SnapshotTrees:
+    """Records the controller-side server snapshot the hand-over must create before readiness."""
+    def __init__(self, root):
+        self.root, self.created = root, []
+
+    def read_candidate(self, repo, item_id, commit, *, create=True):
+        self.created.append((repo, item_id, commit, create))
+        return self.root / f'{item_id}.reads' / f'{repo}@{commit}'
+
+
+class PairFixture(ServerPoolFixture):
+    def unity_pool(self):
+        self.trees = SnapshotTrees(self.root.parent / 'worktrees')
+        return SlotPool(self.ledger, self.trees, [], host='test', editors_root=self.root / 'editors',
+                        state_dir=self.pool.state_dir, prepare_integration=self.pool.prepare_integration)
+
+
+class PairTests(PairFixture):
     def request_pair(self):
         item = self.request(root='Farm-Client', reserve=False)
         token = self.ledger.claim(item, worker_id='worker')['token']
@@ -73,7 +91,7 @@ class PairTests(ServerPoolFixture):
         self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'idle_closed')
         self.assertEqual(self.services.started, [])
 
-    def test_false_free_companion_cannot_be_double_granted_and_hold_cannot_be_released_by_worker(self):
+    def test_false_free_companion_cannot_be_double_granted(self):
         self.request_pair()
         lease = self.acquire()
         paired = companion(self.ledger, lease)
@@ -81,10 +99,66 @@ class PairTests(ServerPoolFixture):
         self.request()
         with self.assertRaisesRegex(LedgerError, 'returned to the pool early'):
             self.ledger.acquire('server_slot', owner='server-pool', host='test')
-        self.ledger.set_slot_state(paired['resource'], 'held')
+
+    def test_release_never_lifts_a_hold_and_refuses_a_held_editor(self):
+        self.request_pair()
+        lease = self.acquire()
+        self.pool.prepare_integration(lease)
+        server_slot = companion(self.ledger, lease)['resource']
+        self.ledger.set_slot_state('unity_slot:1', 'held')
         with self.assertRaisesRegex(LedgerError, 'held'):
             self.ledger.release(lease['reservation_id'], lease['token'], 'worker reported quiescent')
-        self.assertEqual(self.ledger.slot(paired['resource'])['state'], 'held')
+        self.ledger.set_slot_state('unity_slot:1', 'interactive_busy')
+        self.ledger.set_slot_state(server_slot, 'held')
+        self.assertEqual(self.ledger.release(lease['reservation_id'], lease['token'], 'worker reported quiescent'),
+                         'released')
+        self.assertEqual(self.ledger.slot(server_slot)['state'], 'held')
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'switching')
+        self.assertEqual(self.pool.tick()['settled'], 0)  # the server pool never settles a held slot
+        self.pool.recover(server_slot, 'offline fixture verified backend')
+        self.assertEqual(self.services.cleaned[-1]['reservation_id'], lease['reservation_id'])
+        self.assertEqual(self.ledger.slot(server_slot)['state'], 'idle_closed')
+
+    def test_held_companion_does_not_stop_unity_settlement(self):
+        item = self.request_pair()
+        lease = self.acquire()
+        unity = self.unity_pool()
+        def switch(slot, commit, mode):
+            self.ledger.set_slot_state(slot, 'interactive_busy', instance='owned-instance')
+        with patch.object(unity, 'switch', side_effect=switch):
+            self.assertTrue(unity._hand_over(lease))
+        server_slot = companion(self.ledger, lease)['resource']
+        self.ledger.cancel(item, 'Stop')
+        self.assertEqual(self.ledger.reservation(lease['reservation_id'])['state'], 'cancel_requested')
+        self.ledger.set_slot_state(server_slot, 'held')  # e.g. its Docker cleanup failed
+        # Previously release() raised here on every pool tick, before grant() or park_idle() could run.
+        self.assertEqual(unity.settle(), 1)
+        self.assertEqual(self.ledger.reservation(lease['reservation_id'])['state'], 'cancelled')
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'switching')
+        self.assertEqual(self.ledger.slot(server_slot)['state'], 'held')
+        self.pool.recover(server_slot, 'offline fixture verified backend')
+        self.assertEqual(self.ledger.slot(server_slot)['state'], 'idle_closed')
+
+    def test_server_tick_leaves_an_unjournaled_companion_to_its_handover(self):
+        self.request_pair()
+        lease = self.acquire()
+        server_slot = companion(self.ledger, lease)['resource']
+        self.assertFalse((self.pool.folder(server_slot) / 'lease.json').exists())
+        # The Unity hand-over thread has fenced the slot but not yet written its journal.
+        self.pool.tick()
+        self.assertEqual(self.ledger.slot(server_slot)['state'], 'switching')
+        self.pool.prepare_integration(lease)
+        self.assertEqual(self.ledger.slot(server_slot)['state'], 'batch_busy')
+
+    def test_companion_moved_during_start_is_not_overwritten(self):
+        self.request_pair()
+        lease = self.acquire()
+        server_slot = companion(self.ledger, lease)['resource']
+        self.services.after_start = lambda value: self.ledger.set_slot_state(server_slot, 'held')
+        with self.assertRaisesRegex(ServerSlotError, 'changed during preparation'):
+            self.pool.prepare_integration(lease)
+        self.assertEqual(self.ledger.slot(server_slot)['state'], 'held')
+        self.assertTrue((self.pool.folder(server_slot) / 'lease.json').exists())  # recover-server-slot can read it
 
     def test_pair_and_normal_server_share_fifo_without_half_leases(self):
         self.admission.settings['max_reserved_mib'] = 32768
@@ -129,8 +203,7 @@ class PairTests(ServerPoolFixture):
     def test_handover_release_waits_for_worker_and_cleans_exact_companion(self):
         item = self.request_pair()
         lease = self.acquire()
-        unity = SlotPool(self.ledger, None, [], host='test', editors_root=self.root / 'editors',
-                         state_dir=self.pool.state_dir, prepare_integration=self.pool.prepare_integration)
+        unity = self.unity_pool()
         with patch.object(unity, 'switch'), patch.object(unity, '_resume_hand_over', return_value=True):
             self.assertTrue(unity._hand_over(lease))
         server = companion(self.ledger, lease)
@@ -147,8 +220,7 @@ class PairTests(ServerPoolFixture):
         item = self.request_pair()
         lease = self.acquire()
         self.services.after_start = lambda value:self.ledger.cancel(item, 'Stop')
-        unity = SlotPool(self.ledger, None, [], host='test', editors_root=self.root / 'editors',
-                         state_dir=self.pool.state_dir, prepare_integration=self.pool.prepare_integration)
+        unity = self.unity_pool()
         with patch.object(unity, 'switch') as switch:
             self.assertFalse(unity._hand_over(lease))
         switch.assert_not_called()
@@ -191,8 +263,7 @@ class PairTests(ServerPoolFixture):
         item = self.request_pair()
         lease = self.acquire()
         self.services.error = RuntimeError('backend disconnected during create')
-        unity = SlotPool(self.ledger, None, [], host='test', editors_root=self.root / 'editors',
-                         state_dir=self.pool.state_dir, prepare_integration=self.pool.prepare_integration)
+        unity = self.unity_pool()
         self.assertFalse(unity._hand_over(lease))
         server_slot = companion(self.ledger, lease)['resource']
         self.assertEqual(self.ledger.slot(server_slot)['state'], 'held')
@@ -231,7 +302,7 @@ class PairTests(ServerPoolFixture):
         self.assertEqual(launcher.spawn_env['MONGO_REQUIRED'], '1')
 
 
-class SinglePairTests(ServerPoolFixture):
+class SinglePairTests(PairFixture):
     def queue(self):
         from agent.execution import queue_resource
         item = self.request(root=None, skill='work', reserve=False, execution_contract='single-worker-v1')
@@ -249,9 +320,10 @@ class SinglePairTests(ServerPoolFixture):
         item, token, request = self.queue()
         self.exited = False
         lease = self.admission.acquire(self.ledger, 'unity_slot', owner='pool', host='test', single_only=True)
-        unity = SlotPool(self.ledger, None, [], host='test', editors_root=self.root / 'editors',
-                         state_dir=self.pool.state_dir, prepare_integration=self.pool.prepare_integration)
+        unity = self.unity_pool()
         def switch(slot, commit, mode):
+            # The sandboxed worker cannot create the reads root; the controller has already made it.
+            self.assertEqual(self.trees.created, [('farm-hive', item, 'b'*40, True)])
             self.ledger.set_slot_state(slot, 'interactive_busy', instance='owned-instance')
         with patch.object(unity, 'switch', side_effect=switch):
             self.assertTrue(unity._hand_over(lease))

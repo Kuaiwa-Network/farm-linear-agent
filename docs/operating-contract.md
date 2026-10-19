@@ -311,7 +311,10 @@ surplus idle Editors may yield. Insufficient total pair budget is refused by the
 
 The additive `integration_leases` table links one reservation to its plan and
 companion slot, preserving the one-open-reservation-per-item fence. Recovery retains
-both pins; uncertain setup holds resources and journals. Server cleanup still
+both pins; uncertain setup holds resources and journals. The controller creates the
+read-only server snapshot during preparation; worker commands only validate it. A
+release never lifts a held server half, which waits for verified `recover-server-slot`,
+and Unity settlement continues meanwhile. Server cleanup still
 requires verified teardown of all worker attempts, including after release while
 the continuing worker lives. Settle pairs and preserve journals before rollback:
 older code cannot interpret companion ownership. See [the reference](../references/client-server-integration.md).

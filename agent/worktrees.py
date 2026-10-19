@@ -1009,8 +1009,12 @@ class Worktrees:
         except WorktreeError:
             return None
 
-    def read_candidate(self, repo, item_id, commit):
-        """Detached exact-candidate source; no clone config or writable source grant."""
+    def read_candidate(self, repo, item_id, commit, *, create=True):
+        """Detached exact-candidate source; no clone config or writable source grant.
+
+        The reads root is outside every worker write root, so only the controller creates
+        the snapshot (`create`); a worker command passes False and only validates it.
+        """
         if repo not in self.remotes or not isinstance(commit, str) or not self.COMMIT.fullmatch(commit):
             raise WorktreeError('invalid read candidate')
         root = self.reads_root(item_id)
@@ -1023,6 +1027,8 @@ class Worktrees:
                     or self.head(path) != commit or not self.slot_clean(path)):
                 raise WorktreeError('read candidate identity or source changed; preserve evidence')
             return path
+        if not create:
+            raise WorktreeError('read candidate has not been prepared by the controller')
         path.mkdir(parents=True)
         _git('init', '--quiet', str(path), cwd=path, config=READ_ONLY_GIT)
         _git('config', 'remote.origin.url', self.remotes[repo], cwd=path, config=READ_ONLY_GIT)

@@ -189,7 +189,7 @@ def run_owned(ledger, args, token):
     trees = JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger)
     trees.verification_commit('Farm-Client', args.item, reservation['commit_sha'])
     trees.verification_commit('farm-hive', args.item, server['commit_sha'])
-    source = trees.read_candidate('farm-hive', args.item, server['commit_sha'])
+    source = trees.read_candidate('farm-hive', args.item, server['commit_sha'], create=False)
     integration.update(source=str(source), plan=server['integration']['plan'])
     slot = ledger.slot(reservation['resource'])
     resource = {'reservation_id':reservation['reservation_id'], 'commit':reservation['commit_sha'], 'instance':slot['instance'],
