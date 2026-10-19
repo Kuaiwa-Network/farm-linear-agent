@@ -21,6 +21,7 @@ All commands start with `PYTHON -m agent --db DATABASE`; they take `--item ITEM`
 | `download-uploads` | Claim token file, `--out STATE_DIR/uploads`, optional repeatable `--url UNSIGNED_ISSUE_URL`; authenticated issue attachments for read-only investigation. |
 | `pop-inbox` | Claim token file; attributed current requests. |
 | `renew` | Claim token file; inspect maintenance and withdrawal flags. |
+| `retry-approval` | Claim token file, `--error-file FILE`; complete not-executed capacity review message. Checkpoint first; exit on `retry_queued` or `retry_exhausted`. A retry grants no additional authority. |
 | `checkpoint` | Claim token file and `--input FILE`; concise progress and handoff. |
 | `request-repair` | Claim token file, `--message-id ID --summary-file FILE`; actual current implementation request only. Summary at most 8,000 characters. Exit on success. |
 | `activity` | Claim token file, `--type response --body-file FILE`; send the answer. |

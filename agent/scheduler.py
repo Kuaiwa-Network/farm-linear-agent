@@ -106,7 +106,8 @@ class Scheduler:
                 previous = prior.get('predecessor_id')
             for repo in skill.writes:
                 paths[repo] = self.worktrees.add(repo, item['id'], branch,
-                                                refresh=not bool(item['publication_retries']), recovery_from=recovery)
+                                                refresh=not bool(item['publication_retries'] or item['capacity_retries']),
+                                                recovery_from=recovery)
             return paths
         if item.get('root_repo') == COORDINATION_ROOT and skill.name == 'work':
             return paths  # Message routing must not fetch or alter retained candidates.
@@ -121,7 +122,7 @@ class Scheduler:
                 # controller-selected Client target below remains authoritative.
                 branch = recorded.get(skill.initial_root, branch)
             for repo in skill.writes:
-                options = {"refresh": False} if item["publication_retries"] else {}
+                options = {"refresh": False} if item["publication_retries"] or item["capacity_retries"] else {}
                 if skill.name in ("work", "feature", "fgui", "scene") and repo == "Farm-Client":
                     if (skill.name == "work" or item.get("parent_id")) and current_root(item.get("root_repo"), skill) != repo:
                         continue
@@ -188,14 +189,15 @@ class Scheduler:
 
     def _reads_for(self, skill, item):
         """{repo: path} of the read-only default-branch checkouts the manifest's `reads` names (spec §9.6), made or
-        refreshed for this launch. A publication retry reuses those it has without a fetch, as it reuses worktrees."""
+        refreshed for this launch. Capacity/publication retries reuse them without a fetch, like worktrees."""
         repositories = list(skill.reads)
         if item.get("parent_id") and "Farm-Contract" not in repositories:
             # The parent may have settled an unmerged OpenSpec. This detached
             # checkout borrows its clone's objects, so read-only Git can inspect
             # that recorded commit without changing the default-branch checkout.
             repositories.append("Farm-Contract")
-        return {repo: self.worktrees.read_checkout(repo, item["id"], refresh=not item["publication_retries"])
+        return {repo: self.worktrees.read_checkout(repo, item["id"],
+                    refresh=not bool(item["publication_retries"] or item["capacity_retries"]))
                 for repo in repositories}
 
     def _reservation_stops_launch(self, item):
@@ -233,6 +235,13 @@ class Scheduler:
         if current["state"] != "queued" or current["retry_not_before"] > self.ledger.clock():
             return None
         item = current  # the queued root/generation may have changed since the scheduler read its queue
+        if item['capacity_retries']:
+            # A voluntary approval retry has retired its claim while its process
+            # may still be exiting. This also fences restart without live handles.
+            try:
+                self.launcher.assert_quiescent(item['id'], self.ledger.last_worker_pid(item['id']))
+            except Exception:
+                return None
         skill = skill_for(item, self.skills[item["skill"]])
         # Only Codex's workspace-write sandbox holds a staged attempt to its one writable root.
         if not runtime_can_launch(skill, self.runtime_name):

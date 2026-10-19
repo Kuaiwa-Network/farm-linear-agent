@@ -97,7 +97,7 @@ class PublicationTests(unittest.TestCase):
                 identifier, item_id = f'FBTEST-{number}', f'job-{number}'
                 with self.fetching_from_the_local_origin():
                     paths = scheduler._worktrees_for(SimpleNamespace(name='fix', writes=['farmgui'], initial_root=None),
-                        {'id': item_id, 'publication_retries': 0},
+                        {'id': item_id, 'publication_retries': 0, 'capacity_retries': 0},
                         {'identifier': identifier, 'branch_name': suggested})
                 scope = verifier.scope(item={'id': item_id, 'skill': 'fix'},
                     issue={'identifier': identifier}, paths=paths, delegated=True)
@@ -113,7 +113,7 @@ class PublicationTests(unittest.TestCase):
         for identifier in ('FARM-42', '../FBTEST-42', 'FBTEST-42/other', 'FBTEST-.*', None):
             with self.subTest(identifier=identifier), self.assertRaises(publication.PublicationError):
                 scheduler._worktrees_for(SimpleNamespace(writes=['farmgui'], initial_root=None),
-                    {'id': 'rejected', 'publication_retries': 0},
+                    {'id': 'rejected', 'publication_retries': 0, 'capacity_retries': 0},
                     {'identifier': identifier, 'branch_name': 'farmbot/fbtest-42'})
         self.assertFalse((self.trees.worktrees_root / 'rejected').exists())
 

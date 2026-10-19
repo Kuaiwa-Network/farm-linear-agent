@@ -100,6 +100,17 @@ checking available inputs. Explain the blocker, options and recommendation via
 Normal resource queueing is not a human question. Read and acknowledge the actual
 attributed replies; routine technical repair needs no new permission.
 
+If automatic approval review reports `Selected model is at capacity` and explicitly
+says the action was not executed, save the complete returned review message verbatim
+as UTF-8 under `state_dir`. Checkpoint the failed action, commits, reports and next
+step; settle helpers and release resources safely. Run `retry-approval --error-file FILE`
+with the normal database, item and claim arguments, then exit on `retry_queued` or
+`retry_exhausted`. Use this durable retry immediately instead of repeated approval
+calls or `await-input`. On resume reuse matching reports, recheck current authority,
+and retry through normal automatic approval, including fresh `verify-publication`
+before any publication. Never bypass review, change permissions/models, or treat a
+safety denial or uncertain execution outcome as this capacity failure.
+
 Review the final diff and required verification yourself. Use `verify-publication`
 before pushing each exact issue branch or creating/updating its draft PR. Publish
 a clear delivery with the PRs, behavior tested and limitations; then `finish`.
