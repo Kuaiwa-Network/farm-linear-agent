@@ -66,16 +66,19 @@ def continuation_slot(db, row):
     return source['resource']
 
 
-def queued_rows(db, *, kind=None):
+def queued_rows(db, *, kind=None, single_only=False):
     query = "SELECT * FROM reservations WHERE state='queued'"
     values = ()
     if kind is not None:
         query += ' AND kind=?'
         values = (kind,)
-    from .admission_scope import read
+    if single_only:
+        query += " AND item_id IN (SELECT id FROM work_items WHERE execution_contract='single-worker-v1')"
+    from .admission_scope import read, issue_ids
     scope = read(db)
     if scope:
-        query += ' AND item_id IN (SELECT id FROM work_items WHERE issue_id=?)'
-        values += (scope['issue_id'],)
+        selected = issue_ids(scope)
+        query += ' AND item_id IN (SELECT id FROM work_items WHERE issue_id IN (' + ','.join('?' for _ in selected) + '))'
+        values += tuple(selected)
     rows = list(db.execute(query + ' ORDER BY sequence', values))
     return sorted(rows, key=lambda row: (0 if continuation_slot(db, row) else 1, row['sequence']))

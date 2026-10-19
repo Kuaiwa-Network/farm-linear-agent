@@ -1,0 +1,65 @@
+// Read only the requested retained job; do not invoke GetJob (which may time out
+// running tests), start tests, change Editor state or repair plugin state.
+string jobId = "__JOB_ID__";
+long acquiredMs = __ACQUIRED_MS__L;
+var assembly = System.Array.Find(System.AppDomain.CurrentDomain.GetAssemblies(),
+    a => a.GetName().Name == "MCPForUnity.Editor");
+if (assembly == null) throw new System.InvalidOperationException("Unity test plugin is unavailable");
+var flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic |
+    System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Instance;
+var manager = assembly.GetType("MCPForUnity.Editor.Services.TestJobManager", true);
+var jobsField = manager.GetField("Jobs", flags);
+if (jobsField == null) throw new System.InvalidOperationException("Unsupported retained test API");
+var jobs = jobsField.GetValue(null) as System.Collections.IDictionary;
+var job = jobs == null ? null : jobs[jobId];
+if (job == null) return new { schema = 1, job_id = jobId, available = false, reason = "job_not_retained" };
+System.Func<object, string, object> read = (obj, name) =>
+{
+    var property = obj.GetType().GetProperty(name, flags);
+    if (property == null) throw new System.InvalidOperationException("Unsupported retained test property: " + name);
+    return property.GetValue(obj, null);
+};
+if (!string.Equals((string)read(job, "JobId"), jobId, System.StringComparison.Ordinal))
+    throw new System.InvalidOperationException("Retained job identity mismatch");
+long started = System.Convert.ToInt64(read(job, "StartedUnixMs"));
+if (started < acquiredMs) throw new System.InvalidOperationException("Test predates the owned reservation");
+string status = read(job, "Status").ToString().ToLowerInvariant();
+var finished = read(job, "FinishedUnixMs");
+var result = read(job, "Result");
+bool terminal = status == "succeeded" || status == "failed";
+System.Func<object, int, string> clip = (value, limit) =>
+{
+    string text = value == null ? "" : value.ToString();
+    return text.Length <= limit ? text : text.Substring(0, limit) + " [truncated]";
+};
+if (!terminal || finished == null || result == null)
+    return new { schema = 1, job_id = jobId, available = false, status = status,
+        reason = terminal ? "result_not_retained" : "in_flight", error = clip(read(job, "Error"), 2048) };
+var summary = read(result, "Summary");
+var tests = read(result, "Results") as System.Collections.IEnumerable;
+if (summary == null || tests == null) throw new System.InvalidOperationException("Incomplete retained test result");
+var details = new System.Collections.Generic.List<object>();
+int nonPassing = 0;
+bool textTruncated = false;
+foreach (var test in tests)
+{
+    string state = (string)read(test, "State");
+    if (string.Equals(state, "Passed", System.StringComparison.OrdinalIgnoreCase)) continue;
+    nonPassing++;
+    if (details.Count == 50) continue;
+    string name = (string)read(test, "FullName") ?? "";
+    string message = (string)read(test, "Message") ?? "";
+    string stack = (string)read(test, "StackTrace") ?? "";
+    // Leave room for both MCP content and structuredContent, including escaped Unicode.
+    textTruncated |= name.Length > 384 || message.Length > 512 || stack.Length > 384 || (state ?? "").Length > 64;
+    details.Add(new { fullName = clip(name, 384), state = clip(state, 64),
+        message = clip(message, 512), stackTrace = clip(stack, 384) });
+}
+return new { schema = 1, job_id = jobId, available = true, status = status,
+    mode = clip(read(job, "Mode"), 32), started_unix_ms = started, finished_unix_ms = finished,
+    error = clip(read(job, "Error"), 2048),
+    summary = new { total = read(summary, "Total"), passed = read(summary, "Passed"),
+        failed = read(summary, "Failed"), skipped = read(summary, "Skipped"),
+        durationSeconds = read(summary, "DurationSeconds"), resultState = clip(read(summary, "ResultState"), 64) },
+    non_passing_count = nonPassing, details = details, details_capped = nonPassing > details.Count,
+    text_truncated = textTruncated };

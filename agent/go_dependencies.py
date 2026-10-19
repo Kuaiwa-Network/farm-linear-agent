@@ -157,10 +157,15 @@ def snapshot(trees, item, module, commit):
     return values
 
 
-def request(ledger, trees, config, item_id, token, module, commit, *, retry=False):
+def request(ledger, trees, config, item_id, token, module, commit, *, retry=False, repo=None):
     """Authenticate a bounded input request; no network or host cache write."""
     ledger.renew(item_id, token)
     item = ledger.item(item_id)
+    from .execution import single, REPOSITORIES
+    if single(item):
+        if repo not in REPOSITORIES:
+            raise LedgerError('single-worker dependency preparation needs an explicit allowed repository')
+        item = {**item, 'root_repo': repo}
     if (item['skill'] not in ('work', 'feature', 'fix') or item.get('parent_id')
             or item['root_repo'] not in config.go_dependencies.get('modules', {})
             or module not in config.go_dependencies['modules'][item['root_repo']]):
@@ -397,10 +402,12 @@ class Controller:
         self.ledger, self.trees, self.config, self.stop, self.preparer = ledger, JobWorktrees(trees, ledger), config, stop, preparer
 
     def active(self, item_id, request):
+        from .execution import single, REPOSITORIES
         item = self.ledger.item(item_id)
         claim = self.ledger._row(item_id)['token']
         return (not self.stop() and item['state'] == 'running' and item['generation'] == request['generation']
-                and item['root_repo'] == request['repo'] and item['withdraw_deadline'] is None
+                and (item['root_repo'] == request['repo'] or
+                     single(item) and request['repo'] in REPOSITORIES) and item['withdraw_deadline'] is None
                 and item['lease_expires_at'] > self.ledger.clock() and claim
                 and digest(claim.encode('utf-8')) == request.get('claim_fence'))
 
@@ -418,7 +425,7 @@ class Controller:
                         raise LedgerError('Go dependency host settings changed; request the current configuration')
                     if value['module'] not in self.config.go_dependencies['modules'].get(value['repo'], []):
                         raise LedgerError('Go module is no longer configured')
-                    values = snapshot(self.trees, item, value['module'], value['commit'])
+                    values = snapshot(self.trees, {**item, 'root_repo': value['repo']}, value['module'], value['commit'])
                     if {n:digest(v) for n,v in values.items()} != value['inputs']:
                         raise LedgerError('Go dependency request inputs changed')
                     result = self.preparer(self.config, values, cancelled=lambda: not self.active(item_id, value))

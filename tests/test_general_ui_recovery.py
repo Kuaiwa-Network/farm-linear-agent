@@ -35,11 +35,15 @@ class GeneralUiRecoveryTests(unittest.TestCase):
         self.ledger.record_cleanup(f.item, {}, done=True)
         self.ledger.record_cleanup(old_owner, {}, done=True)
         parent = self.ledger.create_work_item(issue_id=self.ledger.item(f.item)["issue_id"], session_id="ui-session",
-                                             skill="work", target=self.ledger.item(old_owner)["target"])
+                                             skill="work", target=self.ledger.item(old_owner)["target"], execution_contract='staged-v1')
         parent_token = self.ledger.claim(parent["id"], worker_id="successor-general")["token"]
         self.ledger.checkpoint(parent["id"], parent_token, {"plan": {"stages": {"A": "done"}}})
         task = delegate_task(self.ledger, parent["id"], parent_token, {
             "key": key, "capability": "fgui", "instructions": "Revalidate the entire retained UI candidate."})
+        self.assertNotIn('_contract', task['task_request'])
+        self.assertEqual(delegate_task(self.ledger, parent['id'], parent_token, task['task_request'])['id'], task['id'])
+        self.assertIsNotNone(self.ledger.connection.execute(
+            "SELECT 1 FROM audit WHERE item_id=? AND kind='presentation_legacy_client_recovery'", (task['id'],)).fetchone())
         # Rehouse the one retained branch without resetting its interrupted HEAD.
         for repo, previous in (("farmgui", source.path), ("Farm-Client", f.client)):
             moved = source.paths.worktrees / parent["id"] / repo

@@ -44,6 +44,19 @@ class PublicationTests(unittest.TestCase):
     def verify(self):
         return self.verifier.verify('farmgui', 'job', 'FARM-1248', self.branch)
 
+    def test_push_recipe_uses_verified_remote_and_never_disables_hooks_or_review(self):
+        for platform in ('win32', 'darwin'):
+            with self.subTest(platform=platform), patch('agent.publication.sys.platform', platform):
+                result = self.verify()
+            self.assertEqual(result['push_argv'], ['git', 'push', 'origin', f'HEAD:refs/heads/{self.branch}'])
+            self.assertEqual(result['execution_hint']['windows_git_review'], platform == 'win32')
+            self.assertIn('A denial stops', result['execution_hint']['guidance'])
+            self.assertIn('Keep hooks', result['execution_hint']['guidance'])
+            self.assertNotIn('--force', result['push_argv'])
+        self.repo['private'] = False
+        with self.assertRaises(publication.PublicationError):
+            self.verify()
+
     @contextlib.contextmanager
     def fetching_from_the_local_origin(self):
         """The configured remote is github.com, which these tests never reach. A host-level rewrite, as an operator's
@@ -72,7 +85,7 @@ class PublicationTests(unittest.TestCase):
     def test_scheduler_test_workspace_branch_passes_publication_policy(self):
         from types import SimpleNamespace
         from agent.scheduler import Scheduler
-        scheduler = Scheduler(None, None, None, self.trees, skill_root=Path(self.tmp.name),
+        scheduler = Scheduler(None, None, None, self.trees, replay_legacy=True, skill_root=Path(self.tmp.name),
                               db_path=Path(self.tmp.name) / 'ledger', runtime_name='fake', host='test',
                               issue_prefix='FBTEST')
         verifier = publication.PublicationVerifier(self.trees, api=self.verifier.api, issue_prefix='FBTEST')
@@ -94,7 +107,7 @@ class PublicationTests(unittest.TestCase):
     def test_scheduler_rejects_wrong_or_malformed_keys_before_creating_worktrees(self):
         from types import SimpleNamespace
         from agent.scheduler import Scheduler
-        scheduler = Scheduler(None, None, None, self.trees, skill_root=Path(self.tmp.name),
+        scheduler = Scheduler(None, None, None, self.trees, replay_legacy=True, skill_root=Path(self.tmp.name),
                               db_path=Path(self.tmp.name) / 'ledger', runtime_name='fake', host='test',
                               issue_prefix='FBTEST')
         for identifier in ('FARM-42', '../FBTEST-42', 'FBTEST-42/other', 'FBTEST-.*', None):

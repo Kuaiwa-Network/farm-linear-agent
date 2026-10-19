@@ -39,6 +39,28 @@ elif mode == "detached-sleep":
 elif mode == "cli":
     db = payload["database"]
     item = payload["item_id"]
+    cli_command = [sys.executable, "-m", "agent"]
+    replay_cli_command = cli_command
+    if Path(payload.get('skill', '')).parent.parent.name == 'legacy':
+        # Archived controller journeys also need an explicit offline CLI registry.
+        # Production code never reads this fixture switch or loads archived intake.
+        replay_cli_command = [sys.executable, '-c', '''
+import os
+from unittest.mock import patch
+from agent.config import ROOT, load_config
+from agent.skills import load_skills
+from agent.__main__ import main
+if load_config().runtime != 'fake' or not os.environ.get('FARMBOT_LINEAR_STUB_DIR'):
+    raise RuntimeError('historical CLI replay requires fake runtime and stub Linear')
+skills = load_skills(ROOT / 'skills', replay_legacy=True)
+with patch('agent.skills.load_skills', return_value=skills):
+    raise SystemExit(main())
+''']
+    def command(args):
+        # Only intake needs the archived registry. Ordinary historical CLI calls
+        # select their stored contract and can use fixtures with no host config.
+        selected = replay_cli_command if args[0] in ('resume-work', 'request-repair') else cli_command
+        return [*selected, '--db', db, *args]
     token = None
     action_id = None
     fingerprint = None
@@ -103,7 +125,7 @@ elif mode == "cli":
                 sys.exit(4)
             continue
         if verb == "refused":  # ["refused", PATH, COMMAND, ARG, ...]: the command must be refused; its stderr to PATH
-            out = subprocess.run([sys.executable, "-m", "agent", "--db", db, *args[1:]], capture_output=True,
+            out = subprocess.run(command(args[1:]), capture_output=True,
                                  text=True, encoding="utf-8", errors="replace", cwd=os.environ["FAKE_CLI_REPO"],
                                  env={**os.environ, "PYTHONIOENCODING": "utf-8"})
             if out.returncode == 0:
@@ -114,7 +136,7 @@ elif mode == "cli":
         args = [verb, *args]
         attempts = 60 if args[0] == "finish" else 1
         for attempt in range(attempts):
-            out = subprocess.run([sys.executable, "-m", "agent", "--db", db, *args], capture_output=True, text=True,
+            out = subprocess.run(command(args), capture_output=True, text=True,
                                  cwd=os.environ["FAKE_CLI_REPO"])
             if out.returncode == 0 or attempt == attempts - 1:
                 break

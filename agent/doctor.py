@@ -89,7 +89,8 @@ def _report(now):
     return {"schema_version": 1, "checked_at": now, "status": "ok", "host": None,
             "scope": "local ledger snapshot and recorded worker PIDs; no service, tunnel or Linear health probe",
             "counts": {}, "jobs": [], "slots": [], "reservations": [],
-            "cleanup_pending": [], "issue_status_errors": [], "resource_recoveries": [], "findings": []}
+            "cleanup_pending": [], "issue_status_errors": [], "resource_recoveries": [],
+            "shared_test_followups": [], "findings": []}
 
 
 def _finding(report, code, hint, *, incomplete=False, **evidence):
@@ -113,6 +114,14 @@ def _snapshot(path):
             raise _SchemaMismatch(missing)
         def rows(query):
             return [dict(row) for row in db.execute(query)]
+        # Independent debt, including delivered source jobs. Do not expose causal
+        # prose/private file paths or turn it into an unhealthy business job.
+        shared_followups = rows("""SELECT json_extract(details,'$.followup_id') AS followup_id,
+            json_extract(details,'$.fullName') AS test_name,json_extract(details,'$.kind') AS kind,
+            'open' AS status,0 AS blocks_business_delivery,COUNT(DISTINCT item_id) AS observed_jobs,
+            MAX(created_at) AS last_seen
+            FROM audit WHERE kind='shared_test_followup' AND json_extract(details,'$.schema')=1
+            GROUP BY json_extract(details,'$.followup_id') ORDER BY last_seen DESC LIMIT 200""") if 'audit' in tables else []
         # Read for the plan summary of a job with an initial root and dropped from every job entry (diagnose); a
         # ledger older than root_repo reads as having none.
         root_repo = "w.root_repo" if "root_repo" in columns else "NULL"
@@ -161,6 +170,7 @@ def _snapshot(path):
             "_withdrawal": withdrawal,
             "_unclosed": unclosed,
             "_silent": silent,
+            "shared_test_followups": shared_followups,
             "counts": {row["state"]: row["count"] for row in rows(
                 "SELECT state,COUNT(*) AS count FROM work_items GROUP BY state")},
             "jobs": rows(f"""SELECT w.id AS item_id,w.issue_id,json_extract(i.metadata,'$.identifier') AS identifier,
@@ -484,6 +494,11 @@ def diagnose(config, *, now=None):
                      unbriefed=sorted((names & set(loaded)) - set(SKILL_AUTHORITY)), missing_chat="chat" not in names)
         else:
             report["skills"]["enabled"] = sorted(enabled)
+            retired = sorted(set(enabled) - {'chat', 'work'})
+            if retired:
+                _finding(report, 'retired_execution_profiles',
+                         'Current service intake uses chat/work. Drain and explicitly adopt historical jobs before rollout.',
+                         skills=retired)
             # The scheduler's own launch rule. serve still starts and queues these skills' jobs, and each then fails.
             unsupported = sorted(name for name, skill in enabled.items()
                                  if not runtime_can_launch(skill, config.runtime))
@@ -521,10 +536,11 @@ def diagnose(config, *, now=None):
             report["tools"]["server_slots"] = {"configured": True, "count": config.server_slots["count"], "ready": True}
     if set(report["skills"]["enabled"] or []) & {"work", "feature"}:
         feature = report["tools"]["feature"] = feature_toolchain(config, paths)
-        if not config.lark_cli:
+        if not config.lark_cli and 'work' not in (report['skills']['enabled'] or []):
             _finding(report, "lark_cli_unconfigured", "serve refuses to start: configure the lark-cli profile or "
                      "explicit app_id/secret_env variant for FarmBot's Feishu app (docs/development-workflow.md).")
-        if feature["missing"]:
+        feature['optional_for_work'] = 'work' in (report['skills']['enabled'] or [])
+        if feature["missing"] and not feature['optional_for_work']:
             _finding(report, "feature_toolchain_incomplete", "Install or fix these before this host runs code stages; its "
                      "workers stop where a tool is missing.", tools=feature["missing"])
         profile = feature["entries"]["lark_cli"]["profile"]
@@ -538,7 +554,8 @@ def diagnose(config, *, now=None):
         if not config.lark_cli and not set(report["skills"]["enabled"] or []) & {"work", "feature"}:
             _finding(report, "lark_cli_unconfigured", "serve refuses to start: configure FarmBot's read-only "
                      "lark-cli profile or explicit app_id/secret_env variant (docs/development-workflow.md).")
-        if fgui["missing"]:
+        fgui['optional_for_work'] = 'work' in (report['skills']['enabled'] or [])
+        if fgui["missing"] and not fgui['optional_for_work']:
             _finding(report, "fgui_toolchain_incomplete", "Prepare native Python, pinned Pillow, a CJK font, Git LFS "
                      "and the configured bot document reader before this host runs fgui.", tools=fgui["missing"])
         profile = fgui["entries"]["lark_cli"]["profile"]

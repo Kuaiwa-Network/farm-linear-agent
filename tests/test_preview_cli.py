@@ -45,7 +45,7 @@ class PreviewCliTests(unittest.TestCase):
         self.write_issue()
         self.ledger.observe_issue(self.raw)
         self.ledger.ensure_session("ui-session", ISSUE, delegation=True)
-        self.item = self.ledger.create_work_item(issue_id=ISSUE, session_id="ui-session", skill="fgui")
+        self.item = self.ledger.create_work_item(issue_id=ISSUE, session_id="ui-session", skill="fgui", execution_contract='staged-v1')
         self.token = self.ledger.claim(self.item["id"], worker_id="ui-fixture")["token"]
         state = self.paths.runs / self.item["id"]
         state.mkdir(parents=True)
@@ -93,7 +93,7 @@ class PreviewCliTests(unittest.TestCase):
         from test_ledger import OTHER
         self.ledger.observe_issue(issue(id=OTHER))
         self.ledger.ensure_session("other-ui-session", OTHER, delegation=True)
-        other = self.ledger.create_work_item(issue_id=OTHER, session_id="other-ui-session", skill="fgui")
+        other = self.ledger.create_work_item(issue_id=OTHER, session_id="other-ui-session", skill="fgui", execution_contract='staged-v1')
         with self.assertRaisesRegex(LedgerError, "earlier same-issue"):
             published_preview(self.ledger, other["id"], result["sha256"], result["asset_url"], before=self.ledger.clock())
 

@@ -19,7 +19,7 @@ from agent.skills import load_skills
 from agent.slots import SlotPool
 from test_ledger import issue, PIN
 
-SKILLS = load_skills(Path(__file__).resolve().parents[1] / "skills")
+SKILLS = load_skills(Path(__file__).resolve().parents[1] / "skills", replay_legacy=True)
 IMAGES = {role: "sha256:" + str(index) * 64 for index, role in enumerate(("mongo", "redis", "etcd", "nats", "proxy"), 1)}
 SETTINGS = {"count": 3, "docker": str(Path(tempfile.gettempdir()).absolute() / "docker"), "images": IMAGES}
 
@@ -47,6 +47,8 @@ class Services:
 
 
 class ServerPoolFixture(unittest.TestCase):
+    settings = SETTINGS
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -68,20 +70,22 @@ class ServerPoolFixture(unittest.TestCase):
         return Ledger(self.db, clock=lambda: self.now)
 
     def make_pool(self):
-        pool = ServerSlotPool(self.connection, SETTINGS, host="test", root=self.root,
+        pool = ServerSlotPool(self.connection, self.settings, host="test", root=self.root,
                               state_dir=lambda item: self.root.parent / "runs" / item,
                               quiescent=lambda item: self.exited, admission=self.admission,
                               services=self.services, clock=lambda: self.now)
         self.addCleanup(pool.close)
         return pool
 
-    def request(self, commit="a" * 40, *, root="farm-hive", mode="batch", skill="fix", reserve=True, plan=None):
+    def request(self, commit="a" * 40, *, root="farm-hive", mode="batch", skill="fix", reserve=True, plan=None,
+                execution_contract='staged-v1'):
         self.sequence += 1
         number = self.sequence
         identity = str(uuid4())
         self.ledger.observe_issue(issue(id=identity, identifier=f"FARM-{number}", branch_name=f"farmbot/farm-{number}"))
         self.ledger.ensure_session(identity, identity, delegation=True)
-        item = self.ledger.create_work_item(issue_id=identity, session_id=identity, skill=skill, target=PIN)
+        item = self.ledger.create_work_item(issue_id=identity, session_id=identity, skill=skill, target=PIN,
+                                            execution_contract=execution_contract)
         self.ledger.connection.execute("UPDATE work_items SET root_repo=? WHERE id=?", (root, item["id"]))
         if not reserve:
             return item["id"]
@@ -312,7 +316,7 @@ class PoolTests(ServerPoolFixture):
         self.pool.tick()
         launcher = RecordingLauncher(self.root.parent / "runs")
         trees = FakeWorktrees(self.root.parent / "worktrees")
-        scheduler = Scheduler(self.ledger, launcher, SKILLS, trees, skill_root=Path(__file__).resolve().parents[1] / "skills",
+        scheduler = Scheduler(self.ledger, launcher, SKILLS, trees, replay_legacy=True, skill_root=Path(__file__).resolve().parents[1] / "skills",
                               db_path=self.db, runtime_name="codex", host="test", server_slots_root=self.root)
         with patch("agent.server_slots.time.time", return_value=self.now), patch.object(
                 trees, "verification_commit", create=True, return_value="a" * 40) as verify:
@@ -321,7 +325,10 @@ class PoolTests(ServerPoolFixture):
         self.assertEqual(launcher.spawn_env["CLUSTER_REQUIRED"], "1")
         self.assertIn("127.0.0.1", launcher.spawn_env["MONGO_URI"])
         self.assertEqual(launcher.spawn_env["GOMAXPROCS"], "2")
-        self.assertTrue(Path(launcher.spawn_env["GOCACHE"]).is_relative_to(launcher.state_dir(item)))
+        # Launcher, exercised with real children by test_worker_retention, now
+        # owns attempt-local Go paths instead of the scheduler sharing job caches.
+        self.assertNotIn('GOCACHE', launcher.spawn_env)
+        self.assertNotIn('GOTMPDIR', launcher.spawn_env)
         self.assertEqual(launcher.spawned[0][2], {})
         self.assertFalse(any(self.root.is_relative_to(Path(path)) for path in launcher.spawn_writable))
 
@@ -341,7 +348,7 @@ class PoolTests(ServerPoolFixture):
                     self.ledger.set_slot_state(reservation["resource"], "held")
                 launcher, trees = FakeLauncher(self.root.parent / "runs"), FakeWorktrees(self.root.parent / "worktrees")
                 scheduler = Scheduler(self.ledger, launcher, SKILLS, trees,
-                                      skill_root=Path(__file__).resolve().parents[1] / "skills", db_path=self.db,
+                                      replay_legacy=True, skill_root=Path(__file__).resolve().parents[1] / "skills", db_path=self.db,
                                       runtime_name="codex", host="test", server_slots_root=self.root)
                 self.assertIsNone(scheduler.launch(self.ledger.item(item)))
                 self.assertEqual((trees.added, trees.reads, launcher.spawned), ([], [], []))
@@ -362,7 +369,7 @@ class PoolTests(ServerPoolFixture):
 
         launcher, trees = FakeLauncher(self.root.parent / "runs"), HeldMeanwhile(self.root.parent / "worktrees")
         scheduler = Scheduler(self.ledger, launcher, SKILLS, trees,
-                              skill_root=Path(__file__).resolve().parents[1] / "skills", db_path=self.db,
+                              replay_legacy=True, skill_root=Path(__file__).resolve().parents[1] / "skills", db_path=self.db,
                               runtime_name="codex", host="test", server_slots_root=self.root)
         self.assertIsNone(scheduler.launch(self.ledger.item(item)))
         self.assertTrue(trees.added)
@@ -377,7 +384,7 @@ class PoolTests(ServerPoolFixture):
                     item = self.request(skill=skill, reserve=False)
                     launcher = FakeLauncher(self.root.parent / "runs")
                     scheduler = Scheduler(self.ledger, launcher, SKILLS, FakeWorktrees(self.root.parent / "worktrees"),
-                        skill_root=Path(__file__).resolve().parents[1] / "skills", db_path=self.db,
+                        replay_legacy=True, skill_root=Path(__file__).resolve().parents[1] / "skills", db_path=self.db,
                         runtime_name="fake", host="test", server_slots_root=self.root if configured else None)
                     scheduler.launch(self.ledger.item(item))
                     payload = json.loads(launcher.spawned[-1][1].split("\n\n", 1)[1])
@@ -386,6 +393,137 @@ class PoolTests(ServerPoolFixture):
                     self.assertIsNone(payload["resource"])
                     self.assertNotIn("MONGO_URI", launcher.spawn_env)
                     self.assertEqual(self.ledger.reservations(), [])
+
+
+class HandoffSettlementTests(ServerPoolFixture):
+    settings = {**SETTINGS, "count": 1}
+
+    def released_handoff(self, *, cancelled=False):
+        item = self.request()
+        self.assertEqual(self.pool.tick()["granted"], 1)
+        lease = self.services.started[0]
+        token = self.ledger.claim(item, worker_id="verification")["token"]
+        self.ledger.checkpoint(item, token, {"handoff": {
+            "facts": [], "hypotheses": [], "checks": [],
+            "repositories": [], "next_actions": ["Read any follow-up after delivery"],
+        }})
+        if cancelled:
+            self.ledger.cancel_reservations(item, "server verification stopped")
+        state = "cancelled" if cancelled else "released"
+        self.assertEqual(self.ledger.release(lease["reservation_id"], lease["token"], "worker quiescent"), state)
+        pr = "https://github.com/example/farm-hive/pull/1"
+        delivery = self.ledger.prepare_comment(item, token, "delivery", "Server fix: " + pr)
+        self.ledger.confirm_comment(delivery["action_id"], "fixture-delivery")
+        self.ledger.observe_issue(issue(id=self.ledger.item(item)["issue_id"],
+            identifier=f"FARM-{self.sequence}", branch_name=f"farmbot/farm-{self.sequence}",
+            description="Follow-up arrived after server verification and delivery."))
+        finished = self.ledger.finish(item, token, "delivered", {
+            "summary": "Server fix delivered", "verification": "Isolated server verification",
+            "prs": [pr], "comment_action_id": delivery["action_id"],
+        })
+        self.assertEqual((finished["state"], finished["generation"]), ("queued", 1))
+        self.assertEqual(self.ledger.reservation(lease["reservation_id"])["generation"], 0)
+        return item, lease
+
+    def test_released_lease_waits_for_successor_teardown_then_reuses_only_slot(self):
+        item, lease = self.released_handoff()
+        token = self.ledger.claim(item, worker_id="follow-up")["token"]
+        current = self.ledger.item(item)
+        reservation = self.ledger.reservation(lease["reservation_id"])
+        journal = self.pool._path(lease["slot"])
+        original = journal.read_bytes()
+        self.assertEqual(len(self.ledger.slots()), 1)
+
+        self.exited = False
+        self.assertEqual(self.pool.tick(), {"settled": 0, "granted": 0})
+        self.assertEqual(self.ledger.slot(lease["slot"])["state"], "switching")
+        self.assertEqual(journal.read_bytes(), original)
+        self.assertFalse(self.services.cleaned)
+
+        self.exited = True
+        self.assertEqual(self.pool.tick(), {"settled": 1, "granted": 0})
+        self.assertEqual(self.ledger.slot(lease["slot"])["state"], "idle_closed")
+        self.assertEqual(self.ledger.item(item), current)
+        self.assertEqual(self.ledger.reservation(lease["reservation_id"]), reservation)
+        self.assertEqual([entry["reservation_id"] for entry in self.services.cleaned], [lease["reservation_id"]])
+        self.assertFalse(journal.exists())
+        archived = self.pool.folder(lease["slot"]) / (lease["reservation_id"] + ".json")
+        self.assertEqual(json.loads(archived.read_text(encoding="utf-8"))["state"], "cleaned")
+
+        self.ledger.await_resource(item, token, "server_slot", "batch", skill=SKILLS["fix"], commit_sha="b" * 40)
+        self.assertEqual(self.pool.tick()["granted"], 1)
+        fresh = self.ledger.active_reservation(item)
+        self.assertEqual((fresh["resource"], fresh["generation"]), (lease["slot"], 1))
+        self.assertNotEqual(fresh["reservation_id"], lease["reservation_id"])
+
+    def test_restart_settles_released_lease_without_changing_successor(self):
+        item, lease = self.released_handoff()
+        current = self.ledger.item(item)
+        restarted = self.make_pool()
+        restarted.ensure()
+        self.assertEqual(restarted.tick(), {"settled": 1, "granted": 0})
+        self.assertEqual(self.ledger.item(item), current)
+        self.assertEqual(self.ledger.slot(lease["slot"])["state"], "idle_closed")
+
+    def test_cancelled_lease_can_settle_after_handoff(self):
+        item, lease = self.released_handoff(cancelled=True)
+        current = self.ledger.item(item)
+        self.assertEqual(self.pool.tick()["settled"], 1)
+        self.assertEqual(self.ledger.item(item), current)
+        self.assertEqual(self.ledger.reservation(lease["reservation_id"])["state"], "cancelled")
+        self.assertEqual(self.ledger.slot(lease["slot"])["state"], "idle_closed")
+
+    def assert_held_without_cleanup(self, item, lease):
+        current = self.ledger.item(item)
+        journal = self.pool._path(lease["slot"])
+        original = journal.read_bytes()
+        self.assertEqual(self.pool.tick()["settled"], 0)
+        self.assertEqual(self.ledger.slot(lease["slot"])["state"], "held")
+        self.assertFalse(self.services.cleaned)
+        self.assertEqual(journal.read_bytes(), original)
+        self.assertEqual(self.ledger.item(item), current)
+
+    def test_handoff_does_not_bypass_journal_ownership(self):
+        item, lease = self.released_handoff()
+        retained, _ = self.pool._lease(lease["slot"])
+        self.pool._save({**retained, "commit": "e" * 40})
+        self.assert_held_without_cleanup(item, lease)
+
+    def test_handoff_does_not_bypass_docker_ownership(self):
+        item, lease = self.released_handoff()
+        self.services.error = ServerSlotError("Docker resource ownership mismatch")
+        self.assert_held_without_cleanup(item, lease)
+
+    def test_released_lease_from_a_future_generation_stays_held(self):
+        item, lease = self.released_handoff()
+        self.ledger.connection.execute("UPDATE reservations SET generation=2 WHERE reservation_id=?",
+                                       (lease["reservation_id"],))
+        self.assert_held_without_cleanup(item, lease)
+
+    def test_open_cancel_requested_lease_from_an_older_generation_stays_held(self):
+        item = self.request()
+        self.pool.tick()
+        lease = self.services.started[0]
+        self.ledger.cancel_reservations(item, "stop old verification")
+        self.ledger.connection.execute("UPDATE work_items SET generation=generation+1 WHERE id=?", (item,))
+        self.assert_held_without_cleanup(item, lease)
+        self.assertEqual(self.ledger.reservation(lease["reservation_id"])["state"], "cancel_requested")
+
+    def test_previously_held_handoff_requires_guarded_recovery(self):
+        item, lease = self.released_handoff()
+        current = self.ledger.item(item)
+        self.ledger.set_slot_state(lease["slot"], "held")
+        self.assert_held_without_cleanup(item, lease)
+        self.exited = False
+        with self.assertRaisesRegex(ServerSlotError, "teardown"):
+            self.pool.recover(lease["slot"], "recover retired verification")
+        self.assertFalse(self.services.cleaned)
+        self.exited = True
+        self.pool.recover(lease["slot"], "recover retired verification")
+        self.assertEqual(self.ledger.item(item), current)
+        self.assertEqual(self.ledger.slot(lease["slot"])["state"], "idle_closed")
+        archived = self.pool.folder(lease["slot"]) / (lease["reservation_id"] + ".json")
+        self.assertEqual(json.loads(archived.read_text(encoding="utf-8"))["state"], "recovered")
 
 
 class AdmissionTests(ServerPoolFixture):

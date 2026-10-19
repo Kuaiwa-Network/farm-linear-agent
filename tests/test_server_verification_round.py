@@ -9,6 +9,7 @@ from agent.publication import PublicationError, PublicationVerifier
 from agent.skills import load_skills
 from agent.worktrees import Worktrees, WorktreeError
 from agent.workflow import JobWorktrees
+from agent.server_registration import ANCHORS, GATE, registration_delta, retained_registration_base
 from test_server_slots import ServerPoolFixture
 from test_worktrees import git
 
@@ -34,7 +35,7 @@ class ServerRoundTests(ServerPoolFixture):
         git('add', '.', cwd=self.path)
         git('commit', '-qm', 'candidate', cwd=self.path)
         self.candidate = self.trees.head(self.path)
-        self.skills = load_skills(Path(__file__).resolve().parents[1] / 'skills')
+        self.skills = load_skills(Path(__file__).resolve().parents[1] / 'skills', replay_legacy=True)
 
     def advance_main(self, value):
         (self.origin / 'main.txt').write_text(value, encoding='utf-8')
@@ -127,3 +128,82 @@ class ServerRoundTests(ServerPoolFixture):
             self.assertIn('overrides generic fresh-base/base-drift', text)
             self.assertIn('Tip movement alone is not', text)
             self.assertIn('after a quiescent server release', text)
+
+    def test_registration_only_descendant_keeps_ancestry_without_certifying_tests(self):
+        old = 'allow=CommitSharePut,Follow'
+        new = 'allow=CommitSharePut,Follow,PostMarketResult'
+        (self.path / GATE).parent.mkdir(parents=True)
+        (self.path / ANCHORS).parent.mkdir(parents=True)
+        (self.path / GATE).write_text('# gate\n' + old + '\ncheck_exact\n', encoding='utf-8', newline='\n')
+        (self.path / ANCHORS).write_text("inject_lit \"gate\" $'" + old + "' $'" + old + ",upgradeBuildingImpl'\n", encoding='utf-8', newline='\n')
+        git('add', '.', cwd=self.path)
+        git('commit', '-qm', 'gate fixtures', cwd=self.path)
+        (self.path / GATE).chmod((self.path / GATE).stat().st_mode | 0o111)
+        git('update-index', '--chmod=+x', GATE, cwd=self.path)
+        git('commit', '-qm', 'executable gate', cwd=self.path)
+        self.candidate = self.trees.head(self.path)
+        self.request_round()
+        for name in (GATE, ANCHORS):
+            p = self.path / name
+            p.write_text(p.read_text(encoding='utf-8').replace(old, new), encoding='utf-8', newline='\n')
+        git('commit', '-qam', 'registration only', cwd=self.path)
+        repaired = self.trees.head(self.path)
+        trees = JobWorktrees(self.trees, self.ledger)
+        check = lambda: retained_registration_base(trees, self.ledger, self.item, repaired, 'farmbot/farm-1')
+        self.assertIsNone(check())  # Unreleased evidence never lends its base.
+        self.settle()
+        self.advance_main('new main')
+        proof = check()
+        self.assertEqual(proof['base_commit'], self.base)
+        self.assertEqual(proof['source_candidate'], self.candidate)
+        self.assertEqual(proof['candidate_commit'], repaired)
+        self.assertIsNone(proof['test_verdict'])
+        self.assertIsNone(self.ledger.server_verification_round(self.item, repaired))
+        self.assertEqual(self.trees.server_verification_base('farm-hive', self.item, repaired,
+                                                            verified_base=proof['base_commit']), self.base)
+        remote = 'https://github.com/Kuaiwa-Network/farm-hive.git'
+        self.trees.remotes['farm-hive'] = remote
+        git('remote', 'set-url', 'origin', remote, cwd=self.path)
+        host = self.root.parent / 'registration.gitconfig'
+        local = str(self.origin).replace('\\', '\\\\')
+        host.write_text(f'[url "{local}"]\n\tinsteadOf = {remote}\n'
+                        f'[url "{remote}"]\n\tpushInsteadOf = {remote}\n', encoding='utf-8')
+        metadata = {'full_name': 'Kuaiwa-Network/farm-hive', 'private': True,
+                    'owner': {'login': 'Kuaiwa-Network'}, 'permissions': {'push': True},
+                    'html_url': remote[:-4], 'default_branch': 'main'}
+        verifier = PublicationVerifier(trees, api=lambda endpoint, **kw: None if '/branches/' in endpoint else metadata)
+        with patch.dict(os.environ, {'GIT_CONFIG_GLOBAL': str(host)}):
+            publication = verifier.verify('farm-hive', self.item, 'FARM-1', require_main=True)
+            self.assertEqual(publication['head'], repaired)
+            self.assertEqual(publication['main_integration']['commit'], self.base)
+            self.assertTrue(publication['server_registration_ancestry']['ancestry_only'])
+            self.assertNotIn('server_verification_round', publication)
+            git('reset', '--hard', self.initial, cwd=self.origin)
+            with self.assertRaisesRegex(PublicationError, 'main no longer contains'):
+                verifier.verify('farm-hive', self.item, 'FARM-1', require_main=True)
+        (self.path / 'candidate.txt').write_text('dirty', encoding='utf-8')
+        self.assertIsNone(check())
+        git('restore', 'candidate.txt', cwd=self.path)
+        self.assertIsNone(retained_registration_base(trees, self.ledger, self.item, repaired, 'farmbot/farm-2'))
+        self.ledger.connection.execute('UPDATE work_items SET generation=generation+1 WHERE id=?', (self.item,))
+        self.assertIsNone(check())
+
+    def test_registration_parser_rejects_changes_to_gate_or_negative_protection(self):
+        old = 'allow=CommitSharePut,Follow'
+        new = 'allow=CommitSharePut,Follow,PostMarketResult'
+        before = {GATE: old + '\nexact_check\n', ANCHORS: "$'" + old + "' $'" + old + ",upgradeBuildingImpl'\n"}
+        after = {p: text.replace(old, new) for p, text in before.items()}
+        self.assertTrue(registration_delta(before, after))
+        for path, text in ((GATE, after[GATE] + 'exit 0\n'),
+                           (GATE, after[GATE].replace('exact_check', 'skip_check')),
+                           (GATE, after[GATE].replace('CommitSharePut,', '')),
+                           (GATE, after[GATE].replace('Follow,', 'Follow,Follow,')),
+                           (GATE, after[GATE].replace('PostMarketResult', 'upgradeBuildingImpl')),
+                           (GATE, after[GATE].replace('PostMarketResult', '$(run)')),
+                           (ANCHORS, after[ANCHORS].replace(',upgradeBuildingImpl', '')),
+                           (ANCHORS, before[ANCHORS]),
+                           (ANCHORS, after[ANCHORS] + 'skip_test\n'),
+                           (GATE, after[GATE] + new + '\n')):
+            with self.subTest(path=path, text=text):
+                self.assertFalse(registration_delta(before, {**after, path: text}))
+        self.assertFalse(registration_delta(before, {**after, 'workflow.yml': 'skip'}))

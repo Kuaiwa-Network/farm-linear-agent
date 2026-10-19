@@ -7,7 +7,7 @@ from agent.lifecycle import UNDELEGATED
 from agent.skills import load_skills
 
 ROOT = Path(__file__).resolve().parents[1]
-SKILLS = load_skills(ROOT / "skills")
+SKILLS = load_skills(ROOT / "skills", replay_legacy=True)
 
 
 class NoticeTests(unittest.TestCase):

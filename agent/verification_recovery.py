@@ -33,8 +33,10 @@ def resume_comparison(config, item_id, candidate, reason):
                 failed_recheck = item['state'] == 'failed' and item['stage'] == 'client-comparison-recheck'
                 attribution_gap = (item['state'] == 'blocked'
                                    and item['stage'] == 'client-diagnostic-complete-attribution-blocked')
+                baseline_gap = (item['state'] == 'blocked'
+                                and item['stage'] == 'client-pinned-baseline-requeue-gap')
                 if (item['skill'] not in ('work', 'feature', 'fix') or item.get('parent_id')
-                        or not (evidence_gap or failed_recheck or attribution_gap) or item['root_repo'] != 'Farm-Client'
+                        or not (evidence_gap or failed_recheck or attribution_gap or baseline_gap) or item['root_repo'] != 'Farm-Client'
                         or item.get('next_root_repo') or ledger.human_question(item_id)):
                     raise LedgerError('comparison recovery requires a blocked Client evidence gap, not a human question')
                 ledger._refuse_withdrawn(ledger._row(item_id))
@@ -68,16 +70,20 @@ def resume_comparison(config, item_id, candidate, reason):
                     if (not isinstance(details, dict) or details.get('generation') != item['generation']
                             or not isinstance(prior_pair, dict) or not prior_pair.get('candidate_reservation')):
                         raise LedgerError('failed comparison recovery requires the prior operator resume for this exact generation and pair')
-                pair = ledger.client_verification_pair(item_id, candidate, require_candidate=True,
+                pair = ledger.client_verification_pair(item_id, candidate, require_candidate=not baseline_gap,
                     candidate_reservation=prior_pair['candidate_reservation'] if prior_pair else None)
                 if not pair:
                     raise LedgerError('comparison recovery requires the retained completed candidate pair')
+                if baseline_gap:
+                    from .baseline_resume import pinned_baseline
+                    pinned_baseline(ledger, item_id, candidate, pair['baseline_reservation'])
                 if prior_pair is not None and prior_pair != pair:
                     raise LedgerError('failed comparison recovery requires the prior operator resume for this exact generation and pair')
-                ledger._set_state(item_id, 'queued', reason, needs_resource=None, stage='client-comparison-recheck')
+                stage = 'client-baseline-resume' if baseline_gap else 'client-comparison-recheck'
+                ledger._set_state(item_id, 'queued', reason, needs_resource=None, stage=stage)
                 ledger._audit(item_id, 'operator_comparison_resume', reason,
                               {'generation': item['generation'], 'verification_pair': pair})
-                return {'item': item_id, 'state': 'queued', 'stage': 'client-comparison-recheck',
+                return {'item': item_id, 'state': 'queued', 'stage': stage,
                         'generation': item['generation'], 'verification_pair': pair,
                         'verification_required': True, 'maintenance_paused': True}
         finally:

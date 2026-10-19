@@ -14,6 +14,7 @@ from .memory import prune_snapshots
 from .router import CONVERSATION_SKILLS, WRITE_SKILLS, continuation_refusal
 from .stages import current_root, write_repositories
 from .withdrawal import NOTICE_REASONS, notice as withdrawal_notice, question_withdrawn
+from .execution import single, skill_for
 
 
 def parser():
@@ -32,6 +33,7 @@ def parser():
         return p
 
     cmd("memory-list", "--item", token=True)
+    cmd('shared-test-repairs', '--item', '--candidate', token=True)
     cmd("memory-read", "--item", "--id", token=True)
     cmd("memory-save", "--item", "--input", token=True)
     forget = cmd("memory-forget", "--item", "--id", "--reason", token=True)
@@ -48,7 +50,10 @@ def parser():
     actions.add_parser("prune-snapshots", help="stop the service before pruning").add_argument("--runs-root", required=True)
     cmd("status"); cmd("queue")
     cmd("fetch-issue", "--item")
-    cmd("claim", "--item", "--worker-id")
+    claim = cmd("claim", "--item", "--worker-id")
+    claim.add_argument('--context', action='store_true',
+                       help='include the current resume context in the same claim response')
+    claim.add_argument('--save-token', help='exclusively save state_dir/token; omit the secret from stdout')
     cmd("renew", "--item", token=True)
     cmd("maintenance-handoff", "--item", token=True)
     cmd("document-reader-status", "--item", token=True)
@@ -58,12 +63,14 @@ def parser():
     mode = index.add_mutually_exclusive_group(required=True)
     mode.add_argument('--input', help='JSON with pins and selected report paths, purposes and summaries')
     mode.add_argument('--verify', help='existing immutable evidence index in this item state directory')
-    cmd("handoff-repository", "--item", "--to", token=True)
+    handoff = cmd("handoff-repository", "--item", "--to", token=True)
+    handoff.add_argument('--checkpoint', help='save this checkpoint through normal gates before handing off')
     cmd("revalidate", "--item", "--fingerprint", token=True)
     context = cmd("issue-context", "--item")
     context.add_argument("--view", choices=["full", "resume"], default="full")
     cmd("pop-inbox", "--item", token=True)
     dependency = cmd("prepare-go-dependencies", "--item", "--module", "--commit", token=True)
+    dependency.add_argument('--repo', help='repository for a single-worker dependency request')
     dependency.add_argument("--retry", action="store_true", help="retry a failed/cancelled request after host correction; at most three")
     cmd("go-dependencies", "--item", "--request-id", token=True)
     cmd("tasks", "--item")
@@ -80,6 +87,11 @@ def parser():
     review_ui = cmd("review-ui", "--item", "--preview", "--asset-url", "--packages", token=True)
     review_ui.add_argument("--round", type=int, required=True)
     cmd("export-ui", "--item", "--review-id", "--preview", token=True)
+    cmd('verify-ui-source', '--item', token=True)
+    cmd('verify-scene-assets', '--item', token=True)
+    cmd('authorize-scene-scope', '--item', '--task', '--input', token=True)
+    cmd('yield-presentation', '--item', '--input', token=True)
+    cmd('resume-presentation', '--item', '--task', token=True)
     cmd("install-ui", "--item", "--receipt-id", token=True)
     verify_ui = cmd("verify-ui", "--item", "--receipt-id", token=True)
     verify_ui.add_argument("--commit", required=True)
@@ -113,6 +125,14 @@ def parser():
     repair = cmd("request-repair", "--item", "--summary-file", token=True)
     repair.add_argument("--message-id", type=int, required=True)
     resource = cmd("await-resource", "--item", "--resource", token=True)
+    cmd('resource-status', '--item', token=True)
+    cmd('cancel-resource', '--item', '--reservation', token=True)
+    cmd('unity-tools', '--item', token=True)
+    cmd('unity-read', '--item', '--uri', token=True)
+    cmd('unity-tool', '--item', '--name', '--input', token=True)
+    cmd('unity-test-result', '--item', '--job-id', token=True)
+    cmd('publish-ui', '--item', '--packages', token=True)
+    resource.add_argument('--checkpoint', help='save this checkpoint before requesting the resource')
     resource.add_argument("--server-test-plan", help="JSON file with exact packages, tests and race selection")
     resource.add_argument('--integration-plan', help='single-client/game-server plan, from the Client stage')
     integration = cmd('run-integration', '--item', '--client-command', token=True)
@@ -123,21 +143,27 @@ def parser():
                           help="test trusted remote main for comparison; --commit still names the owned candidate")
     resource.add_argument('--reuse-candidate-reservation',
                           help='bind a completed candidate-first run to its first comparison baseline')
+    resource.add_argument('--resume-baseline-reservation',
+                          help='resume the original baseline after certified maintenance handoff')
     resource.add_argument('--repair-candidate-reservation',
                           help='continue a settled original comparison at a repaired descendant, preserving its base')
     continuation = cmd('continue-verification', '--item', '--commit', '--reservation-token-file', token=True)
+    continuation.add_argument('--checkpoint', help='save completed baseline evidence before continuing')
     continuation.set_defaults(resource='unity_slot', mode='interactive', baseline=False, server_test_plan=None)
     progress = cmd('verification-progress', '--item', token=True)
     progress.add_argument('--phase', required=True, choices=['preparation', 'testing', 'presentation-qa',
                                                            'failure-review', 'comparison', 'publication', 'delivery'])
     comparison = cmd('compare-verification', '--item', '--baseline', '--candidate', '--scope', token=True)
     comparison.add_argument('--repair-original', help='retained original full candidate report for test-only repair')
+    cmd('verify-candidate', '--item', '--candidate', '--scope', token=True)
+    cmd('verification-closeout', '--item', '--input', token=True)
     release = cmd("release-resource", "--item", token=True)
     release.add_argument("--outcome", required=True, choices=["quiescent", "unclean"])
     cmd("withdraw", "--item", token=True)
     cmd("reservations"); cmd("slots")  # operator readers: no item, no token, nothing to authorise
     cmd("recover-slot", "--slot", "--reason")
     finish = cmd("finish", "--item", "--input", token=True)
+    finish.add_argument('--checkpoint', help='save the compact final checkpoint through normal gates before finish checks')
     finish.add_argument("--outcome", required=True, choices=["blocked", "delivered"])
     checks = finish.add_mutually_exclusive_group()
     checks.add_argument("--check-input", action="store_true",
@@ -227,6 +253,8 @@ def conversation_request(ledger, item_id, issue, running, *, start):
     if context["coordination"]["skill"] != "chat":
         return None, None
     work = context["resumable_work"]
+    if work is not None and set(running) <= {'chat', 'work'} and not single(ledger.item(work['id'])):
+        return None, 'historical staged work requires settled host adoption into single-worker-v1 before continuation'
     if work is not None and work["skill"] in running:
         return work["skill"], None
     children = bot_children(issue.get("label_groups"))
@@ -344,7 +372,7 @@ def verify_late_prs(ledger, args, token, progress):
     if Path(args.db).resolve() != paths.ledger.resolve():
         raise LedgerError("publication reconciliation must use the configured host ledger")
     item = ledger.item(args.item)
-    skill = load_skills(ROOT / 'skills').get(item['skill'])
+    skill = skill_for(item, load_skills(ROOT / 'skills', replay_legacy=not single(item)).get(item['skill']))
     session = ledger.session(item['session_id']) or {}
     if item['skill'] not in WRITE_SKILLS or not skill or not session.get('delegation'):
         raise LedgerError("only a delegated write worker may reconcile published PRs")
@@ -481,6 +509,27 @@ def post_notice(ledger, api, notice):
 
 def run(args, ledger, api_factory):
     c = args.command
+    # Old commands remain available to explicitly retained historical jobs;
+    # they cannot recreate stages/subtasks or semantic gates on a new owner.
+    from .execution import RETIRED_COMMANDS
+    if c in RETIRED_COMMANDS and single(ledger.item(args.item)):
+        raise LedgerError('this staged command is retired for single-worker jobs; continue in the current worker')
+    if c in ('resource-status', 'unity-tools', 'unity-read', 'unity-tool', 'unity-test-result'):
+        from . import worker_resources
+        function = worker_resources.status if c == 'resource-status' else worker_resources.unity
+        return function(args, ledger, load_config(secure_permissions=False), resolve_token(args))
+    if c == 'cancel-resource':
+        from .execution import cancel_queued_resource
+        return cancel_queued_resource(ledger, args.item, resolve_token(args), args.reservation)
+    if c == 'publish-ui':
+        from .worker_resources import context
+        from .worker_ui import export
+        from .fgui_workflow import read_packages
+        token = resolve_token(args)
+        config = load_config(secure_permissions=False)
+        _, paths = context(args, ledger, config, token)
+        return export(ledger, args.item, token, config, api_factory,
+                      read_packages(args.packages, paths.runs / args.item))
     if c == "document-reader-status":
         from .lark_cli import SKILLS
         from .lark_diagnostics import profile_status
@@ -509,9 +558,13 @@ def run(args, ledger, api_factory):
         if c == 'go-dependencies':
             return status(ledger, config, args.item, args.request_id)
         trees = JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger)
-        return request(ledger, trees, config, args.item, token, args.module, args.commit, retry=args.retry)
+        return request(ledger, trees, config, args.item, token, args.module, args.commit, retry=args.retry,
+                       repo=getattr(args, 'repo', None))
     if c == "memory-list":
         return ledger.memory_list(args.item, resolve_token(args))
+    if c == 'shared-test-repairs':
+        from .shared_test_repairs import discover
+        return discover(args, ledger, load_config(secure_permissions=False), resolve_token(args))
     if c == "memory-read":
         return ledger.memory_read(args.item, resolve_token(args), args.id)
     if c == "memory-save":
@@ -551,7 +604,18 @@ def run(args, ledger, api_factory):
         return {**observed, "delegated": delegated,
                 "withdrawn": ledger.item(args.item)["withdraw_deadline"] is not None}
     if c == "claim":
-        return ledger.claim(args.item, worker_id=args.worker_id)
+        if args.save_token:
+            from .worker_start import claim_to_file
+            config = load_config(secure_permissions=False)
+            if Path(args.db).resolve() != Paths(config).ledger.resolve():
+                raise LedgerError('claim token storage must use the configured host ledger')
+            result = claim_to_file(ledger, args.item, args.worker_id, args.save_token, config)
+        else:
+            result = ledger.claim(args.item, worker_id=args.worker_id)
+        if args.context:
+            from .resume_context import resume_view
+            result['context'] = resume_view(ledger.issue_context(args.item))
+        return result
     if c == "renew":
         return ledger.renew(args.item, resolve_token(args))
     if c == "maintenance-handoff":
@@ -595,7 +659,7 @@ def run(args, ledger, api_factory):
             from .config import ROOT
             from .skills import load_skills
             item = ledger.item(args.item)
-            skill = load_skills(ROOT / "skills").get(item["skill"])
+            skill = skill_for(item, load_skills(ROOT / "skills", replay_legacy=not single(item)).get(item["skill"]))
             published = progress.get("published_prs")
             if (isinstance(published, list) and all(isinstance(url, str) for url in published)
                     and skill is not None):
@@ -613,10 +677,13 @@ def run(args, ledger, api_factory):
         from .skills import load_skills
         token = resolve_token(args)
         ledger.renew(args.item, token)
+        if args.checkpoint:
+            run(argparse.Namespace(**{**vars(args), 'command': 'checkpoint', 'input': args.checkpoint}),
+                ledger, api_factory)
         item = ledger.item(args.item)
         refuse_withdrawn(item)
         # The item's own manifest decides its stages: any staged skill, to a repository in its writes.
-        skill = load_skills(ROOT / "skills").get(item["skill"])
+        skill = skill_for(item, load_skills(ROOT / "skills", replay_legacy=not single(item)).get(item["skill"]))
         if skill is None or not skill.staged:
             raise LedgerError(f"repository handoff requires a staged skill; {item['skill']} is not staged on this host")
         if args.to not in skill.writes:
@@ -788,7 +855,35 @@ def run(args, ledger, api_factory):
                 # own thread the acknowledgement is a thought, and the job speaks there next.
                 owe_closing(ledger, item, content, exc)
         return resumed
-    if c in ("review-ui", "export-ui", "install-ui", "verify-ui", "verify-ui-loading", "verify-ui-guards",
+    if c in ('verify-scene-assets', 'authorize-scene-scope', 'yield-presentation', 'resume-presentation'):
+        token = resolve_token(args)
+        config = load_config(secure_permissions=False)
+        paths = Paths(config)
+        if Path(args.db).resolve() != paths.ledger.resolve():
+            raise LedgerError('scene checks must use the configured host ledger')
+        from .scene_scope import authorize, verify_loading
+        if c == 'verify-scene-assets':
+            return verify_loading(ledger, args.item, token, config, api_factory)
+        from .launcher import Launcher, RUNTIMES
+        from .fgui_workflow import read_packages
+        api = api_factory()
+        issue = api.fetch_issue(ledger.item(args.item)['issue_id'])
+        observed = ledger.observe_issue(issue)
+        if (not observed['in_scope'] or issue.get('status_type') in TERMINAL_STATUS_TYPES
+                or not api.app_user_id or issue.get('delegate_id') != api.app_user_id or issue.get('archived')):
+            raise LedgerError('scene scope requires current delegation')
+        if c in ('yield-presentation', 'resume-presentation'):
+            from .presentation_repair import yield_client, resume
+            from .workflow import JobWorktrees
+            from .worktrees import Worktrees
+            trees = JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger)
+            if c == 'yield-presentation':
+                return yield_client(ledger, args.item, token, trees, config, read_packages(args.input, paths.runs / args.item))
+            return resume(ledger, args.item, token, args.task, trees, config,
+                          Launcher(paths.runs, RUNTIMES[config.runtime], config.host))
+        return authorize(ledger, args.item, token, args.task, read_packages(args.input, paths.runs / args.item),
+                         Launcher(paths.runs, RUNTIMES[config.runtime], config.host))
+    if c in ("review-ui", "export-ui", "install-ui", "verify-ui", "verify-ui-loading", "verify-ui-guards", 'verify-ui-source',
              "ui-verification-status", "authorize-ui-guard-repair"):
         token = resolve_token(args)
         ledger.renew(args.item, token)
@@ -799,9 +894,19 @@ def run(args, ledger, api_factory):
         from .config import ROOT
         from .skills import load_skills
         from .fgui_workflow import UiWorkflow, read_packages
-        skill = load_skills(ROOT / "skills").get(ledger.item(args.item)["skill"])
+        item = ledger.item(args.item)
+        skill = load_skills(ROOT / "skills", replay_legacy=not single(item)).get(item["skill"])
+        source_stage = (c in ('review-ui', 'export-ui') or c == 'verify-ui-source'
+                        and ledger.item(args.item)['root_repo'] in (None, 'farmgui'))
         workflow = UiWorkflow(ledger, args.item, token, config, skill, api_factory,
-                              stage="farmgui" if c in ("review-ui", "export-ui") else "Farm-Client")
+                              stage="farmgui" if source_stage else "Farm-Client",
+                              receipt_id=getattr(args, 'receipt_id', None), consume=c == 'install-ui')
+        if c == 'verify-ui-source':
+            from .presentation_artifacts import verify_source_delivery
+            from .fgui_records import export_record
+            ui = ledger.item(args.item)['checkpoint'].get('plan', {}).get('ui', {})
+            proof = export_record(ledger, args.item, ui.get('receipt_id'))
+            return verify_source_delivery(workflow, [proof['source_pr']])
         if c == "authorize-ui-guard-repair":
             from .fgui_repair import authorize_repair
             return authorize_repair(workflow, args.receipt_id, read_packages(args.input, paths.runs / args.item))
@@ -836,9 +941,9 @@ def run(args, ledger, api_factory):
             raise LedgerError("preview upload must use the configured host ledger")
         internal = item.get("parent_id") and "work" in (config.enabled_skills or [])
         scene = internal and item["skill"] == "scene" and item["root_repo"] in (None, "Farm-Client")
-        if not scene and (item["skill"] != "fgui" or item["root_repo"] not in (None, "farmgui")):
+        if not single(item) and not scene and (item["skill"] != "fgui" or item["root_repo"] not in (None, "farmgui")):
             raise LedgerError("preview upload requires this job's farmgui authoring stage")
-        if not internal and "fgui" not in (config.enabled_skills or []):
+        if not single(item) and not internal and "fgui" not in (config.enabled_skills or []):
             raise LedgerError("preview upload requires explicit fgui enablement on this host")
         image = read_image(args.file, paths.runs / args.item)
         ledger.renew(args.item, token)
@@ -855,7 +960,7 @@ def run(args, ledger, api_factory):
         keepalive()
         result = api.upload_image(image, keepalive=keepalive)
         keepalive()
-        if scene:
+        if scene or single(item):
             with ledger._transaction():
                 ledger._owned(args.item, token)
                 ledger._audit(args.item, "scene_preview_uploaded", details=result)
@@ -906,8 +1011,8 @@ def run(args, ledger, api_factory):
         paths = Paths(config)
         if Path(args.db).resolve() != paths.ledger.resolve():
             raise LedgerError("publication must use the configured host ledger")
-        skills = load_skills(ROOT / 'skills')
-        skill = skills.get(item['skill'])
+        skills = load_skills(ROOT / 'skills', replay_legacy=not single(item))
+        skill = skill_for(item, skills.get(item['skill']))
         session = ledger.session(item['session_id']) or {}
         if (item['skill'] not in WRITE_SKILLS or not skill or args.repo not in write_repositories(item, skill)
                 or not session.get('delegation')):
@@ -937,7 +1042,7 @@ def run(args, ledger, api_factory):
                 verification_record(workflow, 'fgui_guards_complete', 'guards_sha256', receipt, ui_scope, installed)
             result = PublicationVerifier(trees, issue_prefix=config.issue_prefix).verify(
                 args.repo, args.item, issue['identifier'], suffix_roles=skill.initial_root is not None,
-                require_main=ui_scope is None)
+                require_main=ui_scope is None and not single(item))
             if ui_scope is not None:
                 # Fresh UI scope already verifies the exact certified candidate
                 # and its qualified base's ancestry of actual remote main.
@@ -969,15 +1074,27 @@ def run(args, ledger, api_factory):
     if c == 'compare-verification':
         from .verification import compare_recorded_pair
         return compare_recorded_pair(args, ledger, load_config(secure_permissions=False), resolve_token(args))
+    if c == 'verify-candidate':
+        from .verification import verify_recorded_candidate
+        return verify_recorded_candidate(args, ledger, load_config(secure_permissions=False), resolve_token(args))
+    if c == 'verification-closeout':
+        from .verification_closeout import prepare
+        return prepare(args, ledger, load_config(secure_permissions=False), resolve_token(args))
     if c in ("await-resource", 'continue-verification'):
         from .config import ROOT
         from .skills import load_skills
         token = resolve_token(args)
         ledger.renew(args.item, token)  # authenticate before reading a manifest or any checkout
+        if args.checkpoint:
+            run(argparse.Namespace(**{**vars(args), 'command': 'checkpoint', 'input': args.checkpoint}),
+                ledger, api_factory)
         item = ledger.item(args.item)
         refuse_withdrawn(item)
         # The item's own manifest decides what it may wait for (P11), as it decides handoff-repository's stages.
-        skill = load_skills(ROOT / "skills").get(item["skill"])
+        if single(item):
+            from .worker_resources import request
+            return request(args, ledger, load_config(secure_permissions=False), token)
+        skill = skill_for(item, load_skills(ROOT / "skills", replay_legacy=not single(item)).get(item["skill"]))
         if skill is None:
             raise LedgerError(f"a resource request requires the item's skill; {item['skill']} is not loaded here")
         require_listed_resource(skill, args.resource)
@@ -1018,6 +1135,10 @@ def run(args, ledger, api_factory):
                 or item['skill'] not in ('work', 'feature', 'fix') or c != 'await-resource'):
             raise LedgerError('--repair-candidate-reservation requires a Client candidate request')
         retained_candidate = getattr(args, 'reuse_candidate_reservation', None)
+        resumed_baseline = getattr(args, 'resume_baseline_reservation', None)
+        if resumed_baseline is not None and (not args.baseline or args.resource != 'unity_slot'
+                or retained_candidate is not None or c != 'await-resource'):
+            raise LedgerError('--resume-baseline-reservation requires --baseline without a new candidate binding')
         if retained_candidate is not None:
             if not args.baseline:
                 raise LedgerError('--reuse-candidate-reservation requires --baseline')
@@ -1077,7 +1198,13 @@ def run(args, ledger, api_factory):
                     'source_commit': pair['candidate_commit'], 'candidate_commit': args.commit,
                     'baseline_commit': pair['baseline_commit'], 'changed_paths': delta}
             if args.baseline:
-                if retained_candidate is not None:
+                if resumed_baseline is not None:
+                    from .baseline_resume import pinned_baseline
+                    resumed = pinned_baseline(ledger, args.item, args.commit, resumed_baseline, mode=mode)
+                    options['verified_base'] = resumed['baseline_commit']
+                    request_options['resume_baseline_reservation'] = resumed_baseline
+                    request_options['reuse_candidate_reservation'] = resumed['reuse_candidate_reservation']
+                elif retained_candidate is not None:
                     # Authenticate and validate the binding before using its controller-recorded base.
                     ledger._validate_retained_candidate(item, retained_candidate, args.commit, mode)
                     pinned = ledger.candidate_verification_base(retained_candidate)
@@ -1085,7 +1212,19 @@ def run(args, ledger, api_factory):
                         options['verified_base'] = pinned
                 selected_commit = trees.verification_baseline(
                     "Farm-Client", args.item, args.commit, **options)
-                request_options["comparison_candidate"] = args.commit
+                if (resumed_baseline is None and
+                        trees.verification_tree('Farm-Client', selected_commit) ==
+                        trees.verification_tree('Farm-Client', args.commit)):
+                    if ledger.client_verification_pair(args.item, args.commit):
+                        raise LedgerError('this same-tree candidate already has a comparison; '
+                                          'reuse its actual pair with compare-verification')
+                    if retained_candidate is not None or ledger.client_candidate_round(args.item, args.commit):
+                        raise LedgerError('baseline and candidate have the same file tree; use verify-candidate '
+                                          'with the retained candidate report, diagnose gaps without rerunning baseline')
+                    request_options['client_base_commit'] = selected_commit
+                    selected_commit = args.commit
+                else:
+                    request_options["comparison_candidate"] = args.commit
             else:
                 if not server_request and item['skill'] in ('work', 'fix', 'feature'):
                     if c == 'continue-verification':
@@ -1183,7 +1322,7 @@ def run(args, ledger, api_factory):
         from .config import ROOT
         from .skills import load_skills
         from .withdrawal import grace_seconds
-        grace = grace_seconds(load_skills(ROOT / "skills").get(item["skill"]))
+        grace = grace_seconds(load_skills(ROOT / "skills", replay_legacy=not single(item)).get(item["skill"]))
         view, reason = ledger.withdraw(args.item, token, delegated=delegated, closed=closed, read_at=read_at,
                                        grace_seconds=grace)
         posted = post_closing_notice(ledger, lambda: api, view, reason) if view["state"] == "cancelled" else False
@@ -1198,6 +1337,11 @@ def run(args, ledger, api_factory):
     if c == "finish":
         token = resolve_token(args)
         ledger.renew(args.item, token)
+        if getattr(args, 'checkpoint', None):
+            if args.check_input:
+                raise LedgerError('--checkpoint is for --check-ready or actual finish, not shape-only --check-input')
+            run(argparse.Namespace(**{**vars(args), 'command': 'checkpoint', 'input': args.checkpoint}),
+                ledger, api_factory)
         evidence = read_json(args.input)
         if not isinstance(evidence, dict):
             raise LedgerError("finish input must be an object")
@@ -1208,6 +1352,14 @@ def run(args, ledger, api_factory):
             return {'input_valid': True, 'completion_checked': False,
                     'maintenance_requested': item['maintenance_requested'],
                     'next': 'Complete live gates and confirmed delivery, then run finish without --check-input.'}
+        if item['skill'] == 'work' and args.outcome == 'delivered' and not single(item):
+            from .presentation_artifacts import verify_parent_head
+            from .workflow import task_views
+            if any((t.get('evidence') or {}).get('ui_source_delivery_id') for t in task_views(ledger, args.item)):
+                config = load_config(secure_permissions=False)
+                if Path(args.db).resolve() != Paths(config).ledger.resolve():
+                    raise LedgerError('parent integration delivery must use the configured host ledger')
+                verify_parent_head(ledger, item, config)
         if args.check_ready:
             return {**ledger.finish(args.item, token, args.outcome, evidence, check_only=True),
                     'maintenance_requested': item['maintenance_requested']}
@@ -1219,9 +1371,15 @@ def run(args, ledger, api_factory):
             config = load_config(secure_permissions=False)
             if Path(args.db).resolve() != Paths(config).ledger.resolve():
                 raise LedgerError("UI delivery must use the configured host ledger")
-            workflow = UiWorkflow(ledger, args.item, token, config, load_skills(ROOT / "skills").get("fgui"),
-                                  api_factory, stage="Farm-Client")
-            evidence["ui_delivery_id"] = verify_delivery(workflow, evidence.get("prs"))["delivery_id"]
+            workflow = UiWorkflow(ledger, args.item, token, config, load_skills(ROOT / "skills", replay_legacy=True).get("fgui"),
+                                  api_factory, stage='farmgui' if item['root_repo'] in (None, 'farmgui') else 'Farm-Client')
+            from .presentation_contract import source_only
+            if item.get('parent_id') and (source_only(item) or evidence.get('source_only') is True):
+                from .presentation_artifacts import verify_source_delivery
+                proof = verify_source_delivery(workflow, evidence.get('prs'))
+                evidence.update(ui_source_delivery_id=proof['delivery_id'], receipt_id=proof['receipt_id'])
+            else:
+                evidence["ui_delivery_id"] = verify_delivery(workflow, evidence.get("prs"))["delivery_id"]
         if item["skill"] == "scene" and args.outcome == "delivered":
             from .scene_delivery import verify_delivery
             config = load_config(secure_permissions=False)

@@ -57,7 +57,7 @@ class ViewBase(unittest.TestCase):
         self.ledger.observe_issue(issue(**({"id": issue_id, "identifier": f"FARM-{n}", "title": f"标题 {n}",
                                             "url": f"https://linear.app/k/issue/FARM-{n}"} | changes)))
         self.ledger.ensure_session(f"session-{n}", issue_id, delegation=True)
-        return self.ledger.create_work_item(issue_id=issue_id, session_id=f"session-{n}", skill=skill, target=PIN)
+        return self.ledger.create_work_item(issue_id=issue_id, session_id=f"session-{n}", skill=skill, target=PIN, execution_contract='staged-v1')
 
     def claim(self, item):
         self.ledger.set_worker(item["id"], 515151, "test-host")
@@ -78,12 +78,24 @@ class ViewBase(unittest.TestCase):
 
 
 class ServerWaitTests(ViewBase):
+    def test_presentation_waits_are_technical_coordination_without_private_checkpoint_text(self):
+        item = self.job(skill='work')
+        for state, stage, cp, expected in (
+            ('awaiting_input', 'waiting-presentation', {'waiting_tasks': True}, 'waiting_presentation'),
+            ('awaiting_input', 'waiting-parent-repair', {}, 'waiting_parent_repair'),
+            ('queued', 'waiting-presentation-dependency', {}, 'waiting_presentation')):
+            self.sql('UPDATE work_items SET state=?,stage=?,checkpoint=? WHERE id=?',
+                     state, stage, json.dumps({**cp, 'private': 'SECRET'}), item['id'])
+            value = self.active(self.status(), 'FARM-1')
+            self.assertEqual(value['display_state'], expected)
+            self.assertNotIn('SECRET', json.dumps(value))
+
     def test_exact_memory_wait_is_sanitized_stales_and_disappears_when_request_ends(self):
         from agent.skills import load_skills
         item = self.job()
         token = self.claim(item)["token"]
         self.sql("UPDATE work_items SET root_repo='farm-hive' WHERE id=?", item["id"])
-        skills = load_skills(Path(__file__).resolve().parents[1] / "skills")
+        skills = load_skills(Path(__file__).resolve().parents[1] / "skills", replay_legacy=True)
         self.ledger.await_resource(item["id"], token, "server_slot", "batch", skill=skills["fix"], commit_sha="a" * 40)
         reservation = self.ledger.reservations()[0]
         detail = {"observed_at": NOW, "profile": "full", "blockers": ["commit_headroom"], "requested_mib": 8192,
@@ -828,7 +840,7 @@ class OlderLedgerTests(unittest.TestCase):
         self.assertIsNone(document["unity_queue"])
         self.assertEqual(set(document["ledger"]["missing_optional"]),
                          {"audit", "published_prs", "slots", "reservations", "resource_recoveries", "job_cleanup",
-                          "issue_checks", "webhook_events"})
+                          "issue_checks", "webhook_events", "outbox"})
         self.assertEqual(document["verdict"], "attention")  # old service provides no heartbeat to verify its loops
         self.assertEqual([item["code"] for item in document["attention"]], ["heartbeat_missing"])
 

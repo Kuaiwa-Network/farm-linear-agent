@@ -19,7 +19,9 @@ TERMINAL = ("delivered", "blocked", "failed", "cancelled")
 VERDICTS = ("ok", "attention", "starting", "unresponsive", "stopped", "unknown")
 DISPLAY_STATES = ("queued", "launching", "switching_repo", "retry_wait", "running", "awaiting_input",
                   "awaiting_resource", "waiting_for_recovery", "maintenance_paused", "maintenance_handoff",
-                  "acceptance_paused")
+                  "acceptance_paused", 'waiting_presentation', 'waiting_parent_repair',
+                  'legacy_paused', 'resource_in_use', 'preparing_resource', 'waiting_worker', 'waiting_worker_cleanup')
+DISPLAY_STATES += ('resource_released', 'resource_held', 'preparing_delivery', 'delivery_posted')
 OUTCOMES = ("delivered", "no_change", "blocked", "failed", "cancelled")
 FAILURE_CODES = ("worker_launch_failed", "worker_start_failed", "worker_claim_timeout", "worker_exit_failed",
                  "model_capacity_exhausted", "skill_disabled", "job_failed")
@@ -46,11 +48,11 @@ UNTRACKED_GRACE = 30
 LOOP_LIMITS = {"receive": 120, "lifecycle": 600, "progress": 600, "schedule": 1800,
                "resource_recovery": 1800, "pool": 5400}
 KNOWN_TABLES = ("work_items", "issues", "audit", "published_prs", "slots", "reservations",
-                "resource_recoveries", "job_cleanup", "issue_checks", "webhook_events")
+                "resource_recoveries", "job_cleanup", "issue_checks", "webhook_events", "outbox")
 REQUIRED = {"work_items": ("id", "issue_id", "skill", "state", "stage", "created_at", "updated_at"),
             "issues": ("id", "metadata")}
 OPTIONAL_ITEM_COLUMNS = ("priority", "worker_pid", "next_root_repo", "root_repo", "retry_not_before",
-                         "lease_expires_at")
+                         "lease_expires_at", "execution_contract", "generation")
 SLOT_FIELDS = ("slot_id", "kind", "state", "commit", "holder", "mode", "recovery")
 HEALTH_FIELDS = ("ok", "status", "latency_ms", "error_type", "checked_at")
 INSTANCE_FIELDS = ("environment", "instance_id", "bot_name", "host")
@@ -132,6 +134,8 @@ def _identifiers(db, item_ids):
 def _active_rows(db, schema):
     extra = [name for name in OPTIONAL_ITEM_COLUMNS if name in schema["work_items"]]
     columns = ", ".join(f"w.{name}" for name in ("id", "issue_id", "skill", "state", "stage", "created_at", *extra))
+    if 'checkpoint' in schema['work_items']:
+        columns += ", CASE WHEN json_valid(w.checkpoint) THEN json_extract(w.checkpoint,'$.waiting_tasks') ELSE 0 END AS waiting_tasks"
     rows = [dict(row) for row in db.execute(
         f"""SELECT {columns}, {_ISSUE_FIELDS} FROM work_items w JOIN issues i ON i.id=w.issue_id
             WHERE w.state IN ({_marks(ACTIVE)}) ORDER BY w.created_at, w.id""", ACTIVE)]
@@ -179,6 +183,24 @@ def _unity_queue(db, schema):
 
 
 def _display_state(row, now):
+    if row['stage'] == 'legacy-adoption-required':
+        return 'legacy_paused'
+    if row['state'] == 'running' and row.get('execution_contract') == 'single-worker-v1':
+        phases = {'resource-released': 'resource_released', 'resource-held': 'resource_held',
+                  'delivery-prepared': 'preparing_delivery', 'delivery-posted': 'delivery_posted'}
+        if row['stage'] in phases:
+            return phases[row['stage']]
+        if row['stage'] in ('waiting-for-unity_slot', 'waiting-for-server_slot', 'waiting-for-unity'):
+            return 'awaiting_resource'
+        if row['stage'] == 'unity-preparing':
+            return 'preparing_resource'
+        if row['stage'] == 'resource-ready':
+            return 'resource_in_use'
+    if row['state'] == 'awaiting_input' and row['stage'] == 'waiting-parent-repair':
+        return 'waiting_parent_repair'
+    if (row['state'] == 'awaiting_input' and row.get('waiting_tasks')
+            or row['state'] == 'queued' and row['stage'] == 'waiting-presentation-dependency'):
+        return 'waiting_presentation'
     if row["state"] == "queued":
         if row["worker_pid"] is not None:
             return "switching_repo" if row["next_root_repo"] else "launching"
@@ -277,9 +299,9 @@ def _resource_waits(db, schema, now, beat_state, beat):
 
 
 def _jobs(rows, times, prs, unity_queue, now, beat_state, beat, renew_seconds, resource_waits=None,
-          maintenance=False, admitted=(), only_issue=None, scope_issue_id=None):
+          maintenance=False, admitted=(), only_issue=None, scope_issue_ids=()):
     waiting = sorted((row for row in rows if _display_state(row, now) == "queued"
-                      and (only_issue is None or row['issue_id'] == scope_issue_id)),
+                      and (only_issue is None or row['issue_id'] in scope_issue_ids)),
                      key=lambda row: (row["priority"] if type(row["priority"]) is int else 0,
                                       _time(row["created_at"]) or 0, row["id"]))
     positions = {row["id"]: index for index, row in enumerate(waiting, 1)}
@@ -288,15 +310,16 @@ def _jobs(rows, times, prs, unity_queue, now, beat_state, beat, renew_seconds, r
     for row in rows:
         display = _display_state(row, now)
         position = (positions.get(row["id"]) if display == "queued"
-                    else unity.get(row["id"]) if row["state"] == "awaiting_resource" else None)
-        server_wait = (resource_waits or {}).get(row["id"]) if row["state"] == "awaiting_resource" else None
+                    else unity.get(row["id"]) if row['state'] == 'awaiting_resource' or display == 'awaiting_resource' else None)
+        server_wait = ((resource_waits or {}).get(row["id"])
+                       if row['state'] == 'awaiting_resource' or display == 'awaiting_resource' else None)
         if server_wait:
             position = server_wait.get("position") or 1
         if maintenance and row['state'] in ('queued', 'running', 'awaiting_resource'):
             display = ('maintenance_handoff' if row['state'] == 'running' or row['worker_pid'] is not None
                        or row['id'] in admitted else 'maintenance_paused')
             position, server_wait = None, None
-        elif only_issue and row['issue_id'] != scope_issue_id and row['state'] in ('queued', 'awaiting_resource'):
+        elif only_issue and row['issue_id'] not in scope_issue_ids and row['state'] in ('queued', 'awaiting_resource'):
             display = 'acceptance_paused'
             position, server_wait = None, None
         jobs.append({"identifier": _text(row["identifier"], 32), "title": _text(row["title"], 200),
@@ -460,6 +483,9 @@ def _ledger_attention(db, schema, rows, slots, now):
 def _read_ledger(db, now, beat_state, beat, renew_seconds):
     schema = _schema(db)
     rows = _active_rows(db, schema)
+    from .work_status import current_stage
+    for row in rows:
+        row['stage'] = current_stage(db, row, schema)
     recent = _recent_rows(db, schema, now)
     failed = _unresolved_failures(db, schema, now)
     failure_ids = list(dict.fromkeys([row["id"] for row in recent if row["state"] == "failed"]
@@ -474,7 +500,7 @@ def _read_ledger(db, now, beat_state, beat, renew_seconds):
         counts[row["state"]] += 1
     service = {}
     from .maintenance import request as maintenance_request
-    from .admission_scope import read as admission_scope
+    from .admission_scope import read as admission_scope, issue_ids, identifiers
     scope = admission_scope(db)
     maintaining = maintenance_request(db) is not None
     admitted = ({r['item_id'] for r in db.execute("SELECT item_id FROM reservations WHERE state IN "
@@ -488,8 +514,8 @@ def _read_ledger(db, now, beat_state, beat, renew_seconds):
         service["linear"] = {"last_ok_at": _time(row["ok"]), "failing_issues": row["failing"]}
     jobs = _jobs(rows, _audit_times(db, schema, [row["id"] for row in rows]), prs, queue or [], now,
                  beat_state, beat, renew_seconds, _resource_waits(db, schema, now, beat_state, beat),
-                 maintenance=maintaining, admitted=admitted, only_issue=scope['identifier'] if scope else None,
-                 scope_issue_id=scope['issue_id'] if scope else None)
+                 maintenance=maintaining, admitted=admitted, only_issue=', '.join(identifiers(scope)) if scope else None,
+                 scope_issue_ids=issue_ids(scope) if scope else ())
     sections = {"counts": counts, "active": jobs,
                 "slots": None if slots is None else [{key: slot[key] for key in SLOT_FIELDS} for slot in slots],
                 "unity_queue": None if queue is None else len(queue),

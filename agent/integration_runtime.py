@@ -93,11 +93,14 @@ def execute(resource, client_argv, directory, *, check=lambda:None, command=Comm
                    'FARMBOT_SERVER_COMMIT':integration['commit'], 'FARMBOT_UNITY_INSTANCE':resource['instance'],
                    'FARMBOT_UNITY_MCP':resource['mcp_address']}
     for key in ('GOCACHE','GOTMPDIR'):
+        if key in environment:
+            continue  # Keep launcher-owned attempt-local disposable cache paths.
         path = directory / key.lower()
         path.mkdir()
         environment[key] = str(path)
     environment['GOMAXPROCS'] = '2'
-    report = {'client_commit':resource['commit'], 'server_commit':integration['commit'],
+    report = {'schema':1, 'reservation_id':resource.get('reservation_id'),
+              'client_commit':resource['commit'], 'server_commit':integration['commit'],
               'scenarios':plan['scenarios'], 'server_argv':server_argv, 'client_argv':validate_argv(client_argv),
               'endpoint':f'127.0.0.1:{port}', 'started_at':time.time(), 'ready_at':None,
               'status':'failed', 'teardown':False, 'client_exit_code':None}
@@ -162,6 +165,7 @@ def execute(resource, client_argv, directory, *, check=lambda:None, command=Comm
 
 def run_owned(ledger, args, token):
     from .config import load_config, Paths
+    from .execution import single
     from .integration import companion
     from .ledger import LedgerError
     from .server_slots import read_resource
@@ -174,7 +178,8 @@ def run_owned(ledger, args, token):
     reservation = ledger.active_reservation(args.item)
     server = companion(ledger, reservation) if reservation else None
     if (not server or reservation['state']!='active' or reservation['generation']!=item['generation']
-            or item['root_repo']!='Farm-Client' or ledger.slot(reservation['resource'])['state']!='interactive_busy'):
+            or not single(item) and item['root_repo']!='Farm-Client'
+            or ledger.slot(reservation['resource'])['state']!='interactive_busy'):
         raise LedgerError('run-integration requires this worker current combined Client lease')
     config = load_config(secure_permissions=False)
     paths = Paths(config)
@@ -187,7 +192,7 @@ def run_owned(ledger, args, token):
     source = trees.read_candidate('farm-hive', args.item, server['commit_sha'])
     integration.update(source=str(source), plan=server['integration']['plan'])
     slot = ledger.slot(reservation['resource'])
-    resource = {'commit':reservation['commit_sha'], 'instance':slot['instance'],
+    resource = {'reservation_id':reservation['reservation_id'], 'commit':reservation['commit_sha'], 'instance':slot['instance'],
                 'mcp_address':slot['mcp_address'], 'integration':integration}
     with open(args.client_command, encoding='utf-8') as stream:
         client_argv = validate_argv(json.load(stream))
@@ -207,6 +212,12 @@ def run_owned(ledger, args, token):
             raise LedgerError('combined resource held for recovery')
     result = execute(resource, client_argv, directory, check=check)
     ledger.renew(args.item, token)
+    try:
+        trees.verification_commit('Farm-Client', args.item, reservation['commit_sha'])
+        trees.verification_commit('farm-hive', args.item, server['commit_sha'])
+    except RuntimeError as exc:
+        result.update(status='failed', error=f'source inputs changed during verification: {exc}')
+        _write_worker_file(result['report'], json.dumps({k:v for k,v in result.items() if k!='report'}, indent=2) + '\n', sync=True)
     ledger.note(args.item, 'client_server_verification', result['status'],
                 {'reservation_id':reservation['reservation_id'], 'report':result['report'],
                  'sha256':hashlib.sha256(Path(result['report']).read_bytes()).hexdigest(),

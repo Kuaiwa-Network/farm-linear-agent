@@ -112,6 +112,8 @@ class Config:
     fgui_export: dict = field(default_factory=dict)
     # Opt-in host preparation; no tool selection/installation or worker cache write grant.
     go_dependencies: dict = field(default_factory=dict)
+    # Only allowlisted regenerable attempt data; logs/recovery have no expiry.
+    worker_retention: dict = field(default_factory=dict)
     # Names of the skills this instance runs (spec §9.11); None runs every skill in the checkout's skills/ but the
     # opt-in ones (Phase B plan, P1).
     enabled_skills: list | None = None
@@ -160,8 +162,8 @@ class Config:
                 or self.reconcile_seconds <= 0):
             raise ValueError("reconcile_seconds must be positive and finite")
         if (not isinstance(self.codex_windows_sandbox, str)
-                or self.codex_windows_sandbox not in ("elevated", "unelevated")):
-            raise ValueError("codex_windows_sandbox must be elevated or unelevated")
+                or self.codex_windows_sandbox not in ("elevated", "unelevated", "mxc")):
+            raise ValueError("codex_windows_sandbox must be elevated, unelevated or mxc")
         if not isinstance(self.codex_workers, dict):
             raise ValueError("codex_workers must map skill names to model settings")
         for skill, settings in self.codex_workers.items():
@@ -180,6 +182,8 @@ class Config:
             validate_settings(self.fgui_export)
         from .go_dependencies import validate_settings as validate_go_dependencies
         validate_go_dependencies(self.go_dependencies, self.local_root, self.repos)
+        from .worker_retention import settings as retention_settings
+        retention_settings(self.worker_retention)
         if self.lark_cli.get("secret_env") and self.lark_cli["secret_env"] == self.kw_ops.get("token_env"):
             raise ValueError("lark_cli secret_env must differ from kw_ops token_env")
         if self.enabled_skills is not None and (
@@ -291,6 +295,18 @@ class StubLinear:
     def issue_status(self, issue_id):
         raw = self.fetch_issue(issue_id)
         return {**raw, "updated_at": raw.get("updated_at") or "2026-09-21T00:00:00Z"}
+
+    def set_issue_workflow_state(self, issue_id, target, *, still_current=lambda: True):
+        raw = self.fetch_issue(issue_id)
+        if (not still_current() or raw.get('delegate_id') != self.app_user_id or raw.get('archived')
+                or raw.get('status_type') in ('completed', 'canceled', 'duplicate')):
+            return False
+        self._record('set_issue_workflow_state', issue_id=issue_id, target=target)
+        per_issue = self.directory / f'issue-{issue_id}.json'
+        source = per_issue if per_issue.is_file() else self.directory / 'issue.json'
+        raw.update(status=target, status_type='started')
+        source.write_text(json.dumps(raw, ensure_ascii=False), encoding='utf-8')
+        return True
 
     def create_comment(self, issue_id, body):
         number = len(list(self.directory.glob("comment-*.txt"))) + 1

@@ -261,7 +261,7 @@ class SlotPool:
             return 0
         # Do not immediately spend budget that the previous tick reclaimed for a server.
         from .integration import server_pending
-        waiting = server_pending(self.ledger) if self.admission else []
+        waiting = server_pending(self.ledger, single_only=getattr(self, 'single_only', False)) if self.admission else []
         if waiting:
             from .integration import get as integration_request
             if (not integration_request(self.ledger, waiting[0]['reservation_id']) or
@@ -410,7 +410,7 @@ class SlotPool:
         if not queued:
             return
         from .integration import server_pending
-        waiting = bool(server_pending(self.ledger))
+        waiting = bool(server_pending(self.ledger, single_only=getattr(self, 'single_only', False)))
         if not waiting and self.admission.last_reason is None:
             return
         for slot in self.ledger.slots(kind="unity_slot", host=self.host):
@@ -419,7 +419,7 @@ class SlotPool:
             if slot["state"] != "idle_open" or self.ledger.active_reservation_on(slot["slot_id"]):
                 continue
             with self.admission.lock:
-                pending = server_pending(self.ledger)
+                pending = server_pending(self.ledger, single_only=getattr(self, 'single_only', False))
                 if pending:
                     # A combined request needs one Editor retained; close only surplus Editors.
                     from .integration import get as integration_request
@@ -561,6 +561,16 @@ class SlotPool:
                     self.ledger.fail_queued(item_id, 'combined verification setup failed; preserve both resources for recovery')
                 return False
         self.last_observation = None
+        if (reservation['kind'] == 'unity_slot' and self.ledger.item(item_id)['skill'] in ('work', 'feature', 'fix')
+                and self.ledger.reservation_comparison(reservation['reservation_id'])):
+            from .equal_tree_verification import select_candidate
+            try:
+                reservation = select_candidate(self.ledger, self.worktrees, reservation)
+                if reservation['state'] != 'active':
+                    return False
+            except GIT_FAILURES as exc:
+                self._switch_failed(reservation, SlotError(f'cannot verify pinned source trees: {exc}', stage='git'))
+                return False
         if self.keep_open:
             from .resource_recovery import RecoveryStore
             entry = self.entries[slot_id]
@@ -620,8 +630,12 @@ class SlotPool:
                                             observation)
             self._write_token(item_id, reservation)
             try:
-                self.ledger.resume(item_id, f"{slot_id} acquired ({reservation['mode']})",
-                                   stage="unity-worker-ready" if reservation["mode"] == "interactive" else None)
+                from .execution import single, resource_ready
+                if single(self.ledger.item(item_id)):
+                    resource_ready(self.ledger, reservation)
+                else:
+                    self.ledger.resume(item_id, f"{slot_id} acquired ({reservation['mode']})",
+                                       stage="unity-worker-ready" if reservation["mode"] == "interactive" else None)
             except LedgerError:
                 # A Stop landed during the multi-minute switch, so the item is already cancelled and
                 # resume() refuses it. The item needs nothing here: it is already terminal.
@@ -644,7 +658,17 @@ class SlotPool:
             # The slot is fine and goes back to the pool, but the item must not be left waiting: nothing
             # re-queues its reservation, and reservations_to_settle cannot see an `awaiting_resource` item,
             # so it would wait for a slot that is never handed to it and no report would ever be owed.
-            self.ledger.fail_queued(reservation["item_id"], reason)
+            self._preparation_failed(reservation, reason)
+
+    def _preparation_failed(self, reservation, reason):
+        from .execution import single
+        if single(self.ledger.item(reservation['item_id'])):
+            with self.ledger._transaction():
+                self.ledger.connection.execute("UPDATE work_items SET stage='resource-preparation-failed',needs_resource=NULL "
+                    "WHERE id=? AND state='running'", (reservation['item_id'],))
+                self.ledger._audit(reservation['item_id'], 'resource_preparation_failed', reason)
+        else:
+            self.ledger.fail_queued(reservation['item_id'], reason)
 
     def _forget_token(self, item_id):
         """Best effort, because the give-back path runs after a failure that may be the very reason the
@@ -689,9 +713,9 @@ class SlotPool:
             self.ledger.set_slot_state(reservation["resource"], self._idle_state(slot, reservation["mode"]))
         if exc.stage == "compile":
             # The slot is fine; this commit does not build. Fail the item and leave the slot in the pool.
-            self.ledger.fail_queued(reservation["item_id"], f"compile errors at the pinned commit: {reason}")
+            self._preparation_failed(reservation, f"compile errors at the pinned commit: {reason}")
         elif reservation["attempts"] >= 1:
-            self.ledger.fail_queued(reservation["item_id"], f"verification gap: {reason}")
+            self._preparation_failed(reservation, f"verification gap: {reason}")
         else:
             self.ledger.requeue_reservation(reservation["reservation_id"], reason)
 

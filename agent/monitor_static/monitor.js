@@ -28,12 +28,20 @@
   const STATE = {
     maintenance_paused: ["维护暂停", "neutral"], maintenance_handoff: ["维护收尾中", "info"],
     acceptance_paused: ["等待指定任务验收", "neutral"],
+    waiting_presentation: ["等待子任务产物或安装", "neutral"],
+    waiting_parent_repair: ["等待安全交接及主任务前置修复", "warn"],
     queued: ["排队中", "neutral"], launching: ["正在启动", "info"], switching_repo: ["切换仓库", "info"],
     retry_wait: ["等待重试", "neutral"], running: ["处理中", "info"], awaiting_input: ["等待回复", "warn"],
     awaiting_resource: ["等待资源", "neutral"], waiting_for_recovery: ["等待 Unity 修复", "warn"],
     waiting_worker: ["等待 worker 名额", "neutral"], preparing_resource: ["准备 Unity", "info"],
     waiting_worker_cleanup: ["等待 worker 清理", "neutral"],
     resource_ready: ["Unity 已就绪，等待启动", "info"],
+    resource_in_use: ["资源已就绪，同一 worker 继续", "info"],
+    resource_released: ["资源已释放，worker 继续处理", "info"],
+    resource_held: ["资源已隔离，等待恢复", "warn"],
+    preparing_delivery: ["正在发布交付说明", "info"],
+    delivery_posted: ["交付说明已发布，正在完成 finish", "info"],
+    legacy_paused: ["旧流程暂停，等待显式接续", "neutral"],
   };
   const OUTCOME = {
     delivered: ["已交付", "ok"], no_change: ["无需改动", "ok"], blocked: ["受阻", "warn"],
@@ -41,7 +49,7 @@
   };
   const LOOP = {
     receive: "接收", schedule: "调度", pool: "Unity 池", lifecycle: "状态同步", progress: "进度汇报",
-    resource_recovery: "资源恢复", server_pool: "服务测试池",
+    resource_recovery: "资源恢复", server_pool: "服务测试池", worker_retention: "缓存清理",
   };
   const WORKER = {
     alive: ["worker 运行中", "ok"], unknown: ["worker 状态未知", "neutral"],
@@ -262,27 +270,22 @@
                                              enabled.has(name) ? "info" : "neutral")));
       return pills;
     };
-    // Internal presentation tasks follow work's admission, regardless of standalone fgui/scene enablement.
-    // Availability to delegate does not certify host tools, visual approval or delivery gates.
     const tasks = el("div", "pills");
-    tasks.append(...["fgui", "scene"].map((name) => pill(`${SKILL[name]}${general ? " 可委派" : " 未启用"}`,
-                                                       general ? "info" : "neutral")));
-    const other = [...enabled].filter((name) => !["work", "chat", "fix", "feature", "fgui"].includes(name));
+    tasks.append(pill(general ? "主 worker 负责全程" : "任务未启用", general ? "info" : "neutral"));
+    const retired = [...enabled].filter((name) => !["work", "chat"].includes(name));
     const known = typeof capacity.workers_used === "number";
     const full = known && capacity.workers_used >= capacity.max_workers;
     const usage = `${known ? capacity.workers_used : "?"}/${capacity.max_workers}`;
     return [row("two", cell("label muted", "工作流"),
                 cell("main", configuredPills(["work", "chat"]),
                      el("p", "muted", general ? "新委派统一使用任务工作流，不按 Bot 标签分流。"
-                                              : "新委派按 Bot 标签选择旧版工作流。"))),
+                                              : "尚未启用任务工作流，不能执行新的业务任务。"))),
             row("two", cell("label muted", "任务能力"),
-                cell("main", tasks, el("p", "muted", general ? "由任务工作流委派，具体执行仍需对应工具和审批。"
-                                                             : "启用任务工作流后可委派 UI 和场景表现任务。"))),
-            row("two", cell("label muted", "旧版独立配置"),
-                cell("main", configuredPills(["fix", "feature", "fgui"]),
-                     general ? el("p", "muted", "保留以续接已有旧版工作。") : null)),
-            ...(other.length ? [row("two", cell("label muted", "其他独立配置"),
-                                   cell("main", configuredPills(other)))] : []),
+                cell("main", tasks, el("p", "muted", general ? "主 worker 按需修改各仓库、处理 UI 和测试，可自主使用原生 subagent，并负责整合与交付。工具和审批要求仍然有效。"
+                                                             : "启用 work 后由同一 worker 完成任务。"))),
+            ...(retired.length ? [row("two", cell("label muted", "需迁移的旧配置"),
+                cell("main", retired.map((name) => SKILL[name] || name).join("、"),
+                     el("p", "muted", "当前服务拒绝启动这些旧配置；旧任务须在维护暂停时显式接续，不能自动恢复。")))] : []),
             row("two", cell("label muted", "worker 占用"),
                 cell("main", pill(`${usage}${full ? " · 已满载" : known ? "" : " · 状态未知"}`, full ? "warn" : "neutral"))),
             row("two", cell("label muted", "Unity 容量"),
@@ -397,7 +400,7 @@
       if (wait) main.append(el("div", "muted", wait));
       if (job.prs.length) main.append(prLinks(job.prs));
       let state = label;
-      if (job.display_state === 'acceptance_paused' && job.waiting_for_issue) state = `等待 ${job.waiting_for_issue} 验收完成`;
+      if (job.display_state === 'acceptance_paused' && job.waiting_for_issue) state = `本轮仅放行 ${job.waiting_for_issue}，此任务暂停`;
       if (job.queue_position) state += ` · 第 ${job.queue_position} 位`;
       if (job.retry_at) state += ` · ${clock(job.retry_at)}`;
       const status = cell("state", pill(state, tone));

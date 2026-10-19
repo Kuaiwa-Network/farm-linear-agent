@@ -74,7 +74,7 @@ class ResourceAdmission:
 
     def acquire(self, ledger, kind, **options):
         with self.lock:
-            pending = ledger.reservation_queue(kind)
+            pending = ledger.reservation_queue(kind, single_only=options.get('single_only', False))
             if not pending:
                 return None
             request = pending[0]

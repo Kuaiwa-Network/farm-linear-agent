@@ -516,7 +516,7 @@ class Worktrees:
             _git("branch", "--quiet", f"--set-upstream-to=origin/{branch}", branch, cwd=clone)
         return path
 
-    def add(self, repo, item_id, branch, *, refresh=True, attach=False):
+    def add(self, repo, item_id, branch, *, refresh=True, attach=False, recovery_from=()):
         """The item's write worktree of `repo` on `branch`; an existing one is returned as it is.
 
         By default a new worktree restarts at the item's recovery commit when cleanup preserved one, else tracks
@@ -537,6 +537,13 @@ class Worktrees:
         if attach:
             return self._attach(repo, clone, path, branch)
         recovery = self._recovery_commit(clone, self._recovery_ref(item_id)) if not path.exists() else None
+        if not path.exists() and not recovery:
+            # Only the controller supplies predecessor IDs from the retained
+            # ledger chain. Read fixed recovery refs, never worker-provided SHAs.
+            for previous in recovery_from:
+                recovery = self._recovery_commit(clone, self._recovery_ref(previous))
+                if recovery:
+                    break
         if recovery:
             path.parent.mkdir(parents=True, exist_ok=True)
             local_branches = set(_git("for-each-ref", "--format=%(refname:short)", "refs/heads", cwd=clone).splitlines())
@@ -743,6 +750,16 @@ class Worktrees:
             raise VerificationMismatch('repair requires a nonempty source delta')
         self.verification_commit(repo, item_id, candidate, expected_branch=expected_branch)
         return paths
+
+    def verification_tree(self, repo, commit):
+        """Whole tracked content identity from the checked clone, never replacement objects."""
+        if not isinstance(commit, str) or not self.COMMIT.fullmatch(commit):
+            raise VerificationMismatch('source tree requires a full commit SHA')
+        tree = _git('rev-parse', '--verify', commit + '^{tree}', cwd=self._clone(repo),
+                    env={**GIT_ENV, 'GIT_NO_REPLACE_OBJECTS': '1'})
+        if not self.COMMIT.fullmatch(tree):
+            raise VerificationMismatch('source tree did not resolve to a full Git identity')
+        return tree
 
     def verification_baseline(self, repo, item_id, candidate, *, expected_branch=None, verified_base=None):
         """Validate current main or a recorded upstream pin without changing the owned candidate."""
@@ -967,6 +984,17 @@ class Worktrees:
                 return path
             except WorktreeError:
                 pass
+        # A write checkout may already have fetched these exact objects during
+        # this launch. Borrow them through the checked alternate, but bind only
+        # the fresh remote-advertised SHA, never a worker-writable clone ref.
+        fetched = self._fetched_in_scope()
+        if fetched is not None and repo in fetched and tip and self.has_commit(repo, tip):
+            try:
+                _git('update-ref', tracking, tip, cwd=path, config=READ_ONLY_GIT)
+                check_out()
+                return path
+            except WorktreeError:
+                pass  # Missing/corrupt borrowed inputs still require the ordinary fetch.
         _git("fetch", "--quiet", "--no-tags", "origin", f"+refs/heads/{default}:{tracking}", cwd=path,
              config=READ_ONLY_GIT)
         check_out()

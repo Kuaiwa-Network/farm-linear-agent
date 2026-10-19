@@ -110,7 +110,7 @@ class CapacitySchedulerTests(unittest.TestCase):
             self.now += delay
         self.scheduler.tick()
         self.capacity_exit(item)
-        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="chat")
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="chat", execution_contract='staged-v1')
         self.ledger.push_inbox(chat["id"], "retry")
         token = self.ledger.claim(chat["id"], worker_id="chat")["token"]
         message = self.ledger.issue_context(chat["id"])["session_messages"][-1]["id"]

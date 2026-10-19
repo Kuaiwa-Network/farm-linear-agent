@@ -1496,7 +1496,7 @@ class WithdrawnWorkReceiverTests(ReceiverBase):
         self.ledger.observe_issue(issue(labels=["Bug", "修改"], delegate_id=APP, label_groups=CHANGE))
         self.ledger.ensure_session(f"local-{ISSUE}", ISSUE, True)
         local = self.ledger.create_work_item(issue_id=ISSUE, session_id=f"local-{ISSUE}", skill="fix",
-                                             authority="delegation")
+                                             authority="delegation", execution_contract='staged-v1')
         [fix] = self.delegate("session-1")
         self.assertEqual(self.ledger.item(local["id"])["state"], "cancelled")
         self.assertEqual(fix["predecessor_id"], local["id"])
@@ -1510,7 +1510,7 @@ class WithdrawnWorkReceiverTests(ReceiverBase):
         self.ledger.observe_issue(issue(labels=["Bug", "修改"], delegate_id=APP, label_groups=CHANGE))
         self.ledger.ensure_session(f"local-{ISSUE}", ISSUE, True)
         local = self.ledger.create_work_item(issue_id=ISSUE, session_id=f"local-{ISSUE}", skill="chat",
-                                             authority="operator")
+                                             authority="operator", execution_contract='staged-v1')
         self.ledger.push_inbox(local["id"], "维护者：请看一下这张卡")
         token = self.ledger.claim(local["id"], worker_id="w")["token"] if claimed else None
         [fix] = self.delegate("session-1")
@@ -1565,7 +1565,7 @@ class WithdrawnWorkReceiverTests(ReceiverBase):
         self.ledger.observe_issue(issue(labels=["Bug"], delegate_id=APP))
         self.ledger.ensure_session(f"local-{ISSUE}", ISSUE, True)
         local = self.ledger.create_work_item(issue_id=ISSUE, session_id=f"local-{ISSUE}", skill="chat",
-                                             authority="operator")
+                                             authority="operator", execution_contract='staged-v1')
         self.mention_in("session-9", "@FarmBot 看一下")
         self.assertEqual(self.ledger.item(local["id"])["state"], "cancelled")
         self.assertEqual(self.ledger.active_item_for_session("session-9")["authority"], "mention")
@@ -1710,7 +1710,7 @@ class OwnThreadReceiverTests(ReceiverBase):
         the scheduler's notices among the receiver's replies, in order. Returns its launcher double."""
         launcher = FakeLauncher(Path(self.tmp.name) / "runs")
         self.scheduler = Scheduler(self.ledger, launcher, SKILLS, FakeWorktrees(Path(self.tmp.name) / "wt"),
-                                   skill_root=ROOT / "skills", db_path=self.db, runtime_name="fake", host="h",
+                                   replay_legacy=True, skill_root=ROOT / "skills", db_path=self.db, runtime_name="fake", host="h",
                                    api=self.api)
         self.receiver.scheduler = self.scheduler
         return launcher
@@ -1872,7 +1872,7 @@ class OwnThreadReceiverTests(ReceiverBase):
         self.ledger.cancel(first["id"], "an earlier stop")
         self.ledger.ensure_session(f"local-{ISSUE}", ISSUE, True)
         local = self.ledger.create_work_item(issue_id=ISSUE, session_id=f"local-{ISSUE}", skill="fix",
-                                             authority="delegation")
+                                             authority="delegation", execution_contract='staged-v1')
         self.assertEqual(self.stop_in("session-1"), {"type": "response", "body": self.STOPPED_THERE})
         self.assertEqual(self.ledger.item(local["id"])["state"], "cancelled")
         self.api.create_comment.assert_called_once_with(ISSUE, STOPPED_ELSEWHERE)
@@ -1907,7 +1907,7 @@ class OwnThreadReceiverTests(ReceiverBase):
         self.ledger.observe_issue(issue(labels=["Bug", "修改"], delegate_id=APP, label_groups=CHANGE))
         self.ledger.ensure_session(f"local-{ISSUE}", ISSUE, True)
         local = self.ledger.create_work_item(issue_id=ISSUE, session_id=f"local-{ISSUE}", skill="fix",
-                                             authority="delegation")
+                                             authority="delegation", execution_contract='staged-v1')
         self.paused(local, "哪个服？")
         self.mention_in("session-9", "@FarmBot 公共测试服")
         self.assertEqual(self.ledger.item(local["id"])["state"], "queued")
@@ -2230,7 +2230,7 @@ class OwnThreadReceiverTests(ReceiverBase):
         self.ledger.cancel(self.ledger.active_item_for_issue(ISSUE)["id"], "an earlier stop")
         self.ledger.ensure_session(f"local-{ISSUE}", ISSUE, True)
         local = self.ledger.create_work_item(issue_id=ISSUE, session_id=f"local-{ISSUE}", skill="fix",
-                                             authority="delegation")
+                                             authority="delegation", execution_contract='staged-v1')
         self.api.create_comment.side_effect = RuntimeError("linear down")
         [new] = self.delegate("session-2")
         self.assertEqual((self.ledger.item(local["id"])["state"], new["predecessor_id"]), ("cancelled", local["id"]))
@@ -3050,7 +3050,7 @@ class SilentDelegationReceiverTests(ReceiverBase):
         self.ledger.observe_issue(issue(labels=["Bug", "修改"], delegate_id=APP, label_groups=CHANGE))
         self.ledger.ensure_session(f"local-{ISSUE}", ISSUE, True)
         local = self.ledger.create_work_item(issue_id=ISSUE, session_id=f"local-{ISSUE}", skill="fix",
-                                             authority="delegation")
+                                             authority="delegation", execution_contract='staged-v1')
         self.now = 1100.0
         self.redelegated()
         self.now = 1220.0
@@ -3058,7 +3058,7 @@ class SilentDelegationReceiverTests(ReceiverBase):
         self.assertEqual((self.sent(), self.episode()), ([], ("served", f"local-{ISSUE}")))
         self.ledger.cancel(local["id"], "next case")
         chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=f"local-{ISSUE}", skill="chat",
-                                            authority="operator")
+                                            authority="operator", execution_contract='staged-v1')
         self.now = 2000.0
         self.redelegated()
         self.now = 2120.0
@@ -3384,7 +3384,7 @@ class SilentDelegationReceiverTests(ReceiverBase):
         self.assertEqual(self.settled["threads"][2:], [{"session_id": "session-09", "status": None, "archived": None}])
         # The thread of the card's active job is read first and is one of the ten, however old it is.
         card_with_twelve_open_threads()
-        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-01", skill="chat")
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-01", skill="chat", execution_contract='staged-v1')
         self.ledger.claim(chat["id"], worker_id="w")
         self.assertEqual(self.settle(), "told")
         self.assertEqual(self.states_read(), ["session-01", *newest[:-1]])
@@ -3422,7 +3422,7 @@ class SilentDelegationReceiverTests(ReceiverBase):
 
         def work_starts(session_id, content, activity_id=None):
             if session_id == "session-2":
-                self.ledger.create_work_item(issue_id=ISSUE, session_id="session-1", skill="chat")
+                self.ledger.create_work_item(issue_id=ISSUE, session_id="session-1", skill="chat", execution_contract='staged-v1')
             return {"success": True}
         self.api.create_activity.side_effect = work_starts
         posted, self.now = len(self.sent()), 1220.0
@@ -3960,7 +3960,7 @@ class FeatureEnabledReceiverTests(ReceiverBase):
     def receiver_for(self, names):
         from agent.dispatch import SKILL_AUTHORITY
         from agent.skills import enabled_skills, load_skills
-        skills = set(enabled_skills(load_skills(Path(__file__).resolve().parents[1] / "skills"), names,
+        skills = set(enabled_skills(load_skills(Path(__file__).resolve().parents[1] / "skills", replay_legacy=True), names,
                                     authority=SKILL_AUTHORITY))
         self.receiver = Receiver(self.db, "signing-secret", IDENTITY, self.api, lambda: Ledger(self.db),
                                  skills=skills, scheduler=self.scheduler)

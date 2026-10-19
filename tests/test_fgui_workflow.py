@@ -48,7 +48,7 @@ class UiWorkflowTests(unittest.TestCase):
         self.plan = {"prs": {"farmgui": [{"role": "issue", "branch": self.branch, "head": self.head,
                                          "pr": {"url": self.url, "state": "draft", "merge": None}}]}}
         self.save_plan()
-        self.skill = replace(load_skills(ROOT / "skills")["fgui"], writes=("farmgui", "Farm-Client"), resources=("unity_slot",))
+        self.skill = replace(load_skills(ROOT / "skills", replay_legacy=True)["fgui"], writes=("farmgui", "Farm-Client"), resources=("unity_slot",))
         self.verifier = Mock()
         self.verifier.verify.side_effect = lambda *a, **kw: {"head": self.head, "repository": "example/farmgui", "base_branch": "main"}
         self.verifier.verify_pr.return_value = self.url
@@ -138,8 +138,9 @@ class UiWorkflowTests(unittest.TestCase):
         # Rehouse this existing source fixture as an internal task. The real Git
         # move updates ownership pointers; no second writable checkout is made.
         self.ledger.connection.execute("UPDATE work_items SET state='blocked' WHERE id=?", (self.item,))
-        parent = self.ledger.create_work_item(issue_id=self.fixture.item["issue_id"], session_id="ui-session", skill="work")
+        parent = self.ledger.create_work_item(issue_id=self.fixture.item["issue_id"], session_id="ui-session", skill="work", execution_contract='staged-v1')
         parent_token = self.ledger.claim(parent["id"], worker_id="general")["token"]
+        self.parent_token = parent_token
         self.ledger.checkpoint(parent["id"], parent_token, {"plan": {"stages": {"A": "done"}}})
         self.ledger.connection.execute("UPDATE work_items SET state='running',parent_id=?,task_key='ui',task_request=? WHERE id=?",
             (parent["id"], json.dumps({"key": "ui", "capability": "fgui", "instructions": "shared spec"}), self.item))
@@ -269,7 +270,7 @@ class UiWorkflowTests(unittest.TestCase):
                          proof["receipt_sha256"])
 
     def test_older_authoring_manifest_refuses_phase_e_cli_before_github(self):
-        self.skill = replace(load_skills(ROOT / "skills")["fgui"], writes=("farmgui",), resources=())
+        self.skill = replace(load_skills(ROOT / "skills", replay_legacy=True)["fgui"], writes=("farmgui",), resources=())
         with self.assertRaisesRegex(LedgerError, "Phase E"):
             self.cli("export-ui", "--preview", self.preview, "--review-id", "a" * 32)
         self.verifier.verify.assert_not_called(); self.publisher.assert_not_called()

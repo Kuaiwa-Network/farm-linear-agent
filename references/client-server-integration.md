@@ -4,7 +4,7 @@ Use this when acceptance requires both candidate versions online. Independent
 Client/Go tests remain separate; pure layout or server-independent work needs no
 combined lease. No deployment, shared server or production operation is authorized.
 
-From a clean Farm-Client write stage, after committing the farm-hive candidate and
+After committing the clean Farm-Client and farm-hive candidates and
 completing its required standalone checks, save a validated checkpoint and run:
 
 ```text
@@ -22,11 +22,11 @@ Only `{host}` and `{port}` placeholders are supported: loopback and a
 controller-selected ephemeral port. Both clean owned commits are checked. One
 interactive Unity slot plus one full server slot are reserved in one transaction.
 A wait holds neither slot. Admission includes both costs and server memory floors;
-the CLI refuses a host whose total budget cannot fit one pair. Exit after requesting.
+the CLI refuses a host whose total budget cannot fit one pair. Stay in this worker and poll resource-status.
 
-The fresh worker gets Unity MCP and `resource.integration`: server commit,
+The same worker reads `resource-status.integration`: server commit,
 read-only detached source, canonical plan, loopback dependency endpoints, game
-port and deadline. Only Farm-Client and private state are writable. No server
+port and deadline. Existing source write grants stay as configured; the exact snapshot is read-only. No additional server
 checkout, slot folder or clone configuration write grant is added. Multiple Clients,
 multiple game nodes and human waits while holding a lease are outside this version.
 
@@ -55,7 +55,7 @@ Stop, claim revocation, startup failure, Client failure and deadlines stop both
 command trees. Shared Unity stays outside worker containment. Uncertain cleanup
 requires preserved evidence and an unclean release. Never reuse a numeric PID to
 kill an unknown process. Settle Unity, checkpoint, release the single reservation
-and exit; Docker cleanup waits for all worker attempts' verified teardown.
+before delivery or human waits; Docker cleanup waits for all worker attempts' verified teardown.
 
 ## Upgrade and recovery
 

@@ -47,7 +47,7 @@ class RehearsalTests(unittest.TestCase):
         issue_id = f"10000000-0000-4000-8000-{len(self.items) + 1:012d}"
         self.ledger.observe_issue(issue(id=issue_id))
         self.ledger.ensure_session(session, issue_id, delegation=True)
-        item = self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill="fix", target=PIN)["id"]
+        item = self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill="fix", target=PIN, execution_contract='staged-v1')["id"]
         token = self.ledger.claim(item, worker_id="fixture")["token"]
         self.ledger.await_resource(item, token, "unity_slot", mode, skill=SKILLS["fix"])
         self.now += 1

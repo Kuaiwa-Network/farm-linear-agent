@@ -101,7 +101,7 @@ class ConfigPropagationTests(unittest.TestCase):
                         command=[sys.executable, str(self.probe), '{last_message}'])
                     components.ledger.observe_issue(issue())
                     components.ledger.ensure_session('session', ISSUE, delegation=False)
-                    item = components.ledger.create_work_item(issue_id=ISSUE, session_id='session', skill='chat')
+                    item = components.ledger.create_work_item(issue_id=ISSUE, session_id='session', skill='chat', execution_contract='staged-v1')
                     expected = {'host': 'selected-profile', 'config': str(selected),
                                 'ledger': str(directory / 'selected-profile-state' / 'agent' / 'ledger.sqlite3')}
                     self.assertEqual(self.launch_probe(components, item), expected)

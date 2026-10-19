@@ -36,17 +36,22 @@ Components = namedtuple("Components",
                         defaults=(None, None, None, None, None))
 
 
-def build(config, runtime_override=None):
+def build(config, runtime_override=None, *, replay_legacy=False):
+    if replay_legacy and (runtime_override or config.runtime) != 'fake':
+        raise ValueError('historical workflow replay is available only to offline fake fixtures')
     validate_runtime(config, runtime_override)
     check_ownership(config, require_initialized=True)
     if config.go_dependencies:
         from .go_dependencies import ensure as ensure_dependencies
         ensure_dependencies(config)
-    skills = load_skills(ROOT / "skills")
+    skills = load_skills(ROOT / "skills", replay_legacy=replay_legacy)
     # spec §9.11, before any client or state exists: a name the checkout lacks, or a skill the dispatch cannot
     # brief, stops startup.
     enabled = enabled_skills(skills, config.enabled_skills, authority=SKILL_AUTHORITY)
-    require_lark_cli(config, enabled)  # P5: a skill that reads the 策划案 needs the host's lark-cli profile
+    if replay_legacy:
+        require_lark_cli(config, enabled)
+    elif set(enabled) - {'work', 'chat'}:
+        raise ValueError('retired execution profiles: configure enabled_skills as [chat, work]; adopt settled historical jobs explicitly')
     paths = Paths(config)
     api = linear_api(config)
     identity = api.identity()
@@ -64,6 +69,7 @@ def build(config, runtime_override=None):
     if editor_count:
         entries = entries[:editor_count]
     scheduler = Scheduler(ledger, launcher, skills, worktrees, skill_root=ROOT / "skills", db_path=paths.ledger,
+                          replay_legacy=replay_legacy,
                           runtime_name=runtime.name, host=config.host, max_concurrent=config.max_concurrent,
                           codex_workers=config.codex_workers,
                           config_path=config.source_path,
@@ -128,9 +134,11 @@ def build(config, runtime_override=None):
                                   fence=scheduler.fence_resource_worker, api=api)
     server_pool = (ServerSlotPool(lambda: Ledger(paths.ledger, check_same_thread=False), config.server_slots,
                                  host=config.host, root=paths.server_slots, state_dir=launcher.state_dir,
+                                 single_only=not replay_legacy,
                                  quiescent=scheduler.resource_quiescent, admission=admission)
                    if config.server_slots else None)
     if server_pool:
+        pool.single_only = server_pool.single_only
         def prepare_integration(reservation):
             if not server_pool.ready:
                 raise ServerSlotError('server pool prerequisites unavailable')
@@ -179,7 +187,7 @@ def _seed_clones(config, source_root=None):
     return report
 
 
-def enqueue(config, *, issue_ref, skill, commit=None, session=None):
+def enqueue(config, *, issue_ref, skill, commit=None, session=None, replay_legacy=False):
     """Create a work item directly, for a host whose webhook cannot be delivered.
 
     Two honesties. The delegation flag is read from the issue, never asserted: spec §4 says a write-capable
@@ -188,12 +196,17 @@ def enqueue(config, *, issue_ref, skill, commit=None, session=None):
     `local-` — no Linear agent session exists for it — so `create_activity` would fail on every call, and the
     scheduler and the worker both read that prefix and report through an issue comment instead.
     """
+    if replay_legacy and config.runtime != 'fake':
+        raise ValueError('historical enqueue replay requires an offline fake fixture')
     check_ownership(config, require_initialized=True)
-    if skill == "scene":
-        raise RuntimeError("scene is an internal presentation capability; delegate it from a general job")
-    loaded = load_skills(ROOT / "skills")
+    if not replay_legacy and skill not in ('work', 'chat'):
+        raise RuntimeError('new issues use work; old profiles are retained only for history and explicit adoption')
+    loaded = load_skills(ROOT / "skills", replay_legacy=replay_legacy)
     enabled = enabled_skills(loaded, config.enabled_skills, authority=SKILL_AUTHORITY)
-    require_lark_cli(config, enabled)
+    if replay_legacy:
+        require_lark_cli(config, enabled)
+    elif set(enabled) - {'work', 'chat'}:
+        raise ValueError('configure enabled_skills as [chat, work] before new intake')
     if skill not in enabled:
         # An opt-in skill is loaded but runs only where the list names it (P1); say so, as the list alone does not.
         rule = (f"{skill} is opt-in, so enabled_skills in the private config must name it"
@@ -270,7 +283,7 @@ def _serve(components):
     components.scheduler.maintenance_epoch = heartbeat.started_at
     components.scheduler.maintenance_resources = getattr(components.pool, 'maintenance_blockers', None)
     def maintenance_busy():
-        return heartbeat.unsettled_loops(('pool', 'server_pool', 'resource_recovery', 'go_dependencies'))
+        return heartbeat.unsettled_loops(('pool', 'server_pool', 'resource_recovery', 'go_dependencies', 'worker_retention'))
     components.scheduler.maintenance_busy = maintenance_busy
     # The receiver's handler counts each /webhook outcome into it (receiver.make_server).
     components.server.heartbeat = heartbeat
@@ -336,6 +349,12 @@ def _serve(components):
     threads = [threading.Thread(target=guarded("receive", receive_once), daemon=True),
                threading.Thread(target=guarded("schedule", schedule_once), daemon=True),
                threading.Thread(target=guarded("pool", pool_once), daemon=True)]
+    from .worker_retention import Controller as RetentionController
+    retention = RetentionController(components.launcher, components.config.worker_retention)
+    if retention.policy['enabled']:
+        def retention_once():
+            return .1 if retention.tick(stop.is_set) else 5.0
+        threads.append(threading.Thread(target=guarded('worker_retention', retention_once), daemon=True))
     if components.lifecycle is not None:
         def reconcile_once():
             return 0.1 if components.lifecycle.tick()["checked"] else 1.0
@@ -413,6 +432,7 @@ def _serve(components):
                     # Keep the root lock and DB connections until all controller
                     # mutations have stopped, even when an operation drains slowly.
                     thread.join()
+            retention.close()
             # Batch executions have separate connections and outlive a pool tick.
             # Drain them while the root lock and serving heartbeat still belong to
             # this controller, after the launcher has fenced all further spawns.
@@ -452,12 +472,12 @@ def main(argv=None):
     parser.add_argument("command", choices=["configure", "serve", "status", "seed-clones", "install-launchd",
                                             "enqueue", "slots", "doctor", "recover-worker-cleanup", "monitor",
                                             "recover-server-slot", "maintenance-pause", "maintenance-status",
-                                            "maintenance-resume", "resume-ui-scope", "resume-comparison", "resume-server-evidence"])
+                                            "maintenance-resume", "adopt-single-worker", "resume-ui-scope", "resume-ui-source", "resume-comparison", "resume-server-evidence"])
     parser.add_argument("--config")
     parser.add_argument("--from", dest="source_root", help="directory holding local checkouts to seed from")
     parser.add_argument("--issue", help="Linear issue id or identifier to enqueue work for")
-    parser.add_argument("--only-issue", help="maintenance-resume only: run this known issue and its tasks first")
-    parser.add_argument("--skill", default="fix")
+    parser.add_argument("--only-issue", action='append', help="maintenance-resume only: allow this known issue; repeat for a selected group")
+    parser.add_argument("--skill", default="work")
     parser.add_argument("--commit", help="pin this commit instead of resolving the default branch")
     parser.add_argument("--item", help="work item selected for an explicit host recovery command")
     parser.add_argument("--slot", help="held server slot to reconcile through verified Docker cleanup")
@@ -466,6 +486,21 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.only_issue is not None and args.command != 'maintenance-resume':
         parser.error('--only-issue requires maintenance-resume')
+    if args.command == 'adopt-single-worker':
+        if not args.item or not args.reason:
+            parser.error('adopt-single-worker requires --item and --reason')
+        from .execution import adopt
+        config = load_config(args.config)
+        check_ownership(config, require_initialized=True)
+        paths = Paths(config)
+        launcher = Launcher(paths.runs, RUNTIMES[config.runtime], config.host)
+        ledger = Ledger(paths.ledger)
+        try:
+            result = adopt(ledger, args.item, launcher, args.reason)
+            print(json.dumps({k: result[k] for k in ('id', 'state', 'stage', 'execution_contract')}, ensure_ascii=False))
+        finally:
+            ledger.close()
+        return 0
     if args.command == 'resume-server-evidence':
         if not args.item or not args.evidence_manifest or not args.reason:
             parser.error('resume-server-evidence requires --item, --evidence-manifest and --reason')
@@ -478,11 +513,12 @@ def main(argv=None):
         from .verification_recovery import resume_comparison
         print(json.dumps(resume_comparison(load_config(args.config), args.item, args.commit, args.reason), indent=2))
         return 0
-    if args.command == 'resume-ui-scope':
+    if args.command in ('resume-ui-scope', 'resume-ui-source'):
         if not args.item or not args.reason:
-            parser.error('resume-ui-scope requires --item and --reason')
+            parser.error(args.command + ' requires --item and --reason')
         from .ui_scope_recovery import resume_scope
-        print(json.dumps(resume_scope(load_config(args.config), args.item, args.reason), indent=2))
+        print(json.dumps(resume_scope(load_config(args.config), args.item, args.reason,
+                                     source_only=args.command == 'resume-ui-source'), indent=2))
         return 0
     if args.command.startswith('maintenance-'):
         from .maintenance import Maintenance, read_status
@@ -496,7 +532,8 @@ def main(argv=None):
                 if args.command == 'maintenance-pause':
                     Maintenance(ledger).pause(args.reason)
                 else:
-                    Maintenance(ledger).resume(only_issue=args.only_issue)
+                    selected = args.only_issue
+                    Maintenance(ledger).resume(only_issue=selected[0] if selected and len(selected) == 1 else selected)
             finally:
                 ledger.close()
         print(json.dumps(read_status(config), ensure_ascii=False, indent=2))

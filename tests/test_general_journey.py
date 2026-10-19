@@ -28,7 +28,7 @@ class GeneralJobJourneyTests(unittest.TestCase):
 
     def task_request(self, key="ui", capability="fgui"):
         path = self.j.work / f"task-{key}.json"
-        path.write_text(json.dumps({"key": key, "capability": capability,
+        path.write_text(json.dumps({"key": key, "capability": capability, **({"scope": {"assets": ["Assets/nursery.prefab"], "validation": "source"}} if capability == "scene" else {}),
             "instructions": "Use the shared OpenSpec; ask for actual nursery art and dimensions."}), encoding="utf-8")
         return path
 

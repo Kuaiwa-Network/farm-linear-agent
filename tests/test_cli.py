@@ -25,6 +25,12 @@ def expected_question(body):
 
 class CliTests(unittest.TestCase):
     def test_repaired_candidate_uses_recorded_base_without_integrating_new_main(self):
+        self.check_repaired_candidate()
+
+    def test_restored_test_identity_uses_recorded_pair_and_no_empty_shared_failure_record(self):
+        self.check_repaired_candidate(restored=True)
+
+    def check_repaired_candidate(self, restored=False):
         from agent.ledger import Ledger
         from test_worktrees import git
         item, token, baseline, fixed, path = self.verification_fixture()
@@ -72,6 +78,10 @@ class CliTests(unittest.TestCase):
                  'repair': {'reason': 'controlled pointer reproduction', 'evidence': 'real hit/no-hit samples',
                             'changed_paths': ['Assets/Tests/Pinch.cs'], 'fixtures': {'Assets/Tests/Pinch.cs': 'Farm.Pinch'},
                             'expected_tests': ['Farm.Pinch.Out', 'Farm.Pinch.Overlay']}}
+        if restored:
+            old['tests'][1] = leaf('Farm.Pinch.Overlay')
+            old['summary'].update(passed=2, failed=0)
+            scope['repair']['restored_tests'] = ['Farm.Pinch.Out']
         for name, data in [('base', base), ('old', old), ('new', new), ('scope', scope)]:
             (root/(name+'.json')).write_text(json.dumps(data), encoding='utf-8')
         report = self.run_cli('compare-verification', '--item', item, '--token', token,
@@ -80,6 +90,22 @@ class CliTests(unittest.TestCase):
         self.assertTrue(report['draft_eligible'])
         self.assertFalse(report['full_suite_passed'])
         self.assertEqual(report['retained_original']['commit'], fixed)
+        found = self.run_cli('shared-test-repairs', '--item', item, '--token', token,
+                             '--candidate', str(root/'old.json'))
+        if restored:
+            self.assertEqual(report['restored_tests'], ['Farm.Pinch.Out'])
+            self.assertEqual(found['matches'], [])
+            with closing(Ledger(self.db)) as ledger:
+                self.assertEqual(ledger.connection.execute(
+                    "SELECT COUNT(*) FROM audit WHERE kind='shared_test_repair'").fetchone()[0], 0)
+        else:
+            self.assertEqual(found['matches'][0]['fixture'], 'Farm.Pinch')
+            self.assertEqual(found['matches'][0]['status'], 'review_required')
+        self.assertFalse(found['current_tests_passed'])
+        self.run_cli('shared-test-repairs', '--item', item, '--token', 'wrong',
+                     '--candidate', str(root/'old.json'), success=False)
+        self.run_cli('shared-test-repairs', '--item', item, '--token', token,
+                     '--candidate', str(root.parent/'foreign.json'), success=False)
 
     def test_fixed_pool_cli_converts_unity_batch_request_before_enqueueing(self):
         self.db = self.root / "host" / "agent" / "ledger.sqlite3"
@@ -162,7 +188,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(run(args, ledger, lambda: api)["branch"], "farmbot/farm-1-config")
             ledger.connection.execute("UPDATE work_items SET skill='feature', root_repo='Farm-Client' WHERE id=?",
                                       (args.item,))
-            skills = {**load_skills(ROOT / "skills"), "feature": staged_skill(self.root / "fixture-skills")}
+            skills = {**load_skills(ROOT / "skills", replay_legacy=True), "feature": staged_skill(self.root / "fixture-skills")}
             with patch("agent.skills.load_skills", return_value=skills):
                 with self.assertRaisesRegex(PublicationError, "adds no commits"):
                     run(args, ledger, lambda: api)
@@ -195,7 +221,7 @@ class CliTests(unittest.TestCase):
         from test_skills import staged_skill
         item, token, _, _, _ = self.verification_fixture(skill="feature")
         staged = staged_skill(self.root / "fixture-skills")
-        skills = {**load_skills(ROOT / "skills"), staged.name: staged}
+        skills = {**load_skills(ROOT / "skills", replay_legacy=True), staged.name: staged}
         config = load_config(self.env["FARMBOT_CONFIG"])
         for name in staged.writes:
             config.repos[name] = f"https://github.com/Kuaiwa-Network/{name}.git"
@@ -392,13 +418,17 @@ class CliTests(unittest.TestCase):
             with self.assertRaises((RuntimeError, ValueError)):
                 run(args, ledger, lambda: api)
 
-    def verification_fixture(self, skill="fix", *, client_stage=False, directory_name="local"):
+    def verification_fixture(self, skill="fix", *, client_stage=False, directory_name="local", shared_files=False):
         from agent.worktrees import Worktrees
         from test_worktrees import git
         origin = self.root / "origin"
         origin.mkdir()
         git("init", "-q", "-b", "main", ".", cwd=origin)
         (origin / "fix.cs").write_text("old")
+        if shared_files:
+            (origin / 'Assets/Tests').mkdir(parents=True)
+            (origin / 'Assets/Tests/Shared.cs').write_text('namespace Shared { class Animation {} }', encoding='utf-8')
+            (origin / 'Assets/Animation.cs').write_text('class Animation {}', encoding='utf-8')
         git("add", ".", cwd=origin)
         git("commit", "-qm", "baseline", cwd=origin)
         baseline = git("rev-parse", "HEAD", cwd=origin)
@@ -433,23 +463,30 @@ class CliTests(unittest.TestCase):
 
     def test_combined_request_checks_both_owned_candidates_budget_and_current_claim(self):
         from agent.ledger import Ledger
-        from test_server_slots import SETTINGS
+        from test_server_slots import SETTINGS, Services
         from test_client_server_integration import plan
         from agent.config import load_config, Paths
         from agent.worktrees import Worktrees
         from test_worktrees import git
-        item, token, baseline, fixed, _ = self.verification_fixture()
+        item, token, baseline, fixed, client = self.verification_fixture()
+        git('branch', '-m', 'farmbot/farm-1', cwd=client)
+        with closing(Ledger(self.db)) as ledger:
+            ledger.connection.execute("UPDATE work_items SET execution_contract='single-worker-v1',skill='work',root_repo=NULL WHERE id=?", (item,))
+            ledger.set_worker(item, 123, 'test')
         config_file = Path(self.env['FARMBOT_CONFIG'])
         config = json.loads(config_file.read_text(encoding='utf-8'))
         config['repos']['farm-hive'] = config['repos']['Farm-Client']
-        config.update(server_slots=SETTINGS, resource_admission={'unity_mib':8192, 'server_mib':8192,
+        config.update(server_slots=SETTINGS, slots=[{'id':'unity_slot:1'}], resource_admission={'unity_mib':8192, 'server_mib':8192,
                                                                'max_reserved_mib':13824})
         config_file.write_text(json.dumps(config), encoding='utf-8')
         paths = Paths(load_config(config_file))
         trees = Worktrees(paths.repos, paths.worktrees, config['repos'])
         server = trees.add('farm-hive', item, 'farmbot/farm-1')
         server_sha = trees.head(server)
-        selection = self.json_file('integration.json', {**plan(), 'server_commit':server_sha})
+        server_code = ('import socket,sys,time; s=socket.socket(); s.bind((sys.argv[1],int(sys.argv[2]))); '
+                       's.listen(); time.sleep(30)')
+        selection = self.json_file('integration.json', {**plan(), 'server_commit':server_sha,
+            'server_argv':[sys.executable,'-c',server_code,'{host}','{port}']})
         args = ['await-resource', '--item',item, '--token',token, '--resource','unity_slot',
                 '--mode','interactive', '--commit',fixed, '--integration-plan',selection]
         rejected = self.run_cli(*args, success=False)
@@ -459,15 +496,46 @@ class CliTests(unittest.TestCase):
         (server / 'dirty.txt').write_text('uncommitted', encoding='utf-8')
         self.run_cli(*args, success=False)
         (server / 'dirty.txt').unlink()
-        self.assertEqual(self.run_cli(*args)['state'], 'awaiting_resource')
+        self.assertEqual(self.run_cli(*args)['state'], 'queued')
         with closing(Ledger(self.db)) as ledger:
             request = ledger.reservation_queue('unity_slot')[0]
             from agent.integration import get
             self.assertEqual(get(ledger, request['reservation_id'])['plan']['server_commit'], server_sha)
-        # The retired claim cannot start a runtime, even if the source pins remain.
+        # The same claim stays alive, but cannot run before atomic preparation.
         client_command = self.json_file('client.json', [sys.executable, '-c', 'pass'])
         self.run_cli('run-integration', '--item',item, '--token',token,
                      '--client-command',client_command, success=False)
+        from agent.resource_admission import ResourceAdmission
+        from agent.server_slots import ServerSlotPool
+        from agent.execution import resource_ready
+        admission = ResourceAdmission(config['resource_admission'],
+            observe=lambda:{'available_mib':100000, 'commit_mib':100000})
+        pool = ServerSlotPool(lambda:Ledger(self.db), SETTINGS, host='test', root=paths.server_slots,
+            state_dir=lambda key:paths.runs/key, quiescent=lambda key:False, admission=admission, services=Services())
+        self.addCleanup(pool.close)
+        pool.ensure()
+        with closing(Ledger(self.db)) as ledger:
+            ledger.ensure_slot('unity_slot:1', kind='unity_slot', host='test', folder=str(paths.editors/'slot-1'),
+                               mcp_address='http://localhost:9999')
+            lease = admission.acquire(ledger, 'unity_slot', host='test', owner='pool', single_only=True)
+            pool.prepare_integration(lease)
+            ledger.set_slot_state('unity_slot:1', 'interactive_busy', instance='offline-instance')
+            resource_ready(ledger, lease)
+        status = self.run_cli('resource-status', '--item',item, '--token',token)
+        self.assertTrue(status['ready'])
+        self.assertEqual(status['integration']['commit'], server_sha)
+        client_command = self.json_file('client.json', [sys.executable,'-c',
+            'import socket,os; socket.create_connection((os.environ["FARMBOT_GAME_HOST"],int(os.environ["FARMBOT_GAME_PORT"]))).close()'])
+        report = self.run_cli('run-integration', '--item',item, '--token',token, '--client-command',client_command)
+        self.assertEqual(report['status'], 'passed', report)
+        self.assertTrue(report['teardown'])
+        self.run_cli('release-resource', '--item',item, '--token',lease['token'], '--outcome','quiescent')
+        with closing(Ledger(self.db)) as ledger:
+            self.assertEqual(ledger.renew(item, token)['state'], 'running')
+            self.assertIsNone(ledger.active_reservation(item))
+            audit = ledger.connection.execute("SELECT details FROM audit WHERE item_id=? AND kind='client_server_verification'",
+                                               (item,)).fetchone()
+            self.assertEqual(json.loads(audit['details'])['server_commit'], server_sha)
 
     def test_general_server_resource_preserves_head_and_host_ownership_gates(self):
         self.check_server_resource_candidate("work")
@@ -673,6 +741,81 @@ class CliTests(unittest.TestCase):
         self.assertEqual(git("rev-parse", "HEAD", cwd=path), fixed)
         self.assertEqual(self.run_cli("reservations")[-1]["commit_sha"], fixed)
 
+    def test_maintenance_baseline_resume_uses_original_pin_after_main_advances(self):
+        self.check_maintenance_baseline_resume(candidate_first=False)
+
+    def test_maintenance_baseline_resume_keeps_completed_candidate_first_evidence(self):
+        self.check_maintenance_baseline_resume(candidate_first=True)
+
+    def check_maintenance_baseline_resume(self, *, candidate_first):
+        from agent.ledger import Ledger
+        from test_worktrees import git
+        item, token, baseline, fixed, path = self.verification_fixture(
+            skill='feature', client_stage=True, directory_name='resume 原基线 spaces')
+        retained = None
+        if candidate_first:
+            self.run_cli('await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
+                         '--mode', 'interactive', '--commit', fixed)
+            with closing(Ledger(self.db)) as ledger:
+                token = self.settle_test_reservation(ledger, item)
+                retained = ledger.reservations()[-1]['reservation_id']
+        self.run_cli('await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
+                     '--mode', 'interactive', '--commit', fixed, '--baseline',
+                     *(['--reuse-candidate-reservation', retained] if retained else []))
+        with closing(Ledger(self.db)) as ledger:
+            token = self.settle_test_reservation(ledger, item)
+            source = ledger.reservations()[-1]
+            ledger.set_worker(item, 12345, HOST)
+            ledger.connection.execute('INSERT INTO maintenance_handoffs VALUES(?,?,?,?,?)',
+                                      (item, 0, 12345, source['released_at'], source['released_at']))
+        origin = self.root/'origin'
+        (origin/'later.txt').write_text('another issue', encoding='utf-8')
+        git('add', '.', cwd=origin); git('commit', '-qm', 'new main while paused', cwd=origin)
+        args = ['await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
+                '--mode', 'interactive', '--commit', fixed, '--baseline',
+                '--resume-baseline-reservation', source['reservation_id']]
+        (path/'dirty.txt').write_text('pending edit', encoding='utf-8')
+        self.assertIn('clean', self.run_cli(*args, success=False).stderr)
+        (path/'dirty.txt').unlink()
+        self.run_cli(*args, '--reuse-candidate-reservation', source['reservation_id'], success=False)
+        self.assertEqual(self.run_cli(*args)['state'], 'awaiting_resource')
+        self.assertEqual(self.run_cli('reservations')[-1]['commit_sha'], baseline)
+        self.assertEqual(git('rev-parse','HEAD',cwd=path), fixed)
+        with closing(Ledger(self.db)) as ledger:
+            token = self.settle_test_reservation(ledger, item)
+            if candidate_first:
+                pair = ledger.client_verification_pair(item, fixed, require_candidate=True)
+                self.assertEqual(pair['candidate_reservation'], retained)
+                self.assertNotEqual(pair['baseline_reservation'], source['reservation_id'])
+                return  # No second candidate run is necessary or requested.
+        # The candidate continues against the resumed base, without a main merge.
+        self.run_cli('await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
+                     '--mode', 'interactive', '--commit', fixed)
+        self.assertEqual(self.run_cli('reservations')[-1]['commit_sha'], fixed)
+        with closing(Ledger(self.db)) as ledger:
+            token = self.settle_test_reservation(ledger, item)
+            pair = ledger.client_verification_pair(item, fixed, require_candidate=True)
+        from agent.config import load_config, Paths
+        from test_test_baseline import run as evidence, test as leaf
+        root = Paths(load_config(self.env['FARMBOT_CONFIG'])).runs / item
+        root.mkdir(parents=True)
+        base = evidence('a', [leaf('Issue.Required')]); new = evidence('b', [leaf('Issue.Required')])
+        base.update(commit=baseline, reservation_id=source['reservation_id'])
+        new.update(commit=fixed, reservation_id=pair['candidate_reservation'])
+        scope = {'affected_tests':['Issue.Required'],'changed_paths':[],'unrelated_failures':{}}
+        for name, data in (('old-base',base),('candidate',new),('scope',scope)):
+            (root/(name+'.json')).write_text(json.dumps(data),encoding='utf-8')
+        report = self.run_cli('compare-verification','--item',item,'--token',token,
+            '--baseline',str(root/'old-base.json'),'--candidate',str(root/'candidate.json'),'--scope',str(root/'scope.json'))
+        self.assertTrue(report['draft_eligible'])
+        self.assertEqual(report['baseline_reservation'],source['reservation_id'])
+        new = evidence('b', [leaf('Issue.Required','Failed','real issue regression')])
+        new.update(commit=fixed, reservation_id=pair['candidate_reservation'])
+        (root/'candidate.json').write_text(json.dumps(new),encoding='utf-8')
+        blocked = self.run_cli('compare-verification','--item',item,'--token',token,
+            '--baseline',str(root/'old-base.json'),'--candidate',str(root/'candidate.json'),'--scope',str(root/'scope.json'))
+        self.assertFalse(blocked['draft_eligible'])
+
     def test_continuation_validates_clean_candidate_and_two_tokens_without_chasing_main(self):
         from agent.ledger import Ledger
         from test_worktrees import git
@@ -704,7 +847,10 @@ class CliTests(unittest.TestCase):
         self.assertIn('reservation token', self.run_cli(*args, success=False).stderr)
         self.assertEqual(self.run_cli('reservations')[0]['state'], 'active')
         resource_file.write_text(lease['token'], encoding='utf-8')
-        self.assertEqual(self.run_cli(*args)['state'], 'awaiting_resource')
+        checkpoint = self.json_file('baseline-handoff.json', {'summary': 'original baseline reports saved'})
+        self.assertEqual(self.run_cli(*args, '--checkpoint', str(checkpoint))['state'], 'awaiting_resource')
+        with closing(Ledger(self.db)) as ledger:
+            self.assertEqual(ledger.item(item)['checkpoint']['summary'], 'original baseline reports saved')
         rows = self.run_cli('reservations')
         self.assertEqual([r['state'] for r in rows], ['released', 'queued'])
         self.assertEqual([r['commit_sha'] for r in rows], [baseline, fixed])
@@ -714,6 +860,138 @@ class CliTests(unittest.TestCase):
 
     def test_compare_verification_cli_updates_phase_without_overwriting_checkpoint(self):
         self.check_comparison_cli(candidate_first=False)
+
+    def test_equal_tree_baseline_request_selects_real_candidate_once(self):
+        from agent.ledger import Ledger
+        from test_worktrees import git
+        item, token, baseline, fixed, path = self.verification_fixture()
+        (path/'fix.cs').write_text('old', encoding='utf-8')
+        git('commit', '-qam', 'same tree at different history', cwd=path)
+        candidate = git('rev-parse', 'HEAD', cwd=path)
+        self.assertNotEqual(candidate, baseline)
+        self.run_cli('await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
+                     '--mode', 'interactive', '--commit', candidate, '--baseline')
+        with closing(Ledger(self.db)) as ledger:
+            lease = ledger.reservations()[0]
+            self.assertEqual(lease['commit_sha'], candidate)
+            self.assertIsNone(ledger.reservation_comparison(lease['reservation_id']))
+            self.assertEqual(ledger.candidate_verification_base(lease['reservation_id']), baseline)
+            token = self.settle_test_reservation(ledger, item)
+        refused = self.run_cli('await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
+            '--mode', 'interactive', '--commit', candidate, '--baseline', success=False)
+        self.assertIn('same file tree', refused.stderr)
+        self.assertEqual(len(self.run_cli('reservations')), 1)
+
+    def test_closeout_batches_actual_suites_retains_reports_and_keeps_any_blocker_visible(self):
+        from agent.config import load_config, Paths
+        from agent.ledger import Ledger
+        from test_test_baseline import run as evidence, test as leaf
+        from test_candidate_verification import scope_for
+        item, token, baseline, candidate, path = self.verification_fixture()
+        self.run_cli('await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
+                     '--mode', 'interactive', '--commit', candidate)
+        with closing(Ledger(self.db)) as ledger:
+            token = self.settle_test_reservation(ledger, item)
+            lease = ledger.reservations()[0]
+        root = Paths(load_config(self.env['FARMBOT_CONFIG'])).runs/item
+        root.mkdir(parents=True)
+        entries = []
+        for mode in ('EditMode', 'PlayMode'):
+            report = evidence('b', [leaf('Animal.Delivery')])
+            report.update(commit=candidate, reservation_id=lease['reservation_id'], mode=mode, job_id=mode+'-actual')
+            scope = scope_for(report, baseline, ['fix.cs'])
+            for name, value in ((mode, report), (mode+'-scope', scope)):
+                (root/(name+'.json')).write_text(json.dumps(value), encoding='utf-8')
+            entries.append({'candidate': mode+'.json', 'scope': mode+'-scope.json'})
+        manifest = root/'closeout.json'
+        manifest.write_text(json.dumps({'runs': entries}), encoding='utf-8')
+        args = ('verification-closeout', '--item', item, '--token', token, '--input', str(manifest))
+        original = (root/'EditMode.json').read_bytes()
+        result = self.run_cli(*args)
+        self.assertTrue(result['draft_eligible'])
+        self.assertFalse(result['completion_checked'])
+        self.assertEqual(len(result['suites']), 2)
+        self.assertEqual(self.run_cli(*args)['evidence_index'], result['evidence_index'])
+        self.assertEqual((root/'EditMode.json').read_bytes(), original)
+        self.assertEqual(len(self.run_cli('reservations')), 1)
+        # A first blocked suite followed by a passing suite stays blocked.
+        report = json.loads(original)
+        report['tests'][0].update(state='Failed', message='wrong business result')
+        report['summary'].update(passed=0, failed=1)
+        (root/'EditMode.json').write_text(json.dumps(report), encoding='utf-8')
+        self.assertFalse(self.run_cli(*args)['draft_eligible'])
+        with closing(Ledger(self.db)) as ledger:
+            self.assertEqual(ledger.item(item)['stage'], 'client-verification-blocked')
+        manifest.write_text(json.dumps({'runs': [entries[0], entries[0]]}), encoding='utf-8')
+        self.assertIn('duplicate', self.run_cli(*args, success=False).stderr)
+        manifest.write_text(json.dumps({'runs': [{'candidate': '../foreign.json', 'scope': entries[0]['scope']}]}),
+                            encoding='utf-8')
+        self.run_cli(*args, success=False)
+
+    def test_confirmed_shared_failure_is_recorded_without_repair_reservation_or_child_job(self):
+        from agent.ledger import Ledger
+        from agent.config import load_config, Paths
+        from test_test_baseline import run as evidence, test as leaf
+        from test_shared_test_findings import reviewed_scope
+        item, token, baseline, fixed, path = self.verification_fixture(shared_files=True)
+        for flags in (['--baseline'], []):
+            self.run_cli('await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
+                         '--mode', 'interactive', '--commit', fixed, *flags)
+            with closing(Ledger(self.db)) as ledger:
+                token = self.settle_test_reservation(ledger, item)
+                pair = ledger.client_verification_pair(item, fixed, require_candidate=True)
+        root = Paths(load_config(self.env['FARMBOT_CONFIG'])).runs / item
+        root.mkdir(parents=True)
+        (root/'causal-review.txt').write_bytes(b'actual clock/source observation')
+        base = evidence('a', [leaf('Animal.Counter'), leaf('Shared.Animation')])
+        candidate = evidence('b', [leaf('Animal.Counter'), leaf('Shared.Animation', 'Failed', 'alpha was 1',
+                                                                      'at Shared in Assets/Tests/Shared.cs:42')])
+        base.update(commit=baseline, reservation_id=pair['baseline_reservation'])
+        candidate.update(commit=fixed, reservation_id=pair['candidate_reservation'])
+        scope = reviewed_scope(base, candidate, ['fix.cs'])
+        for name, value in [('base', base), ('candidate', candidate), ('scope', scope)]:
+            (root/(name+'.json')).write_text(json.dumps(value), encoding='utf-8')
+        args = ['compare-verification', '--item', item, '--token', token, '--baseline', str(root/'base.json'),
+                '--candidate', str(root/'candidate.json'), '--scope', str(root/'scope.json')]
+        report = self.run_cli(*args)
+        self.assertTrue(report['draft_eligible'])
+        self.assertFalse(report['full_suite_passed'])
+        self.run_cli(*args)  # Offline re-comparison is idempotent; no Unity request.
+        found = self.run_cli('shared-test-repairs', '--item', item, '--token', token,
+                             '--candidate', str(root/'candidate.json'))
+        self.assertEqual(found['maintenance_findings'][0]['reuse_status'], 'matching_diagnosis')
+        with closing(Ledger(self.db)) as ledger:
+            self.assertEqual(ledger.item(item)['stage'], 'client-verified-awaiting-publication')
+            self.assertEqual(len(ledger.reservations()), 2)
+            self.assertEqual(ledger.connection.execute('SELECT COUNT(*) FROM work_items').fetchone()[0], 1)
+            self.assertEqual(ledger.connection.execute("SELECT COUNT(*) FROM audit WHERE kind='shared_test_followup'").fetchone()[0], 1)
+        # A forged scope cannot hide a runtime edit, even with an apparently valid review.
+        scope['changed_paths'] = scope['issue_scope']['changed_paths'] = ['invented.cs']
+        (root/'scope.json').write_text(json.dumps(scope), encoding='utf-8')
+        self.assertIn('complete actual', self.run_cli(*args, success=False).stderr)
+        scope['changed_paths'] = scope['issue_scope']['changed_paths'] = ['fix.cs']
+        (root/'scope.json').write_text(json.dumps(scope), encoding='utf-8')
+        (root/'causal-review.txt').write_text('changed after review', encoding='utf-8')
+        self.assertIn('causal evidence', self.run_cli(*args, success=False).stderr)
+        # Cancellation after source/evidence reads must prevent both the new record and verdict.
+        from unittest.mock import patch
+        from agent.__main__ import parser, run as command
+        from agent.shared_test_findings import verify
+        from agent.ledger import LedgerError
+        (root/'causal-review.txt').write_bytes(b'actual clock/source observation')
+        scope['unrelated_failures']['Shared.Animation']['reason'] += '; reviewed again'
+        (root/'scope.json').write_text(json.dumps(scope), encoding='utf-8')
+        config = load_config(self.env['FARMBOT_CONFIG'])
+        parsed = parser().parse_args(['--db', str(self.db), *args])
+        def cancel_after_reads(*values):
+            verify(*values)
+            with closing(Ledger(self.db)) as other:
+                other.cancel(item, 'withdrawn during shared finding verification')
+        with closing(Ledger(self.db)) as ledger, patch('agent.__main__.load_config', return_value=config), \
+                patch('agent.shared_test_findings.verify', side_effect=cancel_after_reads):
+            with self.assertRaises(LedgerError): command(parsed, ledger, lambda: None)
+            self.assertEqual(ledger.item(item)['state'], 'cancelled')
+            self.assertEqual(ledger.connection.execute("SELECT COUNT(*) FROM audit WHERE kind='shared_test_followup'").fetchone()[0], 1)
 
     def test_candidate_first_cli_reuses_reports_after_main_advances(self):
         self.check_comparison_cli(candidate_first=True)
@@ -799,7 +1077,7 @@ class CliTests(unittest.TestCase):
         candidate = git("rev-parse", "HEAD", cwd=path)
         base = git("rev-parse", "HEAD^", cwd=path)
         self.root_item(args.item, "Farm-Client")
-        skill = load_skills(ROOT / "skills")["fix"]
+        skill = load_skills(ROOT / "skills", replay_legacy=True)["fix"]
         token = args.token
         if comparison:
             ledger.await_resource(args.item, token, "unity_slot", "interactive", skill=skill,
@@ -986,7 +1264,7 @@ class CliTests(unittest.TestCase):
         ledger.observe_issue(issue(id=issue_id, labels=["Bug"]))
         ledger.ensure_session(session, issue_id, delegation=delegation)
         item = ledger.create_work_item(issue_id=issue_id, session_id=session, skill=skill, target=target,
-                                       authority=authority)
+                                       authority=authority, execution_contract='staged-v1')
         ledger.close()
         return item["id"]
 
@@ -1265,6 +1543,7 @@ class CliTests(unittest.TestCase):
         from agent.__main__ import parser, run
         args = parser().parse_args(["--db", str(self.db), *argv])
         with patch("agent.__main__.load_config", side_effect=OSError("no private config")), \
+                patch('agent.__main__.enabled_skill_names', return_value={'chat', 'fix'}), \
                 contextlib.redirect_stderr(io.StringIO()):
             return run(args, ledger, lambda: api)
 
@@ -1505,10 +1784,16 @@ class CliTests(unittest.TestCase):
         self.assertEqual(posted[-1][1]["type"], "thought")
         self.assertEqual([row[0] for row in self.closures(ledger)], ["mention"])
 
-    def test_resume_work_refreshes_delegation_and_hands_message_to_original_fix(self):
+    def test_resume_work_refreshes_delegation_and_hands_message_to_original_owner(self):
         from agent.ledger import Ledger
+        self.env['FARMBOT_CONFIG'] = self.json_file('current-profile.json', {
+            'client_id': 'test', 'client_secret': 'test', 'webhook_secret': 'test',
+            'local_root': str(self.root), 'enabled_skills': ['chat', 'work']})
         app = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
-        fix = self.seeded_item()
+        with closing(Ledger(self.db)) as ledger:
+            ledger.observe_issue(issue(id=ISSUE, labels=['Bug']))
+            ledger.ensure_session('session-1', ISSUE, delegation=True)
+            fix = ledger.create_work_item(issue_id=ISSUE, session_id='session-1', skill='work')['id']
         self.run_cli("cancel", "--item", fix, "--reason", "stopped")
         # A mention's conversation: a newer delegation session would itself receive the continuation (C7).
         chat = self.seeded_item(session="mention", skill="chat", delegation=False)
@@ -1524,7 +1809,46 @@ class CliTests(unittest.TestCase):
         resumed = self.run_cli("resume-work", "--item", chat, "--token", token, "--message-id", str(message))
         self.assertNotEqual(resumed["id"], fix)
         self.assertEqual((resumed["predecessor_id"], resumed["state"]), (fix, "queued"))
+        self.assertEqual(resumed['execution_contract'], 'single-worker-v1')
         self.assertEqual(self.calls()[-1]["content"]["type"], "response")
+
+    def test_current_chat_implementation_request_starts_one_main_owner(self):
+        from agent.ledger import Ledger
+        chat = self.seeded_item(skill='chat')
+        with closing(Ledger(self.db)) as ledger:
+            ledger.push_inbox(chat, 'Implement the requested display fix')
+            message = ledger.issue_context(chat)['session_messages'][-1]['id']
+        self.stub_card(delegate_id=STUB_APP)
+        token = self.run_cli('claim', '--item', chat, '--worker-id', 'chat')['token']
+        result = self.run_cli('request-repair', '--item', chat, '--token', token,
+                             '--message-id', str(message), '--summary-file',
+                             self.json_file('summary.json', 'Implement the display fix'))
+        self.assertEqual((result['skill'], result['execution_contract'], result['state']),
+                         ('work', 'single-worker-v1', 'queued'))
+        with closing(Ledger(self.db)) as ledger:
+            self.assertEqual(ledger.item(chat)['state'], 'delivered')
+            self.assertEqual([item['id'] for item in ledger.queue()], [result['id']])
+
+    def test_current_chat_refuses_historical_resume_before_retiring_its_claim(self):
+        from agent.ledger import Ledger
+        old = self.seeded_item(skill='work')
+        self.run_cli('cancel', '--item', old, '--reason', 'stopped')
+        chat = self.seeded_item(session='mention', skill='chat', delegation=False)
+        with closing(Ledger(self.db)) as ledger:
+            ledger.push_inbox(chat, 'Continue the existing work')
+            message = ledger.issue_context(chat)['session_messages'][-1]['id']
+        self.stub_card(delegate_id=STUB_APP)
+        token = self.run_cli('claim', '--item', chat, '--worker-id', 'chat')['token']
+        for command in ('resume-work', 'request-repair'):
+            extra = (['--summary-file', self.json_file('summary.json', 'Continue existing work')]
+                     if command == 'request-repair' else [])
+            refused = self.run_cli(command, '--item', chat, '--token', token,
+                                   '--message-id', str(message), *extra, success=False)
+            self.assertIn('settled host adoption', refused.stderr)
+        with closing(Ledger(self.db)) as ledger:
+            self.assertEqual(ledger.item(old)['state'], 'cancelled')
+            self.assertEqual(ledger.item(chat)['state'], 'running')
+            self.assertEqual(ledger.queue(), [])
 
     def test_retry_checks_current_status_and_delegation_before_successor(self):
         fix = self.seeded_item()
@@ -1648,7 +1972,7 @@ class CliTests(unittest.TestCase):
         ledger = Ledger(self.db)
         ledger.observe_issue(issue(identifier="FBTEST-7", branch_name="farmbot/fbtest-7", labels=["Bug"]))
         ledger.ensure_session("session-1", ISSUE, delegation=True)
-        item = ledger.create_work_item(issue_id=ISSUE, session_id="session-1", skill="fix")["id"]
+        item = ledger.create_work_item(issue_id=ISSUE, session_id="session-1", skill="fix", execution_contract='staged-v1')["id"]
         ledger.close()
         token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
 
@@ -2054,7 +2378,7 @@ class CliTests(unittest.TestCase):
                 raw = issue(labels=["Bug"], description=f"![一.png]({one}) ![二.png]({two})")
                 ledger.observe_issue(raw)
                 ledger.ensure_session("session-1", raw["id"], delegation=True)
-                item = ledger.create_work_item(issue_id=raw["id"], session_id="session-1", skill="fix")["id"]
+                item = ledger.create_work_item(issue_id=raw["id"], session_id="session-1", skill="fix", execution_contract='staged-v1')["id"]
                 ledger.set_worker(item, 4242, HOST, 60)
                 token_file = self.root / f"{label}-token"
                 token_file.write_text(ledger.claim(item, worker_id="w")["token"], encoding="utf-8")

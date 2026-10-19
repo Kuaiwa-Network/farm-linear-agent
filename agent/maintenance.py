@@ -62,7 +62,7 @@ class Maintenance:
         from .ledger import LedgerError
         with self.ledger._transaction():
             if only_issue is not None and not self.requested():
-                raise LedgerError('request maintenance before selecting a single acceptance issue')
+                raise LedgerError('request maintenance before selecting acceptance issues')
             select(self.ledger, only_issue)
             if self.requested():
                 self.ledger._audit('maintenance', "maintenance_resume", "operator resumed scheduling")
@@ -176,13 +176,12 @@ class Maintenance:
 
 def status(db, heartbeat, now):
     """Public projection: an old observation or a dead controller is never permission to stop."""
-    from .admission_scope import read
+    from .admission_scope import read, public_scope
     scope = read(db)
     current = request(db)
     if not current:
         result = {'state': 'off', 'ready_to_stop': False, 'blockers': []}
-        if scope:
-            result['only_issue'] = scope['identifier']
+        result.update(public_scope(scope))
         return result
     state, beat = heartbeat
     checked = current['checked_at']
@@ -220,8 +219,7 @@ def status(db, heartbeat, now):
     result = {'state': 'ready' if verified and not blockers else 'draining',
             'ready_to_stop': bool(verified and not blockers), 'requested_at': current['requested_at'],
             'checked_at': checked, 'blockers': blockers}
-    if scope:
-        result['only_issue'] = scope['identifier']
+    result.update(public_scope(scope))
     return result
 
 

@@ -25,7 +25,16 @@ from agent.config import Config, Paths
 from agent.heartbeat import LOOPS, read
 from agent.launcher import Launcher, _write_worker_file
 from agent.ledger import Ledger, LedgerError
-from agent.service import Components, build, enqueue, main, seed_clones, serve
+from agent.service import Components, build as current_build, enqueue as current_enqueue, main, seed_clones, serve
+
+# These are archived controller/wiring fixtures. Current-contract service wiring
+# is exercised through test_single_worker_journey without a replay flag.
+def build(config, *args, **kwargs):
+    return current_build(config, *args, replay_legacy=True, **kwargs)
+
+def enqueue(config, **kwargs):
+    return current_enqueue(config, replay_legacy=True, **kwargs)
+
 from agent.skills import SkillError, load_skills
 from agent.slots import SlotError
 from test_ledger import ISSUE, LEAD, OTHER, PIN, issue
@@ -40,12 +49,58 @@ def git(*args, cwd):
 
 
 class ServeTests(unittest.TestCase):
+    def test_service_automatically_sweeps_finished_worker_caches_and_keeps_recovery(self):
+        self.c.config.worker_retention = {'keep_hours': .000001}
+        launcher = self.c.launcher
+        # macOS temporary paths can contain /var -> /private/var. Retention
+        # deliberately refuses linked ancestors; select the canonical fixture.
+        launcher.runs_root = launcher.runs_root.resolve()
+        handle = launcher.spawn('retention-fixture', 'prompt', {}, 30, self.tmp.name)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and not launcher.poll():
+            time.sleep(.02)
+        self.assertEqual(launcher.running(), {})
+        cache = handle.run_dir / 'disposable' / 'build' / 'temporary.dll'
+        cache.write_bytes(b'compiled disposable fixture')
+        durable = handle.run_dir / 'checkpoint.json'
+        durable.write_bytes(b'preserved recovery fixture')
+        time.sleep(.02)
+        problems = []
+        def run():
+            try:
+                serve(components=self.c)
+            except BaseException as exc:
+                problems.append(exc)
+        with contextlib.redirect_stdout(io.StringIO()):
+            thread = threading.Thread(target=run, daemon=True)
+            thread.start()
+            try:
+                self.assertTrue(self.wait_for_health(), problems)
+                deadline = time.monotonic() + 10
+                receipt = {}
+                while time.monotonic() < deadline:
+                    receipt_path = handle.run_dir / 'cache-retention.json'
+                    if receipt_path.exists():
+                        receipt = json.loads(receipt_path.read_text())
+                    if not cache.exists() and receipt.get('status') == 'complete':
+                        break
+                    time.sleep(.03)
+                self.assertFalse(cache.exists(), problems)
+                self.assertEqual(durable.read_bytes(), b'preserved recovery fixture')
+                self.assertEqual(receipt.get('status'), 'complete', receipt)
+                self.assertEqual(receipt['total_files'], 1)
+            finally:
+                self.c.server.shutdown()
+                thread.join(20)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(problems, [])
+
     def test_maintenance_ready_requires_current_live_controller_and_keeps_queued_work(self):
         from agent.maintenance import Maintenance, read_status
         current = self.c.ledger
         current.observe_issue(issue(delegate_id=APP))
         current.ensure_session('maintenance-session', ISSUE, True)
-        item = current.create_work_item(issue_id=ISSUE, session_id='maintenance-session', skill='chat', target=PIN)
+        item = current.create_work_item(issue_id=ISSUE, session_id='maintenance-session', skill='chat', target=PIN, execution_contract='staged-v1')
         Maintenance(current).pause('fixture maintenance')
         failures = []
         def run():
@@ -276,7 +331,7 @@ class ServeTests(unittest.TestCase):
     def test_an_opt_in_skill_is_loaded_but_routed_and_scheduled_only_where_the_config_names_it(self):
         """P1: a checkout that ships an opt-in skill starts nothing new on a host whose config does not name it."""
         fixture = opt_in_skill(Path(self.tmp.name) / "fixture-skills")
-        skills = {**load_skills(service_module.ROOT / "skills"), fixture.name: fixture}
+        skills = {**load_skills(service_module.ROOT / "skills", replay_legacy=True), fixture.name: fixture}
 
         def built(name, enabled=None):
             config = Config(client_id="client", client_secret="s", webhook_secret="signing-secret", host="test",
@@ -344,7 +399,7 @@ class ServeTests(unittest.TestCase):
         from agent.dispatch import SKILL_AUTHORITY
         from agent.skills import load_skills
         from test_skills import staged_skill
-        skills = {**load_skills(service_module.ROOT / "skills"),
+        skills = {**load_skills(service_module.ROOT / "skills", replay_legacy=True),
                   "feature": staged_skill(Path(self.tmp.name) / "fixture-skills")}
         root = Path(self.tmp.name) / "feature-host"
         values = dict(client_id="client", client_secret="s", webhook_secret="signing-secret", host="test",
@@ -777,7 +832,7 @@ class EnqueueTests(unittest.TestCase):
         self.addCleanup(ledger.close)
         ledger.observe_issue(issue(labels=["Bug"], delegate_id=APP, assignee=None))
         ledger.ensure_session("session-1", ISSUE, delegation=True, creator=LEAD)
-        item = ledger.create_work_item(issue_id=ISSUE, session_id="session-1", skill="fix", target=PIN)
+        item = ledger.create_work_item(issue_id=ISSUE, session_id="session-1", skill="fix", target=PIN, execution_contract='staged-v1')
         with self.assertRaises(LedgerError):
             enqueue(self.config, issue_ref=ISSUE, skill="fix", commit="a" * 40)
         self.assertEqual(ledger.issue_context(item["id"])["owner"], {"person": LEAD, "source": "delegator"})
@@ -806,10 +861,11 @@ class EnqueueTests(unittest.TestCase):
                                            "local_root": str(Path(self.tmp.name) / "local")}), encoding="utf-8")
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            self.assertEqual(main(["enqueue", "--config", str(config_path), "--issue", ISSUE,
-                                   "--commit", "a" * 40]), 0)
+            self.assertEqual(main(["enqueue", "--config", str(config_path), "--issue", ISSUE]), 0)
         created = json.loads(out.getvalue())
         self.assertEqual(created["state"], "queued")
+        self.assertEqual(created['execution_contract'], 'single-worker-v1')
+        self.assertIsNone(created['target'])
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             self.assertEqual(main(["slots", "--config", str(config_path)]), 0)
@@ -850,7 +906,7 @@ class EnqueueTests(unittest.TestCase):
     def test_enqueue_names_the_rule_for_an_opt_in_skill_the_config_leaves_out(self):
         """P1: the refusal says why a loaded skill does not run, before Linear or a ledger is touched."""
         fixture = opt_in_skill(Path(self.tmp.name) / "fixture-skills")
-        skills = {**load_skills(service_module.ROOT / "skills"), fixture.name: fixture}
+        skills = {**load_skills(service_module.ROOT / "skills", replay_legacy=True), fixture.name: fixture}
         with patch("agent.service.load_skills", return_value=skills):
             with self.assertRaises(RuntimeError) as refused:
                 enqueue(self.config, issue_ref=ISSUE, skill="feature", commit="a" * 40)
@@ -871,7 +927,7 @@ class EnqueueTests(unittest.TestCase):
         """spec §9.11, D18: an operator's enqueue follows the Bot label a delegation follows, except for fix, which
         reads no label there (Bot label group design §8). A feature job gets no Farm-Client target (P6)."""
         feature = opt_in_skill(Path(self.tmp.name) / "fixture-skills")
-        skills = {**load_skills(service_module.ROOT / "skills"), feature.name: feature}
+        skills = {**load_skills(service_module.ROOT / "skills", replay_legacy=True), feature.name: feature}
         self.config.enabled_skills = ["chat", "fix", "feature"]  # named, as an opt-in skill must be
         self.config.lark_cli = {"profile": "farmbot"}  # P5: enqueue refuses a feature host without one
 
@@ -907,7 +963,7 @@ class EnqueueTests(unittest.TestCase):
         from agent.dispatch import SKILL_AUTHORITY
         from agent.skills import load_skills
         from test_skills import staged_skill
-        skills = {**load_skills(service_module.ROOT / "skills"),
+        skills = {**load_skills(service_module.ROOT / "skills", replay_legacy=True),
                   "feature": staged_skill(Path(self.tmp.name) / "fixture-skills")}
         self.config.enabled_skills = ["chat", "fix", "feature"]
         with patch("agent.service.load_skills", return_value=skills), \

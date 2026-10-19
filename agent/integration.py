@@ -52,14 +52,17 @@ def companion(ledger, reservation):
             'integration':value}
 
 
-def server_pending(ledger):
+def server_pending(ledger, *, single_only=False):
     """Include combined requests in warmup priority without creating a second queue entry."""
     requests = [r for r in ledger.reservations(states=('queued',))
                 if r['kind']=='server_slot' or get(ledger, r['reservation_id'])]
-    from .admission_scope import read
+    if single_only:
+        from .execution import single
+        requests = [r for r in requests if single(ledger.item(r['item_id']))]
+    from .admission_scope import read, issue_ids
     selected = read(ledger.connection)
     if selected:
-        requests = [r for r in requests if ledger.item(r['item_id'])['issue_id']==selected['issue_id']]
+        requests = [r for r in requests if ledger.item(r['item_id'])['issue_id'] in issue_ids(selected)]
     return requests
 
 

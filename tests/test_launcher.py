@@ -187,6 +187,9 @@ class LauncherTests(unittest.TestCase):
             if name == "codex":
                 config = tomllib.loads((home / "config.toml").read_text())
                 self.assertFalse(config["features"]["memories"])
+                self.assertTrue(config["features"]["multi_agent"])
+                self.assertEqual(config['sandbox_mode'], 'workspace-write')
+                self.assertIn('--approve-for-me', RUNTIMES[name].command)
                 self.assertIn("features.memories=false", RUNTIMES[name].command)
             else:
                 self.assertEqual(env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1")
@@ -467,7 +470,7 @@ class LauncherTests(unittest.TestCase):
             "writable_roots": [str(launcher.state_dir("sandbox-explicit")), str(writable[0])],
             "network_access": True})
         self.assertEqual(config["projects"][str(Path(self.tmp.name).resolve())], {"trust_level": "untrusted"})
-        self.assertEqual(config["features"], {"memories": False, "shell_snapshot": False})
+        self.assertEqual(config["features"], {"memories": False, "multi_agent": True, "shell_snapshot": False})
         self.assertEqual(config["shell_environment_policy"], {"exclude": ["KW_OPS_TOKEN"]})
         self.assertEqual(config["mcp_servers"]["kw_ops"], server)
 
@@ -496,8 +499,28 @@ class LauncherTests(unittest.TestCase):
                     self.assertEqual(json.loads((handle.run_dir / "home/mcp.json").read_text(encoding="utf-8")),
                                      {"mcpServers": {}})
 
+    def test_explicit_mxc_keeps_roots_secrets_and_fresh_homes(self):
+        import tomllib
+        runtime = RUNTIMES['codex']._replace(command=RUNTIMES['fake'].command, seed_files={})
+        launcher = Launcher(self.runs, runtime, 'h', codex_windows_sandbox='mxc')
+        self.addCleanup(launcher.stop, 'mxc-fixture')
+        homes = []
+        for _ in range(2):
+            handle = launcher.spawn('mxc-fixture', self.message, {}, 30, self.tmp.name,
+                                    writable=[Path(self.tmp.name)/'owned'], extra_env={'FAKE_CLI_MODE': 'echo'})
+            self.finished_by(launcher)
+            homes.append(handle.run_dir/'home')
+            config = tomllib.loads((homes[-1]/'config.toml').read_text(encoding='utf-8'))
+            self.assertEqual(config['sandbox_mode'], 'workspace-write')
+            self.assertEqual(config['sandbox_workspace_write']['writable_roots'],
+                             [str(launcher.state_dir('mxc-fixture')), str(Path(self.tmp.name)/'owned')])
+            self.assertEqual(config['projects'][str(Path(self.tmp.name).resolve())]['trust_level'], 'untrusted')
+            if os.name == 'nt': self.assertEqual(config['windows']['sandbox'], 'mxc')
+            else: self.assertNotIn('windows', config)
+        self.assertNotEqual(*homes)
+
     def test_launcher_refuses_an_invalid_windows_mode_before_creating_state(self):
-        for mode in (None, True, False, "", "disabled", "auto", "mxc", "unelevated ", [], {}):
+        for mode in (None, True, False, "", "disabled", "auto", "unelevated ", [], {}):
             with self.subTest(mode=mode), self.assertRaisesRegex(ValueError, "codex_windows_sandbox"):
                 Launcher(self.runs / "invalid", RUNTIMES["codex"], "h", codex_windows_sandbox=mode)
         self.assertFalse((self.runs / "invalid").exists())
@@ -512,7 +535,7 @@ class LauncherTests(unittest.TestCase):
         self.finished_by(launcher)
         config = tomllib.loads((handle.run_dir / "home" / "config.toml").read_text(encoding="utf-8"))
         self.assertNotIn("shell_environment_policy", config)
-        self.assertEqual(config["features"], {"memories": False})
+        self.assertEqual(config["features"], {"memories": False, "multi_agent": True})
 
     def test_sandbox_roots_and_network_access_precede_mcp_servers_in_the_home_config(self):
         codex_command = RUNTIMES["codex"].command

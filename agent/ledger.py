@@ -20,10 +20,12 @@ import time
 from uuid import UUID, uuid4
 
 from . import memory
+from .execution import CONTRACT, LEGACY, single
 from .attention import QUESTION_KEY, question_from
 from .publication import SUFFIXES, PublicationError, is_issue_branch, issue_branch, suffix_of
 from .resource_recovery import RecoveryStore, SCHEMA as RECOVERY_SCHEMA
 from .maintenance import Maintenance, SCHEMA as MAINTENANCE_SCHEMA
+from .issue_workflow import SCHEMA as ISSUE_WORKFLOW_SCHEMA, request_update as request_workflow_update
 from .router import CONVERSATION_SKILLS, WRITE_SKILLS
 from .stages import current_root
 from .withdrawal import DEFAULT_GRACE_SECONDS, SILENT_GRACE_SECONDS
@@ -645,6 +647,7 @@ class Ledger:
             """)
             self.connection.executescript(RECOVERY_SCHEMA)
             self.connection.executescript(MAINTENANCE_SCHEMA)
+            self.connection.executescript(ISSUE_WORKFLOW_SCHEMA)
             # Columns added after the first ledgers were written; CREATE TABLE IF NOT EXISTS leaves those files as they were.
             for table, column, declaration in (("reservations", "server_test_plan", "TEXT"),
                                                 ("reservations", "wait_detail", "TEXT"),
@@ -661,6 +664,7 @@ class Ledger:
                                                 ("work_items", "publication_retries", "INTEGER NOT NULL DEFAULT 0"),
                                                 ("work_items", "retry_not_before", "REAL NOT NULL DEFAULT 0"),
                                                 ("work_items", "root_repo", "TEXT"),
+                                                ("work_items", "execution_contract", "TEXT NOT NULL DEFAULT 'staged-v1'"),
                                                 ("work_items", "next_root_repo", "TEXT"),
                                                 ("work_items", "revalidated_fingerprint", "TEXT"),
                                                 ("job_cleanup", "removing", "INTEGER NOT NULL DEFAULT 0"),
@@ -723,6 +727,7 @@ class Ledger:
     def _view(self, row):
         issue = json.loads(self._issue_row(row["issue_id"])["metadata"])
         result = {key: row[key] for key in ["id", "issue_id", "session_id", "skill", "state", "stage",
+                                            "execution_contract",
                                             "priority", "host", "generation", "lease_expires_at",
                                             "worker_pid", "needs_resource", "root_repo", "next_root_repo",
                                             "created_at", "predecessor_id", "parent_id", "task_key", "task_client_base",
@@ -846,7 +851,8 @@ class Ledger:
     def due_issue(self):
         row = self.connection.execute("""SELECT c.issue_id FROM issue_checks c WHERE c.due_at<=?
             AND (c.requested=1 OR EXISTS (SELECT 1 FROM work_items w WHERE w.issue_id=c.issue_id
-                AND w.state IN ('queued','running','awaiting_input','awaiting_resource','blocked')))
+                AND w.state IN ('queued','running','awaiting_input','awaiting_resource','blocked'))
+                OR EXISTS (SELECT 1 FROM issue_workflow_updates u WHERE u.issue_id=c.issue_id AND u.synced=0))
             ORDER BY c.checked_at,c.due_at,c.issue_id LIMIT 1""", (self.clock(),)).fetchone()
         return row["issue_id"] if row else None
 
@@ -1046,7 +1052,7 @@ class Ledger:
                 "target": json.loads(row["target_json"]) if row["target_json"] else None, "guidance": row["guidance"],
                 "creator": json.loads(row["creator_json"]) if row["creator_json"] else None}
 
-    def create_work_item(self, *, issue_id, session_id, skill, target=None, authority=None):
+    def create_work_item(self, *, issue_id, session_id, skill, target=None, authority=None, execution_contract=None):
         """`authority` is what authorised the item (AUTHORITIES); None records the skill's default."""
         _text(skill, "skill")
         if skill == "scene":
@@ -1054,9 +1060,10 @@ class Ledger:
         authority = _checked_authority(skill, authority)
         with self._transaction():
             issue = json.loads(self._issue_row(issue_id)["metadata"])
-            return self._view(self._row(self._insert_item(issue, session_id, skill, target, authority)))
+            return self._view(self._row(self._insert_item(issue, session_id, skill, target, authority,
+                                                        execution_contract=execution_contract)))
 
-    def _insert_item(self, issue, session_id, skill, target, authority):
+    def _insert_item(self, issue, session_id, skill, target, authority, *, execution_contract=None):
         """Caller owns the transaction and has checked `authority`. Queue a new item of `skill` on `issue` (its stored
         metadata) in `session_id`, and return its id."""
         if self.session(session_id) is None:
@@ -1072,6 +1079,10 @@ class Ledger:
             "SELECT id,state FROM work_items WHERE issue_id=? AND skill=? AND parent_id IS NULL ORDER BY created_at DESC,rowid DESC LIMIT 1",
             (issue["id"], skill)).fetchone() if skill in WRITE_SKILLS else None
         predecessor = prior["id"] if prior and prior["state"] == "cancelled" else None
+        contract = execution_contract or (self.item(predecessor)['execution_contract'] if predecessor else
+                                          CONTRACT if skill == 'work' else LEGACY)
+        if contract not in (CONTRACT, LEGACY) or contract == CONTRACT and skill != 'work':
+            raise LedgerError('invalid execution contract for this skill')
         item_id = str(uuid4())
         now = self.clock()
         self.connection.execute("""INSERT INTO work_items(id,issue_id,session_id,skill,state,priority,target_json,created_at,updated_at,predecessor_id,authority)
@@ -1079,6 +1090,7 @@ class Ledger:
                                 (item_id, issue["id"], session_id, skill, issue["priority"] or 5,
                                  json.dumps(target) if target is not None else None, now, now, predecessor, authority))
         self._audit(item_id, "create", f"skill {skill}")
+        self.connection.execute('UPDATE work_items SET execution_contract=? WHERE id=?', (contract, item_id))
         return item_id
 
     def active_item_for_session(self, session_id):
@@ -1277,7 +1289,7 @@ class Ledger:
                 raise LedgerError("maintenance handoff awaits proven worker teardown")
             from .admission_scope import allows
             if not allows(self.connection, item_id) and not (Maintenance(self).requested() and self.active_reservation(item_id)):
-                raise LedgerError('operator single-issue acceptance has paused this issue')
+                raise LedgerError('operator acceptance scope has paused this issue')
             if row["retry_not_before"] > self.clock():
                 raise LedgerError("automatic retry delay has not elapsed")
             if row["parent_id"]:
@@ -1329,6 +1341,7 @@ class Ledger:
                 self.connection.execute("UPDATE work_items SET stage='unity-worker-starting' WHERE id=?", (item_id,))
             self.connection.execute("UPDATE job_cleanup SET worker_pid=?,done=0 WHERE item_id=?", (pid, item_id))
             self._audit(row["id"], "worker", f"pid {pid} on {host}")
+            request_workflow_update(self, row, 'In Progress')
             return self._view(self._row(row["id"]))
 
     SLOT_STATES = ("idle_closed", "idle_open", "switching", "interactive_busy", "batch_busy", "held")
@@ -1412,10 +1425,15 @@ class Ledger:
         issue branches are checked against it (plan P9)."""
         if not isinstance(progress, dict):
             raise LedgerError("checkpoint input must be an object")
+        autonomous = single(self._owned(item_id, token))
+        if autonomous:
+            from .execution import validate_progress
+            validate_progress(progress)
         handoff_updated = "handoff" in progress
         if handoff_updated:
             try:
-                _validate_handoff(progress["handoff"])
+                if not autonomous:
+                    _validate_handoff(progress["handoff"])
             except LedgerError as exc:
                 # Commit the rejection independently of the failed write. It must survive a
                 # CLI restart, and an invalid/stale claim must not poison another worker.
@@ -1423,7 +1441,7 @@ class Ledger:
                     self._owned(item_id, token)
                     self._audit(item_id, "handoff_rejected", str(exc))
                 raise
-        if "plan" in progress:
+        if "plan" in progress and not autonomous:
             _validate_plan(progress["plan"])  # refused outright: a plan is not a handoff, so no rejection is kept
         published = progress.get("published_prs", [])
         if not isinstance(published, list):
@@ -1454,7 +1472,7 @@ class Ledger:
                 progress["worker_id"] = previous["worker_id"]
             known = {r["url"] for r in self.connection.execute("SELECT url FROM published_prs WHERE issue_id=?", (row["issue_id"],))}
             issue = json.loads(self._issue_row(row["issue_id"])["metadata"])
-            if "plan" in progress:
+            if "plan" in progress and not autonomous:
                 # P9: a recorded issue branch decides where later attempts' worktrees start (spec §5.7). Refused
                 # outright, like any invalid plan, before anything of this checkpoint is written.
                 plan_issue_branches(progress["plan"], issue["identifier"], issue_prefix,
@@ -1541,6 +1559,8 @@ class Ledger:
         The ledger reads no manifests: `skill` is the item's loaded skill, which the worker CLI passes. A staged
         skill may move to any repository in its writes other than its current root.
         """
+        if single(self._owned(item_id, token)):
+            raise LedgerError('repository handoff is retired for single-worker jobs; change directories directly')
         if to_repo not in skill.writes:
             raise LedgerError(f"repository is not a {skill.name} target")
         with self._transaction():
@@ -1809,7 +1829,8 @@ class Ledger:
 
     def await_resource(self, item_id, token, resource, mode, *, skill, commit_sha=None, issue_prefix="FARM",
                        comparison_candidate=None, server_test_plan=None, continuation=None, server_base_commit=None,
-                       reuse_candidate_reservation=None, client_base_commit=None, client_repair=None, integration_plan=None):
+                       reuse_candidate_reservation=None, client_base_commit=None, client_repair=None,
+                       resume_baseline_reservation=None, integration_plan=None):
         """Park the claimed item until the pool grants `resource`.
 
         The ledger reads no manifests: `skill` is the item's loaded skill, which the worker CLI passes, as for
@@ -1818,6 +1839,8 @@ class Ledger:
         initial root is never neutral and asks only from a Farm-Client root (spec §9.4). For fix, whose current
         root is its stored root, the rules are the ones it always had.
         """
+        if single(self._owned(item_id, token)):
+            raise LedgerError('single-worker resources require the claim-bound worker resource request')
         _text(resource, "resource")
         if integration_plan is not None:
             from .integration import validate_plan as validate_integration_plan
@@ -1828,6 +1851,9 @@ class Ledger:
                 raise LedgerError('integration requires a separate interactive Client candidate request')
         if reuse_candidate_reservation is not None and comparison_candidate is None:
             raise LedgerError('candidate reuse requires an explicit comparison baseline')
+        if resume_baseline_reservation is not None and (resource != 'unity_slot' or comparison_candidate is None
+                or continuation is not None or client_repair is not None):
+            raise LedgerError('baseline resume requires an explicit Client comparison request')
         if client_base_commit is not None and (resource != 'unity_slot' or comparison_candidate is not None
                 or not isinstance(client_base_commit, str) or not COMMIT_SHA.fullmatch(client_base_commit)):
             raise LedgerError('candidate base requires a full host-verified Client SHA')
@@ -1854,6 +1880,9 @@ class Ledger:
             if skill.name != row["skill"]:
                 raise LedgerError("a resource request requires the work item's own skill manifest")
             require_listed_resource(skill, resource)
+            from .presentation_contract import source_only
+            if source_only(row):
+                raise LedgerError('FGUI source tasks use the native publisher; parent owns Unity verification')
             root = current_root(row["root_repo"], skill)
             if comparison_candidate is not None and (
                     resource != "unity_slot" or row["skill"] not in ("work", "fix", "feature")
@@ -1918,7 +1947,13 @@ class Ledger:
                         or client_base_commit != pair['baseline_commit']
                         or not isinstance(client_repair.get('changed_paths'), list) or not client_repair['changed_paths']):
                     raise LedgerError('repair identity differs from its validated original round')
-            if reuse_candidate_reservation is not None:
+            if resume_baseline_reservation is not None:
+                from .baseline_resume import pinned_baseline
+                resumed = pinned_baseline(self, item_id, comparison_candidate, resume_baseline_reservation, mode=mode)
+                if (selected_commit != resumed['baseline_commit']
+                        or reuse_candidate_reservation != resumed['reuse_candidate_reservation']):
+                    raise LedgerError('baseline resume must preserve both original source and candidate evidence')
+            elif reuse_candidate_reservation is not None:
                 self._validate_retained_candidate(row, reuse_candidate_reservation, comparison_candidate, mode)
                 pinned = self.candidate_verification_base(reuse_candidate_reservation)
                 if pinned is not None and pinned != selected_commit:
@@ -1961,6 +1996,7 @@ class Ledger:
                            if reuse_candidate_reservation is not None else {}),
                         **({'client_base_commit': client_base_commit} if client_base_commit else {}),
                         **({'client_repair': client_repair} if client_repair is not None else {}),
+                        **({'baseline_resume_of': resume_baseline_reservation} if resume_baseline_reservation else {}),
                         **({'continuation_of': continuation[0]} if continuation else {})})
             return self._view(self._row(row["id"]))
 
@@ -2063,9 +2099,12 @@ class Ledger:
                                     (STAGES[phase], _json(checkpoint), self.clock(), item_id))
             self._audit(item_id, 'verification_progress', phase)
             if report is not None:
+                from .shared_test_findings import record
+                record(self, item_id, report)
                 self._audit(item_id, 'verification_comparison', report['verdict'], details={
                     key: report[key] for key in ('draft_eligible', 'full_suite_passed', 'baseline_commit',
-                                                'candidate_commit') if key in report})
+                                                'candidate_commit', 'source_base_commit',
+                                                'baseline_executed', 'scope_policy') if key in report})
             return {'stage': STAGES[phase], 'state': item['state']}
 
     def reservation_comparison(self, reservation_id):
@@ -2133,8 +2172,12 @@ class Ledger:
         rows = [r for r in self.reservations() if r["item_id"] == item_id and r["kind"] == "unity_slot"]
         for baseline in reversed(rows):
             comparison = self.reservation_comparison(baseline["reservation_id"])
-            if not comparison or comparison["candidate_commit"] != candidate or baseline["commit_sha"] == candidate:
+            if not comparison or comparison["candidate_commit"] != candidate:
                 continue
+            # Older policy admitted same-source comparison rounds. Retain their
+            # two real executions for review instead of trapping them in a gap.
+            # Ownership and distinct reservation checks still apply. A settled
+            # recorded pair survives an authorized retry's new claim generation.
             if baseline["state"] != "released" or baseline["release_reason"] != "worker reported quiescent":
                 return None  # A newer unfinished/unclean round cannot borrow older evidence.
             retained = comparison.get('reuse_candidate_reservation')
@@ -2194,7 +2237,7 @@ class Ledger:
                             {"reservation_id": row["reservation_id"]})
             return len(rows)
 
-    def acquire(self, kind, *, owner, host, exclude_resources=(), expected_reservation=None, server_resources=None):
+    def acquire(self, kind, *, owner, host, exclude_resources=(), expected_reservation=None, single_only=False, server_resources=None):
         """Grant FIFO, except for a baseline's one-turn continuation on its released slot.
 
         There is deliberately no kind-wide "is anything active?" pre-check. It would read as an optimisation
@@ -2211,7 +2254,7 @@ class Ledger:
             if Maintenance(self).requested():
                 return None
             from .resource_queue import continuation_slot, queued_rows
-            row = next(iter(queued_rows(self.connection, kind=kind)), None)
+            row = next(iter(queued_rows(self.connection, kind=kind, single_only=single_only)), None)
             if row is None or expected_reservation is not None and row["reservation_id"] != expected_reservation:
                 return None
             # Spec §7 scheduling preference: interactive wants an Editor already open, batch wants none.
@@ -2228,7 +2271,7 @@ class Ledger:
             integration = integration_request(self, row['reservation_id'])
             if integration:
                 # A combined request joins server FIFO too, but never holds half a lease.
-                server_waiters = [r for r in self.reservation_queue('server_slot') if r['sequence'] < row['sequence']]
+                server_waiters = [r for r in self.reservation_queue('server_slot', single_only=single_only) if r['sequence'] < row['sequence']]
                 servers = [s for s in self.slots(kind='server_slot', host=host) if s['state']=='idle_closed'
                            and (server_resources is None or s['slot_id'] in server_resources)
                            and self.active_reservation_on(s['slot_id']) is None]
@@ -2240,6 +2283,8 @@ class Ledger:
                 self.connection.execute("UPDATE slots SET state='switching',updated_at=? WHERE slot_id=?",
                                         (self.clock(), server['slot_id']))
             slot = free[0]
+            if self.active_reservation_on(slot['slot_id']):
+                raise LedgerError(f"{slot['slot_id']} is free but a reservation still holds it; the slot was returned to the pool early")
             token = "res_" + secrets.token_urlsafe(32)
             try:
                 self.connection.execute(
@@ -2256,7 +2301,8 @@ class Ledger:
             self.connection.execute("UPDATE slots SET state='switching',updated_at=? WHERE slot_id=?",
                                     (self.clock(), slot["slot_id"]))
             if kind == "unity_slot" and row["mode"] == "interactive":
-                self.connection.execute("UPDATE work_items SET stage='unity-preparing' WHERE id=? AND state='awaiting_resource'",
+                self.connection.execute("UPDATE work_items SET stage='unity-preparing' WHERE id=? AND "
+                                        "(state='awaiting_resource' OR (state='running' AND execution_contract='single-worker-v1'))",
                                         (row["item_id"],))
             self._audit(row["item_id"], "reservation", "acquired",
                         details={"reservation_id": row["reservation_id"], "slot": slot["slot_id"]})
@@ -2291,7 +2337,8 @@ class Ledger:
         if stage not in ("waiting-for-worker", "waiting-for-worker-teardown", "waiting-for-unity"):
             raise ValueError("unknown Unity wait stage")
         with self._transaction():
-            self.connection.execute("""UPDATE work_items SET stage=? WHERE state='awaiting_resource'
+            self.connection.execute("""UPDATE work_items SET stage=? WHERE
+                (state='awaiting_resource' OR (state='running' AND execution_contract='single-worker-v1'))
                 AND stage<>? AND id IN (SELECT item_id FROM reservations
                     WHERE reservation_id=? AND state='queued' AND kind='unity_slot' AND mode='interactive')""",
                 (stage, stage, reservation_id))
@@ -2332,9 +2379,9 @@ class Ledger:
             values = states
         return [self._reservation_view(row) for row in self.connection.execute(sql + " ORDER BY sequence", values)]
 
-    def reservation_queue(self, kind):
+    def reservation_queue(self, kind, *, single_only=False):
         from .resource_queue import queued_rows
-        return [self._reservation_view(row) for row in queued_rows(self.connection, kind=kind)]
+        return [self._reservation_view(row) for row in queued_rows(self.connection, kind=kind, single_only=single_only)]
 
     def active_reservation(self, item_id):
         row = self.connection.execute(
@@ -2407,6 +2454,11 @@ class Ledger:
             row = self._reservation_owned(reservation_id, token)
             if row["state"] in ("released", "cancelled"):
                 return row["state"]
+            from .integration import get as integration_request
+            combined = integration_request(self, reservation_id)
+            if combined and any(self.slot(slot)['state']=='held'
+                                for slot in (row['resource'], combined['server_slot']) if slot):
+                raise LedgerError('combined resource is held; verified controller recovery is required')
             state = "cancelled" if row["state"] == "cancel_requested" else "released"
             self.connection.execute(
                 "UPDATE reservations SET state=?,released_at=?,release_reason=? WHERE reservation_id=?",
@@ -2414,13 +2466,13 @@ class Ledger:
             if row["resource"]:
                 self.connection.execute("UPDATE slots SET state='switching',updated_at=? WHERE slot_id=?",
                                         (self.clock(), row["resource"]))
-            from .integration import get as integration_request
-            combined = integration_request(self, reservation_id)
             if combined and combined['server_slot']:
                 self.connection.execute("UPDATE slots SET state='switching',updated_at=? WHERE slot_id=?",
                                         (self.clock(), combined['server_slot']))
             self._audit(row["item_id"], "reservation", state, details={"reservation_id": reservation_id,
                                                                       "reason": reason[:200]})
+            self.connection.execute("UPDATE work_items SET stage='working',needs_resource=NULL WHERE id=? "
+                                    "AND state='running' AND execution_contract='single-worker-v1'", (row['item_id'],))
             return state
 
     def hold(self, reservation_id, reason, *, recovery_kind='execution'):
@@ -3168,6 +3220,9 @@ class Ledger:
                     VALUES(?,?,?,?,'queued',?,?,?,?,'delegation')""",
                     (destination, chat["issue_id"], authority["session_id"], start_skill, issue["priority"] or 5,
                      target, now, now))
+                if start_skill == 'work':
+                    self.connection.execute('UPDATE work_items SET execution_contract=? WHERE id=?',
+                                            (CONTRACT, destination))
                 self._audit(destination, "create", "conversation requested first repair" if start_skill == "fix"
                             else f"conversation requested a first {start_skill} job")
             elif work["state"] == "cancelled":
@@ -3207,6 +3262,8 @@ class Ledger:
             (item_id, previous["issue_id"], session_id, previous["skill"], previous["priority"],
              previous["target_json"], previous["id"], now, now, _authority(previous)))
         self._audit(item_id, "create", reason, {"predecessor_id": previous["id"], "session_id": session_id})
+        self.connection.execute('UPDATE work_items SET execution_contract=? WHERE id=?',
+                                (previous['execution_contract'], item_id))
         return item_id
 
     def _guard_cleanup_retry(self, item_id):
@@ -3455,7 +3512,9 @@ class Ledger:
                 if prs:
                     raise LedgerError('a no_change delivery carries no PR')
             elif not prs:
-                raise LedgerError('delivered finish requires a nonempty prs array or a no_change reason')
+                from .presentation_contract import request
+                if not (row['skill'] == 'scene' and row['parent_id'] and request(row).get('_contract') == 'presentation-v1'):
+                    raise LedgerError('delivered finish requires a nonempty prs array or a no_change reason')
         if evidence.get('comment_action_id') is not None:
             _text(evidence['comment_action_id'], 'comment_action_id')
 
@@ -3475,13 +3534,17 @@ class Ledger:
                 if (row['requeue_requested'] or
                         self._issue_row(row['issue_id'])['fingerprint'] != row['claimed_fingerprint']):
                     raise LedgerError('issue changed; revalidate before completion preflight')
-            if row['skill'] in ('work', 'feature') and outcome == 'delivered':
+            if single(row):
+                self.require_no_reservation(item_id)
+                if outcome == 'delivered' and self.human_question(item_id):
+                    raise LedgerError('resolve the actual human question before delivery')
+            if not single(row) and row['skill'] in ('work', 'feature') and outcome == 'delivered':
                 from .closing import validate_deferred_archive
                 try:
                     validate_deferred_archive(json.loads(row['checkpoint']).get('plan') or {}, evidence.get('prs'))
                 except ValueError as exc:
                     raise LedgerError(str(exc)) from exc
-            if row["skill"] == "work":
+            if row["skill"] == "work" and not single(row):
                 from .workflow import task_views
                 tasks = task_views(self, item_id)
                 if outcome == "delivered" and any(t["state"] in ACTIVE_STATES for t in tasks):
@@ -3504,8 +3567,21 @@ class Ledger:
                         raise LedgerError("prs must be an array of PR URLs")
                     if not task_prs.issubset(set(prs)):
                         raise LedgerError("general delivery must include every presentation task's draft PRs")
+                    from .presentation_artifacts import require_parent_integrations
+                    require_parent_integrations(self, self._view(row))
             chat = row["skill"] == "chat"
-            if row["skill"] == "fgui" and outcome == "delivered" and not evidence.get("no_change"):
+            source_delivery = bool(evidence.get('ui_source_delivery_id'))
+            if source_delivery:
+                from .presentation_artifacts import source_proof
+                if row['skill'] != 'fgui' or not row['parent_id'] or outcome != 'delivered' or evidence.get('no_change'):
+                    raise LedgerError('source delivery belongs only to an internal FGUI task')
+                proof = source_proof(self, self._view(row), delivery_id=evidence['ui_source_delivery_id'])
+                if proof['prs'] != evidence.get('prs') or proof['receipt_id'] != evidence.get('receipt_id'):
+                    raise LedgerError('source delivery must retain its certified receipt and source draft')
+            if row["skill"] == "fgui" and outcome == "delivered" and not evidence.get("no_change") and not source_delivery:
+                from .presentation_contract import source_only
+                if source_only(row):
+                    raise LedgerError('FGUI source tasks require certified source delivery')
                 proofs = [json.loads(proof["details"]) for proof in self.connection.execute(
                     "SELECT details FROM audit WHERE item_id=? AND kind='fgui_delivery_verified'", (item_id,))]
                 if not any(proof.get("delivery_id") == evidence.get("ui_delivery_id")
@@ -3530,7 +3606,9 @@ class Ledger:
                         if prs:
                             raise LedgerError("a no_change task carries no PR")
                     elif not prs:
-                        raise LedgerError("task delivery requires PRs or an explicit no_change reason")
+                        from .presentation_contract import request
+                        if not (row['skill'] == 'scene' and request(row).get('_contract') == 'presentation-v1'):
+                            raise LedgerError("task delivery requires PRs or an explicit no_change reason")
                     if row["skill"] == "scene":
                         proofs = [json.loads(proof["details"]) for proof in self.connection.execute(
                             "SELECT details FROM audit WHERE item_id=? AND kind='scene_delivery_verified'", (item_id,))]
@@ -3609,6 +3687,8 @@ class Ledger:
             state = "queued" if changed else outcome
             self._set_state(row["id"], state, evidence["summary"], token=None, lease_expires_at=None, worker_pid=None,
                             evidence=_json(evidence), generation=row["generation"] + int(state == "queued"))
+            if state == 'delivered':
+                request_workflow_update(self, self._row(row['id']), 'In Review')
             return self._view(self._row(row["id"]))
 
     @staticmethod

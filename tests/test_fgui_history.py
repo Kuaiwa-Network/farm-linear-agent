@@ -35,7 +35,7 @@ class SourceHistoryHostTests(unittest.TestCase):
             self.request()
         self.assertFalse(f.trees.has_commit('farmgui', self.main))
         scheduler = Scheduler(f.ledger, FakeLauncher(f.paths.runs), {'fgui': f.skill}, f.trees,
-            skill_root=ROOT / 'skills', db_path=f.paths.ledger, runtime_name='fake', host='fixture',
+            replay_legacy=True, skill_root=ROOT / 'skills', db_path=f.paths.ledger, runtime_name='fake', host='fixture',
             enabled_skills={'fgui'})
         original = Worktrees.fetch
         with patch.object(Worktrees, 'fetch', autospec=True,

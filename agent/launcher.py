@@ -1,5 +1,6 @@
 """Spawn, watch and kill one headless CLI worker per work item (spec §8)."""
 from collections import namedtuple
+from functools import wraps
 import io
 import json
 import os
@@ -201,6 +202,14 @@ def write_mcp_config(home, mcp_format, servers, settings=None, root_settings=Non
     return path
 
 
+def _serialize_retention(method):
+    @wraps(method)
+    def call(self, *args, **kwargs):
+        with self.retention_lock:
+            return method(self, *args, **kwargs)
+    return call
+
+
 class Launcher:
     # SIGTERM grace for members of an exited POSIX worker's session, before SIGKILL.
     exit_grace = 5.0
@@ -210,8 +219,8 @@ class Launcher:
     def __init__(self, runs_root, runtime, host, clock=time.time, token_env=None, lark_cli=None, *,
                  codex_windows_sandbox="elevated"):
         if (not isinstance(codex_windows_sandbox, str)
-                or codex_windows_sandbox not in ("elevated", "unelevated")):
-            raise ValueError("codex_windows_sandbox must be elevated or unelevated")
+                or codex_windows_sandbox not in ("elevated", "unelevated", "mxc")):
+            raise ValueError("codex_windows_sandbox must be elevated, unelevated or mxc")
         self.runs_root = Path(runs_root)
         self.runtime = runtime
         self.host = host
@@ -220,6 +229,8 @@ class Launcher:
         self.lark_cli = dict(lark_cli or {})
         self.codex_windows_sandbox = codex_windows_sandbox
         self._handles = {}
+        # Backlog retention cannot race creation of a same-job resume attempt.
+        self.retention_lock = threading.RLock()
         self._stopping = {}
         self._jobs = {}
         self._job_lock = threading.RLock()
@@ -253,6 +264,7 @@ class Launcher:
         """The one directory outside its worktrees a worker may write: its runs, token and logs."""
         return self.runs_root / item_id
 
+    @_serialize_retention
     def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=(), cancelled=None,
               model_settings=None, withheld_env=(), lark_cli_access=False):
         # Read only the controller's configured source, before overrides; fail before creating an attempt.
@@ -281,7 +293,9 @@ class Launcher:
         roots = [str(self.state_dir(item_id)), *(str(path) for path in writable)]
         settings = {"sandbox_workspace_write": {"writable_roots": roots, "network_access": True}}
         if self.runtime.name == "codex":
-            settings["features"] = {"memories": False}
+            # Native helpers stay inside this issue's Codex session and permission policy;
+            # enabling the tools does not create another FarmBot job or claim.
+            settings["features"] = {"memories": False, "multi_agent": True}
             if os.name == "nt":
                 # An isolated CODEX_HOME must not inherit a disabled native sandbox default.
                 settings["windows"] = {"sandbox": self.codex_windows_sandbox}
@@ -325,6 +339,13 @@ class Launcher:
         env[self.runtime.home_env] = str(home)
         env["FARMBOT_ITEM_ID"] = item_id
         env.update(extra_env or {})
+        # Attempt-local regenerable outputs. Never point these at a global/shared
+        # cache or use TEMP for durable reports, source or checkpoint handoffs.
+        disposable = run_dir.absolute() / 'disposable'
+        for child in ('go-cache', 'go-tmp', 'build'):
+            (disposable / child).mkdir(parents=True)
+        env.update(GOCACHE=str(disposable / 'go-cache'), GOTMPDIR=str(disposable / 'go-tmp'),
+                   FARMBOT_BUILD_ROOT=str(disposable / 'build'))
         if self.runtime.name == "claude":
             env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
         # Apply withholding last: overrides must not restore a secret or select a different lark-cli store.

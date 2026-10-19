@@ -33,7 +33,7 @@ class FeatureClientStageTests(unittest.TestCase):
         self.ledger.observe_issue(fixtures.issue())
         self.ledger.ensure_session(fixtures.SESSION, fixtures.ISSUE, delegation=True)
         self.item = self.ledger.create_work_item(issue_id=fixtures.ISSUE, session_id=fixtures.SESSION,
-                                                 skill="feature")
+                                                 skill="feature", execution_contract='staged-v1')
         self.trees.stage_base = Mock(return_value=BASE)
         self.trees.add_stage = Mock(side_effect=lambda repo, item_id, branch, baseline, **kw:
                                     self.trees.add(repo, item_id, branch))

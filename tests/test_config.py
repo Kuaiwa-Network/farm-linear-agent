@@ -13,12 +13,12 @@ from agent.config import LARK_CLI_SKILLS, Config, load_config, require_lark_cli
 class CodexWindowsSandboxConfigTests(unittest.TestCase):
     def test_default_and_explicit_native_modes(self):
         self.assertEqual(Config("c", "s", "w").codex_windows_sandbox, "elevated")
-        for mode in ("elevated", "unelevated"):
+        for mode in ("elevated", "unelevated", "mxc"):
             with self.subTest(mode=mode):
                 self.assertEqual(Config("c", "s", "w", codex_windows_sandbox=mode).codex_windows_sandbox, mode)
 
     def test_disabled_implicit_and_invalid_modes_are_refused(self):
-        for mode in (None, True, False, 0, "", "disabled", "auto", "mxc", "Elevated", "unelevated ", [], {}):
+        for mode in (None, True, False, 0, "", "disabled", "auto", "Elevated", "unelevated ", [], {}):
             with self.subTest(mode=mode), self.assertRaisesRegex(ValueError, "codex_windows_sandbox"):
                 Config("c", "s", "w", codex_windows_sandbox=mode)
 
@@ -27,7 +27,7 @@ class CodexWindowsSandboxConfigTests(unittest.TestCase):
             path = Path(directory) / "config.json"
             data = {"client_id": "c", "client_secret": "s", "webhook_secret": "w",
                     "codex_windows_sandbox": "unelevated"}
-            for mode in ("elevated", "unelevated"):
+            for mode in ("elevated", "unelevated", "mxc"):
                 data["codex_windows_sandbox"] = mode
                 path.write_text(json.dumps(data), encoding="utf-8")
                 self.assertEqual(load_config(path).codex_windows_sandbox, mode)

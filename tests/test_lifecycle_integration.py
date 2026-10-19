@@ -27,7 +27,7 @@ class LifecycleIntegrationTests(unittest.TestCase):
     def job(self):
         self.c.ledger.observe_issue(self.snapshot())
         self.c.ledger.ensure_session('integration-session', ISSUE, delegation=True)
-        return self.c.ledger.create_work_item(issue_id=ISSUE, session_id='integration-session', skill='fix', target=PIN)
+        return self.c.ledger.create_work_item(issue_id=ISSUE, session_id='integration-session', skill='fix', target=PIN, execution_contract='staged-v1')
 
     def test_close_running_worker_preserves_source_logs_and_fresh_restart_evidence(self):
         job = self.job()

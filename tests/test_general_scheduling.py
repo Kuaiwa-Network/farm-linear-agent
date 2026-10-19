@@ -41,7 +41,7 @@ class GeneralSchedulingTests(unittest.TestCase):
 
     def task(self, key="ui", capability="fgui", *, parent=None, token=None):
         return delegate_task(self.ledger, parent or self.parent, token or self.token,
-            {"key": key, "capability": capability, "instructions": "Use the settled shared spec."})
+            {"key": key, "capability": capability, **({"scope": {"assets": ["Assets/nursery.prefab"], "validation": "source"}} if capability == "scene" else {}), "instructions": "Use the settled shared spec."})
 
     def retained_client_branch(self):
         fixture = git_fixtures.WorktreeTests()
@@ -372,7 +372,7 @@ class GeneralSchedulingTests(unittest.TestCase):
                 evidence.pop("comment_action_id")
                 fixture.ledger.finish(fixture.item, fixture.fixture.source.token, "delivered", evidence)
                 scheduler = Scheduler(fixture.ledger, self.fixture.launcher, SKILLS, fixture.fixture.source.trees,
-                    skill_root=self.scheduler.skill_root, db_path=fixture.fixture.paths.ledger,
+                    replay_legacy=True, skill_root=self.scheduler.skill_root, db_path=fixture.fixture.paths.ledger,
                     runtime_name="fake", host="fixture")
                 if late_change == "source":
                     fixture.fixture.source.git(fixture.fixture.source.path, "commit", "--allow-empty", "-qm", "Late source commit")

@@ -149,7 +149,9 @@ class RecoveryStore:
                     or reservation['host'] != host or reservation['mode'] != 'interactive'):
                 return None
             item = self.ledger.item(reservation['item_id'])
-            if item['state'] != 'awaiting_resource' or item['generation'] != reservation['generation']:
+            from .execution import single
+            preparing_owner = single(item) and item['state'] == 'running' and item['stage'] == 'unity-preparing'
+            if (item['state'] != 'awaiting_resource' and not preparing_owner) or item['generation'] != reservation['generation']:
                 return None  # delivered to a worker, stopped, or superseded: retain existing handling
             return self.request_in_transaction(slot_id,
                 'controller restart interrupted Unity preparation before worker handoff', recovery_kind='setup')
@@ -346,6 +348,14 @@ class RecoveryStore:
                         column = 'setup_attempts' if setup else 'attempts'
                         self.db.execute(f"INSERT INTO resource_job_retries(item_id,{column}) VALUES(?,1) "
                                         f"ON CONFLICT(item_id) DO UPDATE SET {column}={column}+1", (item['id'],))
+                        from .execution import single
+                        if single(item):
+                            self.ledger._set_state(item['id'], 'queued', 'resource recovered; review retained evidence before more tests',
+                                stage='resource-recovery-review', needs_resource=None, token=None,
+                                lease_expires_at=None, worker_pid=None)
+                            self.db.execute('UPDATE resource_recoveries SET detached=1,updated_at=? WHERE id=?',
+                                            (self.ledger.clock(), recovery_id))
+                            return
                         replacement = str(uuid4())
                         self.db.execute("""INSERT INTO reservations(reservation_id,item_id,generation,kind,mode,commit_sha,state,created_at)
                             VALUES(?,?,?,?,?,?,'queued',?)""",

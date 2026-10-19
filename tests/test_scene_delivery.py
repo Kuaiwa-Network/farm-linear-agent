@@ -20,6 +20,8 @@ class SceneDeliveryTests(unittest.TestCase):
         self.fixture = fixture = cli_fixtures.CliTests()
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
+        # macOS temporary roots may use /var aliases; owned fixture paths use the real root.
+        fixture.root = fixture.root.resolve()
         args, self.ledger, self.config, self.api, self.github = fixture.publication_fixture()
         self.api.create_activity = Mock(return_value="progress")
         self.parent, self.parent_token = args.item, args.token
@@ -29,7 +31,8 @@ class SceneDeliveryTests(unittest.TestCase):
                                        (self.parent,))
         self.ledger.checkpoint(self.parent, self.parent_token, {"plan": {"stages": {"A": "done"}}})
         task = delegate_task(self.ledger, self.parent, self.parent_token, {
-            "key": "scene", "capability": "scene", "instructions": "Use the nursery contract."})
+            "key": "scene", "capability": "scene", "instructions": "Use the nursery contract.",
+            'scope': {'assets': ['Assets/nursery.prefab'], 'validation': 'source'}})
         self.task = task["id"]
         baseline = git("rev-parse", "HEAD", cwd=self.client)
         self.ledger.pin_staged_client(self.task, task["generation"], {**PIN, "commit_sha": baseline}, branch="farmbot/farm-1")
@@ -44,8 +47,10 @@ class SceneDeliveryTests(unittest.TestCase):
         self.evidence = {"summary": "Scene ready", "verification": "Checked nursery scene", "prs": [self.url]}
 
     def changed(self):
-        (self.client / "nursery.prefab").write_text("Nursery presentation", encoding="utf-8")
-        git("add", "nursery.prefab", cwd=self.client)
+        (self.client / 'Assets').mkdir(exist_ok=True)
+        (self.client / "Assets/nursery.prefab").write_text("Nursery presentation", encoding="utf-8")
+        (self.client / 'Assets/nursery.prefab.meta').write_text('fileFormatVersion: 2\nguid: ' + 'e' * 32 + '\n', encoding='utf-8')
+        git("add", "Assets/nursery.prefab", 'Assets/nursery.prefab.meta', cwd=self.client)
         git("commit", "-qm", "Nursery presentation", cwd=self.client)
         self.draft["head"]["sha"] = git("rev-parse", "HEAD", cwd=self.client)
 

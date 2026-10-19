@@ -25,7 +25,7 @@ from test_ledger import DESIGNER, ISSUE, OTHER, PIN, SESSION, comment, issue
 from test_skills import opt_in_skill, staged_skill
 
 ROOT = Path(__file__).resolve().parents[1]
-SKILLS = load_skills(ROOT / "skills")
+SKILLS = load_skills(ROOT / "skills", replay_legacy=True)
 FIX_LEASE = SKILLS["fix"].budget["lease_seconds"]  # the launcher records it, so claims last this long
 
 
@@ -166,7 +166,7 @@ class FakeWorktrees:
         clone = self.clone_path(repo)
         return [clone / "objects", clone / "refs", clone / "logs", clone / "lfs", clone / "worktrees" / Path(path).name]
 
-    def add(self, repo, item_id, branch, attach=False):
+    def add(self, repo, item_id, branch, attach=False, *, refresh=True, recovery_from=()):
         if self.fail_on == (repo, item_id):
             raise RuntimeError("boom")
         path = self.root / item_id / repo
@@ -234,7 +234,7 @@ class SchedulerTests(unittest.TestCase):
         self.slot_entry = slot_entry({"id": "unity_slot:1", "repo": "Farm-Client", "unity": str(self.unity_binary),
                                       "folder": str(self.slot_folder), "build_target_argument": "OSXUniversal"})
         self.scheduler = Scheduler(self.ledger, self.launcher, SKILLS, self.trees,
-                                   skill_root=ROOT / "skills", db_path=Path(self.tmp.name) / "ledger.sqlite3",
+                                   replay_legacy=True, skill_root=ROOT / "skills", db_path=Path(self.tmp.name) / "ledger.sqlite3",
                                    runtime_name="fake", host="h", max_concurrent=1,
                                    slot_entries={self.slot_entry["id"]: self.slot_entry},
                                    guidance_for=lambda item: (self.ledger.session(item["session_id"]) or {}).get("guidance") or "",
@@ -244,7 +244,7 @@ class SchedulerTests(unittest.TestCase):
         self.ledger.observe_issue(issue(id=issue_id, **changes))
         self.ledger.ensure_session(session, issue_id, delegation=True)
         # The pin travels with the item: await_resource refuses a slot request from an unpinned one.
-        return self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill=skill, target=PIN)
+        return self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill=skill, target=PIN, execution_contract='staged-v1')
 
     def test_conversation_launch_excludes_repository_write_roots(self):
         chat = self.item(skill="chat")
@@ -274,6 +274,39 @@ class SchedulerTests(unittest.TestCase):
         self.item()
         self.assertEqual(self.scheduler.tick()["launched"], 1)
         self.assertEqual((len(inside), set(inside), blocks), (5, {True}, ["open", "closed"]))
+
+    def test_launch_read_copies_share_fetch_scope_with_writes_but_next_launch_is_fresh(self):
+        self.use_feature_skill(reads=['Farm-Client'])
+        scopes, observed = [], []
+
+        @contextlib.contextmanager
+        def scope():
+            scopes.append(object())
+            yield
+            scopes.pop()
+
+        self.trees.one_fetch_per_clone = scope
+        for method in ('add', 'read_checkout'):
+            original = getattr(self.trees, method)
+            def checked(*args, _method=method, _original=original, **kwargs):
+                self.assertEqual(len(scopes), 1)
+                observed.append((_method, scopes[0]))
+                return _original(*args, **kwargs)
+            setattr(self.trees, method, checked)
+        item = self.item(skill='feature')
+        self.scheduler.tick()
+        self.assertEqual({name for name, _ in observed}, {'add', 'read_checkout'})
+        first_scope = observed[0][1]
+        self.assertTrue(all(value is first_scope for _, value in observed))
+        token = self.ledger.claim(item['id'], worker_id='w')['token']
+        self.ledger.await_input(item['id'], token, 'wait', reason='waiting')
+        self.launcher.finished.append(Finished(item['id'], 0, '', False, 'exited'))
+        self.scheduler.tick()
+        self.ledger.resume(item['id'], 'resume')
+        observed.clear()
+        self.scheduler.tick()
+        self.assertTrue(observed)
+        self.assertTrue(all(value is not first_scope for _, value in observed))
 
     def test_first_repair_launch_gets_write_profile_budget_and_conversation(self):
         app = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
@@ -812,7 +845,7 @@ class SchedulerTests(unittest.TestCase):
         chat = self.item(skill="chat")
         self.ledger.connection.execute("UPDATE work_items SET state='delivered', evidence=? WHERE id=?",
                                        (json.dumps({"summary": "Investigated the card."}), chat["id"]))
-        self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill=staged.name, target=PIN)
+        self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill=staged.name, target=PIN, execution_contract='staged-v1')
         self.assertEqual(self.scheduler.tick()["launched"], 1)
         self.assertIsNone(self.payload()["prior_context"])
 
@@ -1018,7 +1051,7 @@ class SchedulerTests(unittest.TestCase):
     def test_dispatch_carries_the_guidance_recorded_on_the_session(self):
         self.ledger.observe_issue(issue())
         self.ledger.ensure_session(SESSION, ISSUE, delegation=True, guidance="优先看 farm-hive 的日志")
-        self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix")
+        self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix", execution_contract='staged-v1')
         self.scheduler.tick()
         payload = json.loads(self.launcher.spawned[0][1].split("\n\n", 1)[1])
         self.assertEqual(payload["guidance"], self.ledger.session(SESSION)["guidance"])
@@ -1103,7 +1136,7 @@ class SchedulerTests(unittest.TestCase):
         is loaded, so its queued items fail with the session error above, but never launched by omission."""
         fixture = opt_in_skill(Path(self.tmp.name) / "fixture-skills")
         scheduler = Scheduler(self.ledger, self.launcher, {**SKILLS, fixture.name: fixture}, self.trees,
-                              skill_root=ROOT / "skills", db_path=Path(self.tmp.name) / "ledger.sqlite3",
+                              replay_legacy=True, skill_root=ROOT / "skills", db_path=Path(self.tmp.name) / "ledger.sqlite3",
                               runtime_name="fake", host="h", api=self.api)
         self.assertEqual(scheduler.enabled_skills, {"chat", "fix"})
         item = self.item(skill=fixture.name)

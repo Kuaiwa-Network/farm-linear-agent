@@ -57,6 +57,19 @@ class PairTests(ServerPoolFixture):
         self.assertIsNone(self.acquire())
         self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'idle_closed')
 
+    def test_false_free_companion_cannot_be_double_granted_and_hold_cannot_be_released_by_worker(self):
+        self.request_pair()
+        lease = self.acquire()
+        paired = companion(self.ledger, lease)
+        self.ledger.set_slot_state(paired['resource'], 'idle_closed')
+        self.request()
+        with self.assertRaisesRegex(LedgerError, 'returned to the pool early'):
+            self.ledger.acquire('server_slot', owner='server-pool', host='test')
+        self.ledger.set_slot_state(paired['resource'], 'held')
+        with self.assertRaisesRegex(LedgerError, 'held'):
+            self.ledger.release(lease['reservation_id'], lease['token'], 'worker reported quiescent')
+        self.assertEqual(self.ledger.slot(paired['resource'])['state'], 'held')
+
     def test_pair_and_normal_server_share_fifo_without_half_leases(self):
         self.admission.settings['max_reserved_mib'] = 32768
         older = self.request()
@@ -188,7 +201,7 @@ class PairTests(ServerPoolFixture):
         launcher = FakeLauncher(self.root.parent / 'runs')
         trees = FakeWorktrees(self.root.parent / 'worktrees')
         scheduler = Scheduler(self.ledger, launcher, SKILLS, trees, skill_root=Path(__file__).parents[1] / 'skills',
-                              db_path=self.db, runtime_name='fake', host='test', server_slots_root=self.root)
+                              db_path=self.db, runtime_name='fake', host='test', server_slots_root=self.root, replay_legacy=True)
         snapshot = self.root.parent / 'server read snapshot'
         with patch('agent.server_slots.time.time', return_value=self.now), \
                 patch.object(trees, 'verification_commit', create=True), \
@@ -200,7 +213,52 @@ class PairTests(ServerPoolFixture):
         self.assertEqual(set(launcher.spawned[-1][2]), {'unity'})
         self.assertNotIn(str(snapshot), launcher.spawn_writable)
         self.assertEqual(launcher.spawn_env['MONGO_REQUIRED'], '1')
-        self.assertIn('one atomic combined lease', launcher.spawned[-1][1])
+
+
+class SinglePairTests(ServerPoolFixture):
+    def queue(self):
+        from agent.execution import queue_resource
+        item = self.request(root=None, skill='work', reserve=False, execution_contract='single-worker-v1')
+        self.ledger.set_worker(item, 123, 'test')
+        token = self.ledger.claim(item, worker_id='same-worker')['token']
+        request = queue_resource(self.ledger, item, token, 'unity_slot', 'interactive', 'a'*40,
+                                 integration_plan=plan())
+        self.ledger.ensure_slot('unity_slot:1', kind='unity_slot', host='test', folder=str(self.root / 'editor'),
+                               mcp_address='http://localhost:9999')
+        self.pool.single_only = True
+        return item, token, request
+
+    def test_same_worker_claim_gets_both_resources_and_releases_without_relaunch(self):
+        from agent.execution import resource_status
+        item, token, request = self.queue()
+        self.exited = False
+        lease = self.admission.acquire(self.ledger, 'unity_slot', owner='pool', host='test', single_only=True)
+        unity = SlotPool(self.ledger, None, [], host='test', editors_root=self.root / 'editors',
+                         state_dir=self.pool.state_dir, prepare_integration=self.pool.prepare_integration)
+        def switch(slot, commit, mode):
+            self.ledger.set_slot_state(slot, 'interactive_busy', instance='owned-instance')
+        with patch.object(unity, 'switch', side_effect=switch):
+            self.assertTrue(unity._hand_over(lease))
+        current = self.ledger.renew(item, token)
+        self.assertEqual((current['state'], current['worker_pid']), ('running', 123))
+        self.assertTrue(resource_status(self.ledger, item, token)['ready'])
+        self.ledger.release(lease['reservation_id'], lease['token'], 'worker reported quiescent')
+        self.assertEqual(self.pool.tick()['settled'], 0)
+        self.assertEqual(self.ledger.renew(item, token)['state'], 'running')
+        self.exited = True
+        self.assertEqual(self.pool.tick()['settled'], 1)
+
+    def test_companion_hold_prevents_ready_status_and_unity_access(self):
+        from agent.execution import resource_ready, resource_status
+        item, token, _ = self.queue()
+        lease = self.admission.acquire(self.ledger, 'unity_slot', owner='pool', host='test', single_only=True)
+        self.pool.prepare_integration(lease)
+        self.ledger.set_slot_state('unity_slot:1', 'interactive_busy')
+        resource_ready(self.ledger, lease)
+        self.ledger.set_slot_state(companion(self.ledger, lease)['resource'], 'held')
+        result = resource_status(self.ledger, item, token)
+        self.assertEqual(result['state'], 'held')
+        self.assertFalse(result['ready'])
 
 
 class RuntimeTests(unittest.TestCase):
