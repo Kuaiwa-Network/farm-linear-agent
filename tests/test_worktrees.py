@@ -37,6 +37,26 @@ class WorktreeTests(unittest.TestCase):
         with self.assertRaisesRegex(WorktreeError, 'changed'):
             self.trees.read_candidate('Farm-Client', 'item-1', commit)
 
+    def test_worker_read_candidate_only_validates_the_controller_snapshot(self):
+        path = self.trees.add('Farm-Client', 'item-1', 'farmbot/fix')
+        commit = self.trees.head(path)
+        reads = self.trees.reads_root('item-1')
+        with self.assertRaisesRegex(WorktreeError, 'not been prepared'):
+            self.trees.read_candidate('Farm-Client', 'item-1', commit, create=False)
+        self.assertFalse(reads.exists())
+        snapshot = self.trees.read_candidate('Farm-Client', 'item-1', commit)
+        if os.name == 'nt' or os.geteuid() == 0:
+            return  # POSIX mode bits cannot model the worker sandbox here
+        # The worker sandbox grants no write under the reads root; validation must not need one.
+        entries = [reads, *reads.rglob('*')]
+        def restore():
+            for entry in entries:
+                entry.chmod(stat.S_IRWXU)
+        self.addCleanup(restore)
+        for entry in reversed(entries):
+            entry.chmod(stat.S_IRUSR | stat.S_IXUSR if entry.is_dir() else stat.S_IRUSR)
+        self.assertEqual(self.trees.read_candidate('Farm-Client', 'item-1', commit, create=False), snapshot)
+
     def test_equal_whole_tree_preserves_distinct_commits_and_refuses_replacement_objects(self):
         path = self.trees.add('Farm-Client', 'item-1', 'farmbot/fix')
         base = self.trees.head(path)

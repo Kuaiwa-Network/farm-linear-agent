@@ -80,7 +80,7 @@ def status(args, ledger, config, token):
             if reservation:
                 from .server_slots import read_resource
                 trees = Worktrees(paths.repos, paths.worktrees, config.repos)
-                source = trees.read_candidate('farm-hive', item['id'], reservation['commit_sha'])
+                source = trees.read_candidate('farm-hive', item['id'], reservation['commit_sha'], create=False)
                 result['integration'] = {**read_resource(ledger.slot(reservation['resource']), reservation, paths.server_slots),
                                          'plan':reservation['integration']['plan'], 'source':str(source)}
     return result

@@ -338,10 +338,19 @@ class ServerSlotPool:
                         {"observed_at": self.clock(), "blockers": ["server_pool_unavailable"]})
             return {"settled": 0, "granted": 0, "unavailable": True}
         settled, granted = 0, 0
+        from .integration import companion
         for slot in self.ledger.slots(kind="server_slot", host=self.host):
             if slot["state"] in ("idle_closed", "held"):
                 continue
             try:
+                if slot["state"] == "switching" and not self._path(slot["slot_id"]).exists():
+                    # The Unity pool fences a combined lease's companion here, on its own thread, before the
+                    # hand-over writes this journal. No services exist yet; that thread owns the outcome. An
+                    # interrupted preparation is held once its reservation closes and leaves no owner.
+                    holder = self.ledger.active_reservation_on(slot["slot_id"])
+                    paired = companion(self.ledger, holder) if holder else None
+                    if paired and paired["resource"] == slot["slot_id"]:
+                        continue
                 lease, reservation = self._lease(slot["slot_id"])
                 item = self.ledger.item(lease["item_id"])
                 # finish() can queue a successor before this released lease is cleaned.
@@ -506,7 +515,8 @@ class ServerSlotPool:
         lease.update(state='ready', ready_at=self.clock())
         lease['expires_at'] = self.clock() + self.settings['timeout_seconds']
         self._save(lease)
-        self.ledger.set_slot_state(slot, 'batch_busy', parked_commit=lease['commit'])
+        if not self.ledger.companion_server_ready(slot, reservation['reservation_id'], lease['commit']):
+            raise ServerSlotError('companion server slot changed during preparation; journal retained')
         return lease
 
     def recover(self, slot, reason):

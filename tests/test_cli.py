@@ -524,6 +524,11 @@ class CliTests(unittest.TestCase):
             pool.prepare_integration(lease)
             ledger.set_slot_state('unity_slot:1', 'interactive_busy', instance='offline-instance')
             resource_ready(ledger, lease)
+        # Worker commands only validate the snapshot: its reads root is outside the sandbox's write roots.
+        missing = self.run_cli('resource-status', '--item',item, '--token',token, success=False)
+        self.assertIn('not been prepared by the controller', missing.stderr)
+        self.assertFalse(trees.reads_root(item).exists())
+        trees.read_candidate('farm-hive', item, server_sha)  # the Unity hand-over's controller step
         status = self.run_cli('resource-status', '--item',item, '--token',token)
         self.assertTrue(status['ready'])
         self.assertEqual(status['integration']['commit'], server_sha)
