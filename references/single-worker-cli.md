@@ -39,6 +39,7 @@ parking or finish, and checkpoints their work. No FarmBot child task is created.
 | `publish-ui` | `--packages FILE`: JSON package name/ID map; native export into private staging, no Client installation. |
 | `prepare-go-dependencies` | `--repo REPO --module MODULE --commit SHA`; inspect `go-dependencies --request-id ID`. |
 | `verify-publication` | `--repo REPO`: fresh exact destination/branch/private-repository check before publishing. |
+| `retry-approval` | `--error-file FILE`: complete UTF-8 approval-review capacity error that explicitly confirms no action executed. Checkpoint, settle helpers and release resources first; then exit on `retry_queued` or `retry_exhausted`. |
 | `prepare-comment` | `--kind started\|blocker\|delivery --body-file FILE`; returns an outbox action ID. |
 | `post-comment` | `--action-id ID`: idempotent outbox send; confirms the actual remote comment. |
 | `finish` | `--outcome delivered\|blocked --input FILE`; optionally `--check-input` for shape or `--check-ready` for local readiness. |
@@ -49,6 +50,15 @@ Use `COMMAND --help` for exact syntax. The large parser retains historical
 commands for old state inspection and offline replay; repository handoff,
 presentation subtasks, mandatory baseline comparison, UI receipts and semantic
 closing checks are refused for this contract.
+
+For `retry-approval`, save the complete returned message starting with
+`Automatic approval review failed: Selected model is at capacity.` including its
+explicit not-executed explanation, without wrappers or commentary. The command
+only retires this claim and schedules another attempt; it never executes or approves
+the action. It shares the model-capacity limit of three retries at 60, 180 and 600
+seconds. Stop using the old token and exit for either result. On resume recheck
+requests/authority and run normal approval again; publication also needs a fresh
+`verify-publication`. Other denials or ambiguous execution outcomes do not qualify.
 
 A typical checkpoint is ordinary JSON:
 

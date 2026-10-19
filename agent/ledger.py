@@ -3032,6 +3032,37 @@ class Ledger:
                             retry_not_before=self.clock() + delay)
             return {"attempt": row["capacity_retries"] + 1, "delay_seconds": delay}
 
+    def defer_approval_retry(self, item_id, token, error):
+        """Retire a live worker after a not-executed capacity review; never approve its action.
+
+        Share the existing model-capacity allowance. Queue admission still requires
+        teardown and fresh delegation; source, checkpoint and verification stay attached.
+        """
+        from .approval_retry import capacity_review_error
+        delays = (60, 180, 600)
+        with self._transaction():
+            row = self._owned(item_id, token)
+            self._refuse_withdrawn(row)
+            if not capacity_review_error(error):
+                raise LedgerError("retry-approval requires the complete capacity review failure confirming the action was not executed")
+            if not _in_scope(json.loads(self._issue_row(row["issue_id"])["metadata"])):
+                raise LedgerError("issue is archived or in a terminal status")
+            self.require_valid_checkpoint(item_id, token)
+            self.require_no_reservation(item_id)
+            attempts = row["capacity_retries"]
+            if attempts >= len(delays):
+                self._set_state(item_id, "failed", "model capacity automatic retries exhausted (3)",
+                                token=None, lease_expires_at=None, worker_pid=None)
+                return {"status": "retry_exhausted", "attempts": attempts,
+                        "message": "Approval review remains unavailable; work preserved. Exit worker; no action authorized."}
+            delay = delays[attempts]
+            self._set_state(item_id, "queued", "approval review capacity; delayed automatic retry",
+                            token=None, lease_expires_at=None, worker_pid=None,
+                            capacity_retries=attempts + 1, retry_not_before=self.clock() + delay)
+            return {"status": "retry_queued", "attempt": attempts + 1, "delay_seconds": delay,
+                    "message": "Work preserved; claim retired. Exit worker; do not request human input. "
+                               "On resume recheck authority and retry through normal approval; no action authorized."}
+
     def defer_publication_retry(self, item_id, token, repo):
         """Only reached after fresh publication checks exhaust transient transport retries."""
         delays = (60, 180, 600)

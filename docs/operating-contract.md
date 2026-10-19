@@ -120,6 +120,34 @@ Main need not move into the candidate merely because publication is later.
 Confirmed delivery outbox records remain required. Real unresolved human
 questions and changed issue inputs still fence completion.
 
+## Approval-review capacity recovery
+
+When automatic approval review returns the complete `Selected model is at capacity`
+failure explicitly confirming that the action was not executed, a current worker
+saves that message and its failed action, commits, reports and next step. It settles
+helpers, releases resources through the normal quiescence checks, and calls the
+authenticated `retry-approval --error-file FILE` command instead of `await-input`.
+Only that exact complete diagnostic qualifies. Safety denials, quoted fragments,
+other errors and uncertain execution outcomes retain their normal handling.
+
+The command retires the claim and durably queues the same job after 60, 180, then
+600 seconds, sharing the existing three-retry model-capacity allowance. Exhaustion
+records an infrastructure failure with work preserved, without creating a human
+question. It cannot resume a stopped, waiting, expired, withdrawn or closed job.
+Open resource reservations and rejected checkpoints must be settled first.
+Scheduler admission still requires verified worker teardown, current delegation,
+maintenance/concurrency checks and normal publication verification. Capacity and
+publication retries reuse retained worktrees/read checkouts without refreshing their
+Git bases. Matching reports and candidates are reused; a retry grants no test pass.
+
+Every resumed action goes through normal automatic approval again. No approval,
+model, sandbox, permission or publishing-destination checks are relaxed. This path
+does not execute the failed action itself or reinterpret an existing human question.
+It uses existing `capacity_retries` and `retry_not_before` fields; no schema migration
+is required. Older code understands the queued state and counters but lacks the new
+worker command/instructions; settle workers before changing releases. Existing
+`awaiting_input` jobs require an explicitly authorized resume.
+
 ## Resource ownership
 
 A running owner requests Unity at its clean exact Client commit, then keeps its

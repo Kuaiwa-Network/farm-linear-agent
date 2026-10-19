@@ -81,6 +81,7 @@ def parser():
     retry_task_parser = cmd("retry-task", "--item", "--task", token=True)
     retry_task_parser.add_argument("--message-id", type=int, required=True)
     cmd("verify-publication", "--item", "--repo", token=True)
+    cmd("retry-approval", "--item", "--error-file", token=True)
     cmd("foreign-work", "--item", token=True)
     uploads = cmd("download-uploads", "--item", "--out", token=True)
     cmd("upload-image", "--item", "--file", token=True)
@@ -616,6 +617,11 @@ def run(args, ledger, api_factory):
         return result
     if c == "renew":
         return ledger.renew(args.item, resolve_token(args))
+    if c == "retry-approval":
+        from .launcher import _read_worker_text
+        token = resolve_token(args)
+        ledger.renew(args.item, token)  # authenticate before reading worker-supplied evidence
+        return ledger.defer_approval_retry(args.item, token, _read_worker_text(Path(args.error_file)))
     if c == "maintenance-handoff":
         from .maintenance import Maintenance
         return Maintenance(ledger).handoff(args.item, resolve_token(args))
