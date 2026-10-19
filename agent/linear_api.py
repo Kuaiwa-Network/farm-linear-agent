@@ -532,6 +532,68 @@ class LinearAPI:
         if result.get("success") is not True:
             raise RuntimeError("Linear did not confirm needs-more-info label")
 
+    def set_issue_workflow_state(self, issue_id, target, *, still_current=lambda: True):
+        """Set one named team state while the issue remains open and delegated here.
+
+        Progress and review both have type `started`; selecting by type alone
+        could send an issue to the wrong stage. No state is created or guessed.
+        """
+        if target not in ('In Progress', 'In Review'):
+            raise ValueError('unsupported issue workflow target')
+        if not self.app_user_id:
+            raise RuntimeError('issue status update requires verified app identity')
+
+        def read():
+            issue = self.graphql("""query FarmBotWorkflowIssue($id: String!) {
+                issue(id: $id) { id archivedAt trashed delegate { id }
+                    state { id name type } team { id } }
+            }""", {'id': issue_id})['issue']
+            if not issue:
+                raise LinearError('not_found', 'Issue not found')
+            if issue['id'] != issue_id:
+                raise RuntimeError('workflow response identifies a different issue')
+            return issue
+
+        def eligible(issue):
+            return (not issue.get('archivedAt') and not issue.get('trashed')
+                    and issue['state']['type'] not in ('completed', 'canceled', 'duplicate')
+                    and (issue.get('delegate') or {}).get('id') == self.app_user_id)
+
+        issue = read()
+        if not eligible(issue) or not still_current():
+            return False
+        team, after, matches = issue['team']['id'], None, []
+        while True:
+            states = self.graphql("""query FarmBotWorkflowStates($team: ID!, $after: String) {
+                workflowStates(filter: {team: {id: {eq: $team}}}, first: 100, after: $after) {
+                    nodes { id name type team { id } } pageInfo { hasNextPage endCursor }
+                }
+            }""", {'team': team, 'after': after})['workflowStates']
+            matches.extend(state for state in states['nodes']
+                           if state['team']['id'] == team and state['type'] == 'started'
+                           and state['name'].strip().casefold() == target.casefold())
+            if not states['pageInfo']['hasNextPage']:
+                break
+            after = states['pageInfo']['endCursor']
+        if len(matches) != 1:
+            raise RuntimeError(f'issue team must have exactly one {target} workflow state')
+        state_id = matches[0]['id']
+        # State discovery may take several reads. Recheck ownership and closure
+        # immediately before the mutation, and fence superseded local requests.
+        issue = read()
+        if not eligible(issue) or issue['team']['id'] != team or not still_current():
+            return False
+        if issue['state']['id'] == state_id:
+            return True
+        result = self.graphql("""mutation FarmBotSetWorkflowState($id: String!, $input: IssueUpdateInput!) {
+            issueUpdate(id: $id, input: $input) { success issue { id state { id } } }
+        }""", {'id': issue_id, 'input': {'stateId': state_id}})['issueUpdate']
+        changed = result.get('issue') or {}
+        if (result.get('success') is not True or changed.get('id') != issue_id
+                or (changed.get('state') or {}).get('id') != state_id):
+            raise RuntimeError('Linear did not confirm issue workflow status')
+        return True
+
     def issue_status(self, issue_id):
         """The issue's version, closure and delegate. A trashed issue, one being deleted, reads as archived, which
         closes it; an issue Linear no longer returns is a `not_found` LinearError (withdrawn-work design E3, U7)."""

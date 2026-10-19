@@ -5,6 +5,33 @@ UI receipt and comparison behavior is archived in
 [the previous operating contract](legacy/operating-contract.md); it is not a
 requirement for new work.
 
+## Issue workflow status
+
+The controller moves a delegated issue to **In Progress** after successfully starting
+its first issue-work worker, and to **In Review** after the root job passes its
+existing delivery checks and records `delivered`. This covers the current single-worker `work` owner and retained legacy root write jobs. Queue admission, chat replies, internal
+presentation-task completion, blocked/failed/cancelled outcomes and a completion
+preflight do not move the card to review. A finish that detects changed requirements
+and requeues work does not request review either.
+
+Each transition resolves the named `started` state in that issue's own team; review
+and progress are never selected by type alone. The team must already have unambiguous
+states named `In Progress` and `In Review` (case-insensitive); missing/ambiguous states
+are reported as sync failures, and no state is created. Before writing only `stateId`,
+the controller rechecks that the issue is open, unarchived and still delegated to this
+app, and that the local transition has not been superseded. Workers retain no direct
+status-changing authority. Assignee and other issue fields are untouched.
+
+Transitions are saved atomically with worker registration and successful delivery
+in the additive `issue_workflow_updates` table. Linear failures are audited and
+retried by lifecycle reconciliation, including after delivery and controller restart,
+without failing workers or blocking launch preflight. A confirmed transition is not
+continually reapplied; another attempt in the same generation preserves later human
+status choices. A new generation or delivery requests its own transition. Obsolete,
+closed and withdrawn requests are skipped. Existing historical jobs are not backfilled.
+Older releases ignore this table, so settle pending updates before rollback; checking
+out older code neither reverses Linear status changes nor removes saved requests.
+
 ## One issue, one main worker
 
 Delegated write work uses `work`, with execution contract `single-worker-v1`.

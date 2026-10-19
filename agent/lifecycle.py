@@ -5,6 +5,7 @@ import time
 from .ledger import ACTIVE_STATES, TERMINAL_STATUS_TYPES, StaleRouting
 from .linear_api import LinearError
 from .attention import reconcile_reply_label
+from .issue_workflow import reconcile as reconcile_workflow
 # UNDELEGATED is the text notice() gives a write job whose delegation went, the one the lifecycle posted before; it
 # stays importable here.
 from .withdrawal import UNDELEGATED, grace_seconds, notice
@@ -68,6 +69,7 @@ class Lifecycle:
                         "AND parent_id IS NULL ORDER BY created_at DESC LIMIT 1", (issue_id,)).fetchone()
                     if root:
                         self.ledger.note(root['id'], 'reply_label_sync_failed', type(exc).__name__)
+            reconcile_workflow(self.ledger, self.api, issue_id)
             return current, delegate
         except Exception as exc:
             unreachable = isinstance(exc, LinearError) and exc.kind == 'not_found'
