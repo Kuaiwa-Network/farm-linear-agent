@@ -127,7 +127,8 @@ failure explicitly confirming that the action was not executed, a current worker
 saves that message and its failed action, commits, reports and next step. It settles
 helpers, releases resources through the normal quiescence checks, and calls the
 authenticated `retry-approval --error-file FILE` command instead of `await-input`.
-Only that exact complete diagnostic qualifies. Safety denials, quoted fragments,
+Only that complete diagnostic qualifies (including Codex's original tool-error
+wrapper; whitespace/layout differences are accepted). Safety denials, quoted fragments,
 other errors and uncertain execution outcomes retain their normal handling.
 
 The command retires the claim and durably queues the same job after 60, 180, then

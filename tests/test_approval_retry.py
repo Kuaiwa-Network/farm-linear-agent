@@ -78,6 +78,23 @@ class ApprovalRetryTests(LedgerBase):
                 self.assertEqual((row['state'], row['capacity_retries']), ('running', 0))
         self.assertEqual(self.invoke(CAPACITY_REVIEW_ERROR.replace('\n', '\r\n') + '\r\n')['status'], 'retry_queued')
 
+    def test_original_exec_error_wrapper_is_accepted_but_wrapped_denials_are_not(self):
+        self.claim_owner()
+
+        def wrapped(message):
+            return 'exec_command failed: CreateProcess { message: ' + json.dumps(
+                'Rejected(' + json.dumps(message) + ')') + ' }'
+
+        for message in (CAPACITY_REVIEW_ERROR.replace('Selected model is at capacity.', 'Permission denied.'),
+                        CAPACITY_REVIEW_ERROR + '\nThe action may have executed.'):
+            with self.assertRaisesRegex(LedgerError, 'complete capacity review failure'):
+                self.invoke(wrapped(message))
+        self.assertEqual(self.invoke(wrapped(CAPACITY_REVIEW_ERROR))['status'], 'retry_queued')
+
+    def test_complete_single_line_message_is_accepted(self):
+        self.claim_owner()
+        self.assertEqual(self.invoke(CAPACITY_REVIEW_ERROR.replace('\n', ' '))['status'], 'retry_queued')
+
     def test_bounded_retries_share_worker_capacity_allowance_and_survive_restart(self):
         self.claim_owner()
         # A terminal worker capacity failure already consumed the first allowance.

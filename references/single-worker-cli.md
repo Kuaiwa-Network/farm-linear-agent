@@ -53,8 +53,9 @@ closing checks are refused for this contract.
 
 For `retry-approval`, save the complete returned message starting with
 `Automatic approval review failed: Selected model is at capacity.` including its
-explicit not-executed explanation, without wrappers or commentary. The command
-only retires this claim and schedules another attempt; it never executes or approves
+explicit not-executed explanation, or Codex's original `exec_command failed: CreateProcess`
+error wrapper. Save it verbatim without additional commentary. The command only
+retires this claim and schedules another attempt; it never executes or approves
 the action. It shares the model-capacity limit of three retries at 60, 180 and 600
 seconds. Stop using the old token and exit for either result. On resume recheck
 requests/authority and run normal approval again; publication also needs a fresh
