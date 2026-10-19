@@ -431,6 +431,44 @@ class CliTests(unittest.TestCase):
     def test_server_resource_verifies_own_clean_head_and_configured_ledger(self):
         self.check_server_resource_candidate("fix")
 
+    def test_combined_request_checks_both_owned_candidates_budget_and_current_claim(self):
+        from agent.ledger import Ledger
+        from test_server_slots import SETTINGS
+        from test_client_server_integration import plan
+        from agent.config import load_config, Paths
+        from agent.worktrees import Worktrees
+        from test_worktrees import git
+        item, token, baseline, fixed, _ = self.verification_fixture()
+        config_file = Path(self.env['FARMBOT_CONFIG'])
+        config = json.loads(config_file.read_text(encoding='utf-8'))
+        config['repos']['farm-hive'] = config['repos']['Farm-Client']
+        config.update(server_slots=SETTINGS, resource_admission={'unity_mib':8192, 'server_mib':8192,
+                                                               'max_reserved_mib':13824})
+        config_file.write_text(json.dumps(config), encoding='utf-8')
+        paths = Paths(load_config(config_file))
+        trees = Worktrees(paths.repos, paths.worktrees, config['repos'])
+        server = trees.add('farm-hive', item, 'farmbot/farm-1')
+        server_sha = trees.head(server)
+        selection = self.json_file('integration.json', {**plan(), 'server_commit':server_sha})
+        args = ['await-resource', '--item',item, '--token',token, '--resource','unity_slot',
+                '--mode','interactive', '--commit',fixed, '--integration-plan',selection]
+        rejected = self.run_cli(*args, success=False)
+        self.assertIn('budget', rejected.stderr)
+        config['resource_admission']['max_reserved_mib'] = 24576
+        config_file.write_text(json.dumps(config), encoding='utf-8')
+        (server / 'dirty.txt').write_text('uncommitted', encoding='utf-8')
+        self.run_cli(*args, success=False)
+        (server / 'dirty.txt').unlink()
+        self.assertEqual(self.run_cli(*args)['state'], 'awaiting_resource')
+        with closing(Ledger(self.db)) as ledger:
+            request = ledger.reservation_queue('unity_slot')[0]
+            from agent.integration import get
+            self.assertEqual(get(ledger, request['reservation_id'])['plan']['server_commit'], server_sha)
+        # The retired claim cannot start a runtime, even if the source pins remain.
+        client_command = self.json_file('client.json', [sys.executable, '-c', 'pass'])
+        self.run_cli('run-integration', '--item',item, '--token',token,
+                     '--client-command',client_command, success=False)
+
     def test_general_server_resource_preserves_head_and_host_ownership_gates(self):
         self.check_server_resource_candidate("work")
 

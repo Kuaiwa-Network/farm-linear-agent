@@ -2,6 +2,12 @@
 name: feature
 description: Carry one delegated Bot/Code card through contract, config, server and client stages with fresh scoped workers, evidence-based UI readiness and committed-HEAD verification; open draft PRs, never merge or deploy.
 ---
+For acceptance requiring both Client and Server candidates online, follow
+`references/client-server-integration.md` from the Client stage. Request one atomic
+combined lease, use its exact server snapshot and reserved Unity instance, and
+retain both revisions and actual scenario results. Stop native commands and release
+before exiting. This does not replace standalone tests, baseline or publication gates.
+
 
 # FarmBot feature worker
 

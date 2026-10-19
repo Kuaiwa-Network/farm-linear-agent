@@ -769,8 +769,11 @@ Workers checkpoint, request `server_slot` in batch mode at a clean committed
 required-service flags and deadline. Its Go build cache/temp live in its private
 state directory; `GOMAXPROCS=2` bounds its Go runtime. Multiple native game-server
 nodes of the same candidate may use the same lease. Server and Unity stages
-release before another resource request; simultaneous combined resource grants
-are not supported. A request waiting for memory holds no resource or worker seat.
+release before another resource request. Acceptance requiring both candidates
+online uses the [single Client/game-server combined lease](references/client-server-integration.md),
+which atomically reserves both resources. Memory waits hold no resource or worker
+seat. Fixed idle Editors may yield to queued server work after verified quiescence;
+warmup waits until server admission can proceed.
 
 Cancellation and deadlines use the existing worker termination path. A slot is
 reusable only after all worker attempts have verified teardown and every named

@@ -70,6 +70,7 @@ class ResourceAdmission:
         self.observe = observe
         self.lock = threading.RLock()
         self.last_reason = None
+        self.server_resources = {}
 
     def acquire(self, ledger, kind, **options):
         with self.lock:
@@ -95,8 +96,13 @@ class ResourceAdmission:
                     slot["slot_id"] for slot in ledger.slots(kind=kind, host=options["host"])
                     if slot["state"] == "idle_closed")
             extra = 0 if reuse else cost
-            detail = self.assess(ledger, options["host"], extra, kind=kind)
-            if kind == "server_slot":
+            from .integration import get as integration_request
+            if integration_request(ledger, request['reservation_id']):
+                extra += self.settings['server_mib']
+                options['server_resources'] = self.server_resources.get(options['host'], ())
+            detail = self.assess(ledger, options["host"], extra,
+                                 kind='server_slot' if integration_request(ledger, request['reservation_id']) else kind)
+            if kind == "server_slot" or integration_request(ledger, request['reservation_id']):
                 detail["profile"] = profile(request["server_test_plan"]) if request["server_test_plan"] else "full"
                 ledger.resource_wait_detail(request["reservation_id"], detail)
             if detail["blockers"]:

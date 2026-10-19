@@ -120,7 +120,8 @@ class SlotPool:
 
     def __init__(self, ledger, worktrees, entries, *, host, editors_root, unity=None, mcp=None, clock=time.time,
                  sleep=None, editor_scan=None, editor_pid=None, state_dir=None, owner="pool",
-                 run_unsandboxed=None, concurrent_batches=False, admission=None, keep_open=False, worker_acquire=None):
+                 run_unsandboxed=None, concurrent_batches=False, admission=None, keep_open=False, worker_acquire=None,
+                 prepare_integration=None):
         # `ledger` may be a Ledger or a zero-argument factory. The pool runs on its own thread beside the
         # receiver's and the scheduler's, and two threads on one sqlite3.Connection do not get two
         # transactions: _transaction() is a bare BEGIN IMMEDIATE/COMMIT, so one thread's BEGIN can land
@@ -156,6 +157,7 @@ class SlotPool:
         self.admission = admission
         self.keep_open = keep_open
         self.worker_acquire = worker_acquire
+        self.prepare_integration = prepare_integration
         self._process_unknown_since = {}
         self._fixed_prepared = False
         self._maintenance_observation = None
@@ -257,6 +259,14 @@ class SlotPool:
             return 0
         if not self.keep_open or not self._fixed_prepared:
             return 0
+        # Do not immediately spend budget that the previous tick reclaimed for a server.
+        from .integration import server_pending
+        waiting = server_pending(self.ledger) if self.admission else []
+        if waiting:
+            from .integration import get as integration_request
+            if (not integration_request(self.ledger, waiting[0]['reservation_id']) or
+                    any(s['state']!='idle_closed' for s in self.ledger.slots(kind='unity_slot', host=self.host))):
+                return 0
         from contextlib import nullcontext
         from .resource_recovery import RecoveryStore
         opened = 0
@@ -314,6 +324,8 @@ class SlotPool:
                                  {'observation': self.last_observation})
                 self.ledger._audit(slot_id, "unity_editor_ready", "persistent Editor ready")
                 opened += 1
+                if waiting:
+                    break  # A combined request needs one Editor, not the full warm pool.
         return opened
 
     def token_path(self, item_id):
@@ -392,21 +404,45 @@ class SlotPool:
 
     def close_idle_for_memory(self):
         """Configured heavy-resource admission may reclaim idle Editors, after the ordinary ownership probe."""
-        if self.keep_open or self.admission is None:
+        if self.admission is None:
             return
         queued = self.ledger.reservations(states=("queued",))
         if not queued:
             return
-        waiting = any(r["kind"] == "server_slot" for r in queued)
+        from .integration import server_pending
+        waiting = bool(server_pending(self.ledger))
         if not waiting and self.admission.last_reason is None:
             return
         for slot in self.ledger.slots(kind="unity_slot", host=self.host):
+            if self.keep_open and slot['slot_id'] not in self.entries:
+                continue
             if slot["state"] != "idle_open" or self.ledger.active_reservation_on(slot["slot_id"]):
                 continue
+            with self.admission.lock:
+                pending = server_pending(self.ledger)
+                if pending:
+                    # A combined request needs one Editor retained; close only surplus Editors.
+                    from .integration import get as integration_request
+                    combined = integration_request(self.ledger, pending[0]['reservation_id'])
+                    if combined and len([s for s in self.ledger.slots(kind='unity_slot', host=self.host)
+                                         if s['state']!='idle_closed']) <= 1:
+                        break
+                    detail = self.admission.assess(self.ledger, self.host,
+                                                  self.admission.settings['server_mib'] if combined else
+                                                  self.admission.cost(pending[0]), kind='server_slot')
+                    if not set(detail['blockers']) & {'reservation_budget', 'physical_memory', 'commit_headroom'}:
+                        break
+                elif self.keep_open:
+                    break
+                slot = self.ledger.begin_idle_editor_close(slot['slot_id'], host=self.host)
+            if slot is None:
+                continue
             try:
+                if self.mcp is None or not self.mcp.quiescent(slot, 'interactive'):
+                    raise SlotError('idle Editor quiescence could not be verified')
                 self.close_editor(slot)
                 self.park(slot["slot_id"], "batch")
-            except SlotError:
+            except Exception:
                 self.ledger.set_slot_state(slot["slot_id"], "held")
 
     def _run_batch_on_connection(self, reservation):
@@ -505,6 +541,25 @@ class SlotPool:
         pool built with `state_dir=None`, which __init__ accepts.
         """
         item_id, slot_id = reservation["item_id"], reservation["resource"]
+        from .integration import get as integration_request
+        combined = integration_request(self.ledger, reservation['reservation_id'])
+        if combined:
+            try:
+                if self.prepare_integration is None:
+                    raise SlotError('combined server pool is unavailable')
+                self.prepare_integration(reservation)
+                if self.ledger.reservation(reservation['reservation_id'])['state'] != 'active':
+                    self.ledger.release(reservation['reservation_id'], reservation['token'], 'stopped during combined setup')
+                    return False
+                self.switch(slot_id, reservation['commit_sha'], 'interactive')
+                return self._resume_hand_over(reservation, self.last_observation)
+            except Exception as exc:
+                self.ledger.set_slot_state(combined['server_slot'], 'held')
+                self.ledger.set_slot_state(slot_id, 'held')
+                self.ledger.note(item_id, 'integration_setup_failed', str(exc)[:400])
+                if self.ledger.item(item_id)['state'] in ('queued','awaiting_resource'):
+                    self.ledger.fail_queued(item_id, 'combined verification setup failed; preserve both resources for recovery')
+                return False
         self.last_observation = None
         if self.keep_open:
             from .resource_recovery import RecoveryStore

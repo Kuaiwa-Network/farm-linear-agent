@@ -806,6 +806,11 @@ does not free the slot until the controller verifies worker teardown and deletes
 only that lease's owned Docker resources. For another server run in the same stage,
 checkpoint and request again after release, then exit; the next grant waits for the
 previous attempt's teardown. Never hold one resource while asking for another.
+For acceptance requiring both candidate versions online, use the atomic
+[single Client/game-server lease](client-server-integration.md) from Farm-Client:
+`await-resource --resource unity_slot --mode interactive --commit CLIENT_SHA --integration-plan FILE`,
+then `run-integration --client-command FILE` in the resumed worker. It grants no
+shared/live-service or deployment authority and replaces no existing verification gate.
 An unclean server release holds the slot for verified operator recovery; it does
 not invoke Unity recovery. Keep the checkpoint and exit through the normal park/fail
 path. `recover-server-slot` is a trusted service command, not a worker command.

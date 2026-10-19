@@ -2,6 +2,12 @@
 name: fix
 description: Investigate and fix exactly one delegated Farm bug, or make one small requested change to existing code or UI, in a fresh worker; open draft PRs; report through FarmBot's ledger CLI. Never select another issue.
 ---
+For fixes whose acceptance requires both Client and Server candidates online,
+follow `references/client-server-integration.md` from the Client stage. Use the
+atomic pair, exact server snapshot and reserved Unity instance; keep both SHAs
+and actual scenario results. Stop commands and release before exiting. Pure
+single-side checks need no combined lease; existing verification gates still apply.
+
 
 # FarmBot fix worker
 

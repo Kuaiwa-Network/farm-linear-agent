@@ -625,6 +625,25 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
                      bot_name="FarmBot", write_repositories=(), root_repository=None, prior_context=None,
                      tools=None, reads=None):
     text = authority(item.get("skill"))  # refuses a skill that states no grants, before any payload exists
+    if (item.get('skill') in ('work','fix','feature') and root_repository=='Farm-Client' and
+            ((tools or {}).get('client_server_tests', {}).get('status')=='configured' or (resource or {}).get('integration'))):
+        text += (
+            ' For acceptance scenarios requiring both candidates online, a Client-root work/fix/feature worker '
+            'may request one interactive unity_slot with --integration-plan and its clean Client --commit. '
+            'The plan pins the clean owned farm-hive commit, one game-server argv and required scenarios. '
+            'This is one atomic combined lease; never acquire the resources separately or keep services across '
+            'worker attempts. resource.integration grants only loopback services and read-only exact server '
+            'source. Build/run that candidate within your existing containment using run-integration '
+            '--client-command FILE, a JSON argv for a script driving the reserved Unity instance through MCP. '
+            'The script must exercise all declared scenarios, verify expected candidate versions and actual '
+            'Unity results, and fail on gaps, skips or a wrong endpoint. TCP readiness or process exit alone '
+            'is not application acceptance. Never start another Client or shared game server, edit the server '
+            'snapshot, administer Docker or use shared/live services as fallback. Retain both SHAs, scenarios, '
+            'commands, logs and report; this does not replace unit-test, coverage or publication gates. '
+            'If teardown is false, release unclean and exit. Otherwise settle Unity, restore temporary '
+            'connection settings, checkpoint, release the single reservation and exit. Services are recycled '
+            'only after verified worker teardown. Read references/client-server-integration.md. '
+        )
     if item.get('stage') == 'server-evidence-recheck':
         text += (' The host recovered this technical timeout using completed package evidence. Read '
                  'state_dir/operator-server-evidence-review.json; verify the exact candidate, fixed base, generation, '

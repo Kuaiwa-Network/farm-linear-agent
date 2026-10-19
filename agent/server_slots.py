@@ -76,6 +76,8 @@ def read_resource(slot, reservation, root):
         raise ServerSlotError("server resource journal is not this reservation's ready lease")
     if type(lease.get("expires_at")) not in (int, float) or lease["expires_at"] <= time.time():
         raise ServerSlotError("server resource lease expired")
+    if reservation.get('integration') and (type(lease.get('game_port')) is not int or not 1 <= lease['game_port'] <= 65535):
+        raise ServerSlotError('integration game port is missing or invalid')
     ports = lease["ports"]
     if set(ports) != set(ROLES) or any(type(p) is not int or not 1 <= p <= 65535 for p in ports.values()):
         raise ServerSlotError("invalid server resource endpoints")
@@ -83,6 +85,7 @@ def read_resource(slot, reservation, root):
     if reservation.get("server_test_plan") is not None and plan != reservation["server_test_plan"]:
         raise ServerSlotError("server test plan does not match its reservation")
     return {"kind": "server_slot", "mode": "batch", "slot": slot["slot_id"],
+            **({'game_port':lease['game_port']} if 'game_port' in lease else {}),
             "test_plan": plan, "memory_profile": profile(plan), "test_argv": test_argv(plan),
             "verification_scope": scope(plan), "ready_at": lease.get("ready_at"),
             "commit": lease["commit"], "expires_at": lease["expires_at"], "ports": ports,
@@ -273,6 +276,8 @@ class ServerSlotPool:
         self.services, self.clock = services or DockerServices(settings), clock
         self.owner = hashlib.sha256(str(self.root).encode("utf-8")).hexdigest()
         self.ready = False
+        self.admission.server_resources[host] = tuple('server_slot:' + str(n)
+                                                     for n in range(1, self.settings['count'] + 1))
 
     def folder(self, slot):
         if not isinstance(slot, str) or not re.fullmatch(r"server_slot:[1-9][0-9]*", slot):
@@ -309,6 +314,9 @@ class ServerSlotPool:
                    lease["reservation_id"].replace("-", "")):
             raise ServerSlotError("server lease journal ownership mismatch")
         reservation = self.ledger.reservation(lease["reservation_id"])
+        from .integration import companion
+        if reservation:
+            reservation = companion(self.ledger, reservation) or reservation
         if (not reservation or reservation["resource"] != slot or reservation["kind"] != "server_slot"
                 or reservation["item_id"] != lease.get("item_id")
                 or reservation["commit_sha"] != lease.get("commit")):
@@ -341,13 +349,20 @@ class ServerSlotPool:
                     continue  # scheduler owns stopping the contained worker, not this loop
                 if reservation["state"] == "active" and item["state"] in ("queued", "running"):
                     continue
+                if (item['state']=='awaiting_resource' and reservation['state']=='active'
+                        and reservation.get('integration')):
+                    continue  # Unity preparation owns hand-over; the shared deadline remains bounded.
                 if item["state"] == "awaiting_resource" and reservation["state"] == "active":
                     self.ledger.fail_queued(item["id"], "server startup interrupted; retained lease will be cleaned")
                 if not self.quiescent(item["id"]):
                     continue
                 self.services.cleanup(lease)
                 if reservation["state"] in ("active", "cancel_requested"):
-                    self.ledger.release(reservation["reservation_id"], lease["token"], "server services settled")
+                    if reservation.get('integration'):
+                        from .integration import settle_companion
+                        settle_companion(self.ledger, reservation, 'combined server services settled')
+                    else:
+                        self.ledger.release(reservation["reservation_id"], lease["token"], "server services settled")
                 lease["state"] = "cleaned"
                 self._save(lease)
                 # Preserve every journal as recovery evidence; only the current pointer is removed.
@@ -372,6 +387,9 @@ class ServerSlotPool:
             if not pending:
                 break
             request = pending[0]
+            from .integration import server_pending
+            if server_pending(self.ledger)[0]['sequence'] < request['sequence']:
+                break  # Older combined verification needs both pools; do not overtake it.
             if not self.quiescent(request["item_id"]):
                 waiting(request, ["worker_teardown"])
                 break  # Preserve FIFO while the checkpointing attempt finishes exiting.
@@ -432,6 +450,39 @@ class ServerSlotPool:
                 self.ledger.fail_queued(item_id, "server preparation failed; slot held for investigation")
         return {"settled": settled, "granted": granted}
 
+    def prepare_integration(self, reservation):
+        """Called by the Unity hand-over thread on its own connection, after atomic acquisition."""
+        from .integration import companion
+        reservation = companion(self.ledger, reservation)
+        if not reservation or self.ledger.slot(reservation['resource'])['state'] != 'switching':
+            raise ServerSlotError('integration has no fenced companion server')
+        slot, item_id = reservation['resource'], reservation['item_id']
+        ports, sockets = {}, []
+        try:
+            for role in (*ROLES, 'game'):
+                sock = socket.socket()
+                sock.bind(('127.0.0.1', 0))
+                sockets.append(sock)
+                ports[role] = sock.getsockname()[1]
+        finally:
+            for sock in sockets:
+                sock.close()
+        lease = {'slot':slot, 'owner':self.owner, 'reservation_id':reservation['reservation_id'],
+                 'item_id':item_id, 'commit':reservation['commit_sha'], 'token':reservation['token'],
+                 'test_plan':reservation['server_test_plan'], 'memory_profile':'full',
+                 'project':'farmbot-server-' + self.owner[:12] + '-' + reservation['reservation_id'].replace('-', ''),
+                 'ports':{role:ports[role] for role in ROLES}, 'game_port':ports['game'], 'state':'starting',
+                 'expires_at':self.clock() + self.settings['timeout_seconds']}
+        if hasattr(self.services, 'binding'):
+            lease['docker_binding'] = self.services.binding()
+        self._save(lease)
+        self.services.start(lease)
+        lease.update(state='ready', ready_at=self.clock())
+        lease['expires_at'] = self.clock() + self.settings['timeout_seconds']
+        self._save(lease)
+        self.ledger.set_slot_state(slot, 'batch_busy', parked_commit=lease['commit'])
+        return lease
+
     def recover(self, slot, reason):
         """Trusted operator recovery never bypasses worker quiescence or Docker ownership."""
         if not isinstance(reason, str) or not reason.strip():
@@ -444,9 +495,14 @@ class ServerSlotPool:
             raise ServerSlotError("server worker teardown is not verified")
         self.services.cleanup(lease)
         if reservation["state"] in ("active", "cancel_requested"):
-            self.ledger.release(reservation["reservation_id"], lease["token"], "server recovery: " + reason)
+            if reservation.get('integration'):
+                from .integration import settle_companion
+                settle_companion(self.ledger, reservation, 'combined server recovery: ' + reason)
+            else:
+                self.ledger.release(reservation["reservation_id"], lease["token"], "server recovery: " + reason)
         item = self.ledger.item(lease["item_id"])
-        if item["generation"] == reservation["generation"] and item["state"] == "awaiting_resource":
+        if (item['generation']==reservation['generation'] and
+                (item['state']=='awaiting_resource' or reservation.get('integration') and item['state']=='queued')):
             self.ledger.fail_queued(lease["item_id"], "server lease recovered; explicit retry required")
         lease["state"] = "recovered"
         self._save(lease)

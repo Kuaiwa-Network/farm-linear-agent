@@ -3,6 +3,12 @@ name: work
 description: Own one delegated issue through shared OpenSpec behavior, parallel presentation and server work, Client integration and verification. Ask humans for decisions and missing assets.
 ---
 
+For acceptance requiring both Client and Server candidates online, follow
+`references/client-server-integration.md` from the Client stage. Request the atomic
+pair only when those scenarios require it; separate tests remain separate. Use
+the exact server snapshot and reserved Unity instance, retain both revisions and
+scenario results, then stop both native command trees and release before exiting.
+
 # General issue worker
 
 One job owns the entire delegated issue. Bug, improvement and feature describe

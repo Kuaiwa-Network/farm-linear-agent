@@ -221,9 +221,12 @@ retains its last clean candidate, avoiding an extra return-to-main import.
 
 Memory admission gates new Editor startup, not repeated process launches for each
 test. Reuse charges no additional Editor estimate. If only one can start, jobs
-continue through it while other starts wait for headroom; idle Editors are not
-closed for server requests or failed admission checks. Server capacity must be
-budgeted alongside the permanently retained Editor pool. Configurations whose
+continue through it while other starts wait for headroom. Waiting server work may
+reclaim owned, reservation-detached idle Editors after verified quiescence. The
+close is fenced against acquisition and retains the clean candidate. Warmup waits
+behind queued server work, preventing immediate reopen/starvation; Editors warm
+again when server work and admission permit. Busy Editors remain reserved and
+uncertain cleanup stays held. Configurations whose
 fixed Editor estimates exceed the shared reservation budget are refused.
 
 All Unity tests use worker MCP `run_tests`/`get_test_job` after instance and commit
@@ -2135,6 +2138,14 @@ hand once that item's cleanup record is done. Older revisions ignore the `lark_c
 variable from workers, and read the new notice kinds like any other.
 
 ## Isolated server integration resources
+
+Client acceptance may request a single combined Unity/server lease. Both resources
+are acquired atomically under shared admission while retaining one open reservation
+per item. The candidate game server and Client automation run in worker containment,
+with read-only exact server source, isolated dependency services and reserved Unity
+MCP. Neither pool runs game code outside the worker sandbox. Both candidates,
+scenarios, logs and teardown are retained. See [combined verification](../references/client-server-integration.md)
+for CLI, evidence limits, process ownership and additive-schema rollback rules.
 
 The optional `server_slots` pool is controller-owned. `work`, `fix` and `feature` may
 request `server_slot` in batch mode only from their farm-hive write stage, after
