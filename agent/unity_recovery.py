@@ -77,6 +77,10 @@ class UnityRecovery:
         reusable = False
         if pool.editor_is_open(slot):
             try:
+                if recovery.get('recovery_kind') == 'setup' and recovery.get('attempts', 1) == 1:
+                    # This Editor was never handed to the worker. Let an ongoing
+                    # import/reload reconnect before escalating to a process restart.
+                    pool.wait_for_quiet(slot, entry['quiet_timeout'])
                 pool.mcp.cancel_tests(slot)
                 deadline = pool.clock() + 10
                 while pool.clock() < deadline:
@@ -120,8 +124,7 @@ class UnityRecovery:
         instance = slot['instance'] if reusable else pool.open_editor(slot, entry)
         pool.ledger.set_slot_state(slot['slot_id'], 'held', instance=instance)
         slot = pool.ledger.slot(slot['slot_id'])
-        pool.mcp.refresh(slot)
-        pool.wait_for_quiet(slot, entry['quiet_timeout'])
+        pool.refresh_and_wait(slot, entry['quiet_timeout'])
         errors = pool.mcp.console_errors_since(slot, commit)
         if errors:
             raise SlotError(f'recovered editor has compilation/console errors: {errors[0]}', stage='compile')
@@ -234,8 +237,7 @@ class UnityRecovery:
         instance = pool.mcp.discover_instance(slot) if reusable else pool.open_editor(slot, entry)
         pool.ledger.set_slot_state(slot['slot_id'], 'held', instance=instance)
         slot = pool.ledger.slot(slot['slot_id'])
-        pool.mcp.refresh(slot)
-        pool.wait_for_quiet(slot, entry['quiet_timeout'])
+        pool.refresh_and_wait(slot, entry['quiet_timeout'])
         errors = pool.mcp.console_errors_since(slot, baseline)
         if errors:
             raise SlotError(f'baseline compilation failed: {errors[0]}', stage='compile')

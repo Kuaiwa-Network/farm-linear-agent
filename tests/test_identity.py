@@ -547,9 +547,9 @@ class UnityIdentityTests(Loopback):
         `switch()` writes slots.instance only after the console read, so on a fresh slot's first interactive
         switch these three calls all run with a NULL row, and the compile gate would talk to whatever the
         server routed to by default."""
-        calls = {"refresh": lambda slot: self.identity.refresh(slot),
-                 "wait_quiet": lambda slot: self.identity.wait_quiet(slot, 5),
-                 "console_errors_since": lambda slot: self.identity.console_errors_since(slot, "deadbeef")}
+        calls = {"wait_quiet": lambda slot: self.identity.wait_quiet(slot, 5),
+                 "console_errors_since": lambda slot: self.identity.console_errors_since(slot, "deadbeef"),
+                 "refresh": lambda slot: self.identity.refresh(slot)}
         for name, call in calls.items():
             for recorded in (INSTANCE, None):
                 with self.subTest(call=name, row_instance=recorded):

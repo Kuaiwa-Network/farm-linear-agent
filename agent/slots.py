@@ -6,6 +6,7 @@ never open Unity. Everything host-specific lives in the slot's configuration ent
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
 import json
+import math
 import os
 import signal
 import subprocess
@@ -28,6 +29,11 @@ from .worktrees import FetchRaced, WorktreeError
 # outlives its timeout, and a filesystem step raises OSError. switch, park and ensure turn each into a git-stage
 # SlotError, because anything else escapes the pool with the slot `switching` and is retried every pass.
 GIT_FAILURES = (WorktreeError, subprocess.TimeoutExpired, OSError)
+
+
+class UnityRefreshPending(Exception):
+    """The refresh may have executed; reconcile it by reading, never replaying it."""
+
 
 DEFAULTS = {
     "kind": "unity_slot",
@@ -867,8 +873,7 @@ class SlotPool:
             self._clear_stale_lock(slot)
             instance = self.open_editor(slot, entry)
         try:
-            self.mcp.refresh(slot)
-            self.wait_for_quiet(slot, entry["quiet_timeout"])
+            self.refresh_and_wait(slot, entry["quiet_timeout"])
         except SlotError:
             raise
         except Exception as exc:
@@ -1095,6 +1100,18 @@ class SlotPool:
                 doing=f"reaping the MCP server on {slot['mcp_address']} that outlived the Editor") from exc
         return True
 
+    def refresh_and_wait(self, slot, timeout):
+        """Wait across reloads before the Console boundary and after one refresh."""
+        deadline = self.clock() + timeout
+        self.wait_for_quiet(slot, timeout)
+        try:
+            self.mcp.refresh(slot)
+        except UnityRefreshPending:
+            # UnityIdentity retains the request time. A lost response is resolved
+            # only by a later compiler/reload observation, never a second command.
+            pass
+        self.wait_for_quiet(slot, max(1.0, deadline - self.clock()))
+
     def wait_for_quiet(self, slot, timeout):
         """spec §7's 'wait for compilation'. refresh_unity returns at once, so probing straight afterwards
         normally observes is_compiling or is_domain_reload_pending and aggregates to unknown — which this plan
@@ -1126,7 +1143,7 @@ class SlotPool:
                     self.sleep(1.0)
                     continue
                 if isinstance(exc, TimeoutError):
-                    raise SlotError(f"{slot['slot_id']}: still not quiet after {timeout}s", stage="probe") from exc
+                    raise SlotError(f"{slot['slot_id']}: still not quiet after {timeout}s: {exc}", stage="probe") from exc
                 raise self._collaborator_error(slot["slot_id"], exc, stage="probe",
                                                doing=f"waiting for the Editor to go quiet within {timeout}s") from exc
 
@@ -1238,6 +1255,7 @@ class UnityIdentity:
         self.start_timeout = start_timeout
         self.clock = clock
         self.sleep = sleep
+        self._refresh_pending = {}
 
     def _client(self, slot):
         """One MCP session, pinned to this slot's Editor before anything else is asked of it.
@@ -1427,13 +1445,35 @@ class UnityIdentity:
         client.call_tool('read_console', {'action': 'clear'})
         # A reused, already-broken candidate may produce no new compiler output on
         # a no-op refresh. Request compilation so clearing history cannot hide it.
-        client.call_tool('refresh_unity', {'compile': 'request', 'wait_for_ready': True})
+        pending = {'started_ms': int(self.clock() * 1000), 'error': None}
+        self._refresh_pending[slot['slot_id']] = pending
+        try:
+            # A request awaiting readiness inside Unity loses its callback/socket
+            # during domain reload. Return before reload and poll from the host.
+            client.call_tool('refresh_unity', {'compile': 'request', 'wait_for_ready': False})
+        except (OSError, ValueError) as exc:
+            pending['error'] = f'{type(exc).__name__}: {exc}'
+            raise UnityRefreshPending(pending['error']) from exc
 
     def wait_quiet(self, slot, timeout):
         """One sample of editor/state. The pool's wait_for_quiet owns the loop and the deadline; this raises
         TimeoutError when the Editor is still compiling, reloading, importing or running tests."""
-        if not quiet(self._client(slot).read_resource("mcpforunity://editor/state")):
+        state = self._client(slot).read_resource("mcpforunity://editor/state")
+        if not quiet(state):
             raise TimeoutError("editor is not quiet")
+        pending = self._refresh_pending.get(slot['slot_id'])
+        if pending:
+            # An async request can return before compilation even starts. Old idle
+            # state is not completion, including when the command response was lost.
+            compilation = state.get('compilation') or {}
+            observed = [compilation.get('last_compile_finished_unix_ms'),
+                        compilation.get('last_domain_reload_after_unix_ms')]
+            if not any(type(value) in (int, float) and math.isfinite(value)
+                       and pending['started_ms'] <= value <= self.clock() * 1000
+                       for value in observed):
+                raise TimeoutError('no completed compilation/reload observed after refresh request'
+                                   + (f'; {pending["error"]}' if pending['error'] else ''))
+            del self._refresh_pending[slot['slot_id']]
 
     CONSOLE_KEYS = ("lines", "items", "entries")
 

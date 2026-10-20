@@ -245,6 +245,25 @@ tables plus its private baseline plan. Before rollback, settle pending successor
 repairs: older code cannot preserve metadata from the previous baseline when a
 successor switches to its corrected target. Keep all journals and metadata refs.
 
+### Unity reload and reconnect
+
+Preparation waits for an existing import/reload to reconnect before establishing
+the Console boundary. It archives prior Console entries, clears them once and
+requests compilation with `wait_for_ready=false`: the host owns the bounded wait,
+not an in-Editor callback that can disappear during domain reload. An idle sample
+predating the request is insufficient. A completed compilation or domain reload
+at or after the request must be observed before Console and source/Editor identity
+checks can certify readiness.
+
+A lost refresh response is reconciled using read-only observations, without
+replaying the refresh or clearing the Console again. Missing completion evidence,
+compiler errors, dirty source or mismatched identity still refuse handoff. MCP
+failures retain the operation and a bounded machine error code without echoing
+arbitrary response messages. A first setup recovery waits the configured quiet
+deadline for an existing Editor to reconnect before escalating to an owned-process
+restart; it does not treat one missing instance sample as proof of a dead Editor.
+No schema migration or Unity package/cache edit is required.
+
 ## Automatic worker cache retention
 
 `serve` runs a separate `worker_retention` loop. By default it starts a backlog

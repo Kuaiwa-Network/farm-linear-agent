@@ -404,7 +404,7 @@ class SwitchTests(SlotFixture):
         self.assertEqual(slot["state"], "interactive_busy")
         self.assertEqual(slot["parked_commit"], commit)
         self.assertEqual([name for name, _ in pool.mcp.calls],
-                         ["start", "refresh", "wait_quiet", "console", "probe"])
+                         ["start", "wait_quiet", "refresh", "wait_quiet", "console", "probe"])
         # The instance the Editor reported is recorded, so the worker and the next probe can address it.
         self.assertEqual(self.ledger.slot("unity_slot:1")["instance"], INSTANCE)
 
@@ -497,7 +497,7 @@ class SwitchTests(SlotFixture):
         started = self.now
         slot = pool.switch("unity_slot:1", self.commit("fix"), "interactive")
         self.assertEqual(slot["state"], "interactive_busy")
-        self.assertEqual(sum(name == "wait_quiet" for name, _ in pool.mcp.calls), 3)
+        self.assertEqual(sum(name == "wait_quiet" for name, _ in pool.mcp.calls), 4)
         self.assertGreater(self.now, started)   # the injected sleep, not a real one, paced the samples
 
     def test_an_editor_that_vanishes_from_the_instance_list_is_waited_for_rather_than_abandoned(self):
@@ -524,7 +524,7 @@ class SwitchTests(SlotFixture):
         pool = self.pool(mcp=VanishesThenReturns())
         slot = pool.switch("unity_slot:1", self.commit("fix"), "interactive")
         self.assertEqual(slot["state"], "interactive_busy")
-        self.assertEqual(sum(name == "wait_quiet" for name, _ in pool.mcp.calls), 3)
+        self.assertEqual(sum(name == "wait_quiet" for name, _ in pool.mcp.calls), 4)
 
         class Buggy(FakeMcp):
             def wait_quiet(self, slot, timeout):
@@ -546,6 +546,26 @@ class SwitchTests(SlotFixture):
             pool.switch("unity_slot:1", self.commit("fix"), "interactive")
         self.assertEqual(caught.exception.stage, "compile")
         self.assertIn("CS1002", str(caught.exception))
+
+    def test_reload_before_refresh_and_lost_refresh_reply_do_not_repeat_the_mutation(self):
+        from agent.slots import UnityRefreshPending
+        class Reloading(FakeMcp):
+            samples = 0
+            def wait_quiet(self, slot, timeout):
+                super().wait_quiet(slot, timeout)
+                self.samples += 1
+                if self.samples in (1, 3, 4):
+                    raise SlotError('Editor is reconnecting', stage='editor')
+            def refresh(self, slot):
+                super().refresh(slot)
+                raise UnityRefreshPending('request accepted before socket closed')
+        self.pool().ensure()
+        pool = self.pool(mcp=Reloading())
+        slot = pool.switch('unity_slot:1', self.commit('reload'), 'interactive')
+        self.assertEqual(slot['state'], 'interactive_busy')
+        self.assertEqual(sum(name == 'refresh' for name, _ in pool.mcp.calls), 1)
+        self.assertNotIn('terminate', [name for name, _ in pool.mcp.calls])
+        self.assertEqual(pool.mcp.samples, 5)
 
     def test_a_stale_lockfile_is_cleared_and_a_live_one_is_kept(self):
         self.pool().ensure()

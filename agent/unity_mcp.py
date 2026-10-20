@@ -1,7 +1,17 @@
 """Loopback JSON-RPC client for MCP for Unity (spec §7). Ported from FarmTestAgent/tools/farmqa_unity_identity.py."""
 import json
+import re
 import urllib.parse
 import urllib.request
+
+
+class UnityMcpError(ValueError):
+    """Retain the failing operation and a bounded machine error code, not secrets."""
+    def __init__(self, operation, value):
+        code = value.get('message') or value.get('error') or ''
+        if not isinstance(code, str) or not re.fullmatch(r'[a-z][a-z0-9_]{0,119}', code):
+            code = 'unspecified'
+        super().__init__(f'Unity observation failed ({operation or "payload"}: {code})')
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -70,13 +80,15 @@ class UnityMcp:
         self._rpc('notifications/initialized', {}, notification=True)
 
     @staticmethod
-    def _payload(result, key):
+    def _payload(result, key, operation=None):
         if result.get('isError'): raise ValueError('Unity MCP tool failed')
         blocks = result.get(key, [])
         texts = [item['text'] for item in blocks if 'text' in item]
         if len(texts) != 1: raise ValueError('Ambiguous Unity payload')
         value = json.loads(texts[0])
-        if not isinstance(value, dict) or value.get('success') is False:
+        if isinstance(value, dict) and value.get('success') is False:
+            raise UnityMcpError(operation, value)
+        if not isinstance(value, dict):
             raise ValueError('Unity observation failed')
         return value.get('data', value)
 
@@ -84,11 +96,11 @@ class UnityMcp:
         # The allow-list is checked before the handshake, so an unlisted URI costs nothing on the wire.
         if uri not in self.RESOURCES: raise ValueError(f'Unsupported identity resource: {uri}')
         self._start()
-        return self._payload(self._rpc('resources/read', {'uri':uri}), 'contents')
+        return self._payload(self._rpc('resources/read', {'uri':uri}), 'contents', uri)
 
     def call_tool(self, name, arguments):
         self._start()
-        return self._payload(self._rpc('tools/call', {'name':name, 'arguments':arguments}), 'content')
+        return self._payload(self._rpc('tools/call', {'name':name, 'arguments':arguments}), 'content', name)
 
     def select_instance(self, instance):
         """HTTP selection is per MCP session (the Mcp-Session-Id header), so each worker pins its own slot.
