@@ -3953,6 +3953,60 @@ class SilentDelegationReceiverTests(ReceiverBase):
 
 
 
+class CurrentReceiverTargetTests(ReceiverBase):
+    def setUp(self):
+        super().setUp()
+        self.receiver.skills = {"chat", "work"}
+        self.receiver.worktrees = Mock()
+        self.receiver.worktrees.remote_head.return_value = "c" * 40
+
+    def test_current_mentions_acknowledge_without_a_legacy_target(self):
+        for names in ({"chat", "work"}, {"chat"}):
+            for delegated in (False, True):
+                with self.subTest(skills=names, delegated=delegated):
+                    self.receiver.skills = names
+                    self.api.fetch_issue.return_value = issue(delegate_id=APP if delegated else None)
+                    session_id = f"mention-{len(names)}-{delegated}"
+                    self.receive(self.event(agentSession={
+                        "id": session_id, "issue": {"id": ISSUE, "identifier": "FARM-1", "url": "u"},
+                        "comment": {"body": "@FarmBot 帮我看看这个问题"}}))
+                    self.assertTrue(self.receiver.process_one())
+                    [item] = self.ledger.items_for_session(session_id)
+                    self.assertEqual((item["skill"], item["authority"], item["target"]),
+                                     ("chat", "mention", None))
+                    self.assertIsNone(self.ledger.session(session_id)["target"])
+                    self.assertEqual(self.activities()[-1],
+                                     {"type": "thought", "body": "FarmBot 已收到，正在查看。"})
+                    self.ledger.cancel(item["id"], "next case")
+        self.receiver.worktrees.remote_head.assert_not_called()
+
+    def test_resuming_current_chat_does_not_add_a_legacy_target(self):
+        self.api.fetch_issue.return_value = issue(delegate_id=None)
+        self.receive(self.event(agentSession={
+            "id": "session-1", "issue": {"id": ISSUE, "identifier": "FARM-1", "url": "u"},
+            "comment": {"body": "@FarmBot 帮我看看这个问题"}}))
+        self.receiver.process_one()
+        [item] = self.ledger.items_for_session("session-1")
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        self.ledger.pop_inbox(item["id"], token)
+        self.ledger.await_input(item["id"], token, "出现在哪个界面？")
+        self.receive(self.event("prompted", body="背包界面"))
+        self.assertTrue(self.receiver.process_one())
+        self.assertEqual(self.activities()[-1], {"type": "thought", "body": "收到回复，继续处理。"})
+        self.assertIsNone(self.ledger.session("session-1")["target"])
+        self.receiver.worktrees.remote_head.assert_not_called()
+
+    def test_current_work_delegation_still_has_no_legacy_target(self):
+        self.receive()
+        self.assertTrue(self.receiver.process_one())
+        [item] = self.ledger.items_for_session("session-1")
+        self.assertEqual((item["skill"], item["authority"], item["target"]),
+                         ("work", "delegation", None))
+        self.assertIsNone(self.ledger.session("session-1")["target"])
+        self.assertNotIn("目标已锁定", self.activities()[-1]["body"])
+        self.receiver.worktrees.remote_head.assert_not_called()
+
+
 class FeatureEnabledReceiverTests(ReceiverBase):
     """Phase B, Task 12: with the checkout's real manifests, the host's enabled_skills decides whether a Bot/Code
     delegation starts feature (P1: feature is opt-in)."""

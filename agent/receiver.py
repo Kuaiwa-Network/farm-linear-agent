@@ -391,7 +391,10 @@ class Receiver:
 
         routed = routing()
         pin = ""
-        if session.get("target") is None and self.worktrees is not None and not routed[3]:
+        # Current chat/work intake never preselects the legacy reproduction target.
+        # Keep that behavior only for receivers replaying retired profiles offline.
+        legacy_receiver = bool(self.skills - {"chat", "work"})
+        if legacy_receiver and session.get("target") is None and self.worktrees is not None and not routed[3]:
             try:
                 commit = self.worktrees.remote_head(TARGET_REPO, timeout=PIN_TIMEOUT)
                 session = self.ledger.set_session_target(prepared["session_id"], {

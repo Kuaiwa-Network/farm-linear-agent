@@ -42,6 +42,11 @@ Only `skills/chat` and `skills/work` are loaded by the current registry. Retired
 profiles and procedures live under `skills/legacy` and `references/legacy`, and
 are loaded only for explicit offline replay. Chat has a separate current launch
 authority and concise CLI; it does not inherit the old staged worker prompt.
+Current chat/work intake does not preselect a client reproduction target or append
+the legacy target/environment line to its acknowledgement. This also applies to
+mentions and replies on chat-only hosts; no remote client-head lookup is needed.
+Existing recorded targets remain intact, and offline legacy replay retains its
+target selection. No schema migration or historical activity rewrite is required.
 An authorized implementation request routes to the work owner. Retained staged
 jobs still require explicit settled adoption; chat cannot silently restart them.
 
