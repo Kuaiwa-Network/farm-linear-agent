@@ -68,6 +68,16 @@ instructed by the resource response; do not repeatedly poll or start another tes
 If maintenance arrives while a request is still queued, cancel that request;
 if preparation has begun, wait for readiness, settle it and release safely.
 
+When `recovery.candidate_repair` reports importer metadata changes, inspect the
+retained metadata evidence and recovery Git ref. New `.meta` files and changes
+to existing `.meta` files are source inputs. Preserve existing valid GUIDs, review
+import settings and check asset references if a GUID changed. Integrate the
+appropriate metadata into your owned Client worktree, commit it and request
+Unity at that new clean SHA. The host can recover a held Editor from this new
+request even after its old baseline exhausted repair. Never edit the shared slot,
+ignore metadata changes or reset the recovery counter. Recovery grants no test
+pass; verify the corrected candidate before delivery.
+
 Use ordinary local commands for tests that need no shared service. Request
 `server_slot` only for tests that need its isolated services, specifying packages,
 tests and race selection. Use the returned loopback environment in your own

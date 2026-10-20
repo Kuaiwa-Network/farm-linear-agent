@@ -185,9 +185,14 @@ class RecoveryStore:
                     and all((observation.get('checks') or {}).get(key) == 'match' for key in CHECKS)
                     and (observation.get('source_after') or {}).get('commit_sha') == commit):
                 return None
+        original = self.db.execute("""SELECT r.id,r.evidence FROM resource_recoveries r
+            JOIN reservations q ON q.reservation_id=r.reservation_id
+            WHERE r.recovery_kind='candidate' AND r.item_id=? AND q.generation=? AND r.commit_sha=?
+            ORDER BY r.created_at,r.rowid LIMIT 1""", (item_id, generation, row['commit_sha'])).fetchone()
         return {'recovery_id': row['id'], 'failed_commit': row['commit_sha'], 'reason': row['reason'],
                 'editor_recovery_state': row['state'],
-                'metadata_ref_hint': f"refs/farmbot/slot-recovery/{row['id']}",
+                'metadata_ref_hint': f"refs/farmbot/slot-recovery/{original['id']}",
+                'metadata_evidence': original['evidence'],
                 'next_action': 'diagnose inputs, integrate current main when appropriate, commit the correction and request a new SHA'}
 
     def rejected_candidate(self, item_id, generation, commit):
@@ -236,6 +241,80 @@ class RecoveryStore:
 
     def pending(self, host):
         return [dict(row) for row in self.db.execute("SELECT * FROM resource_recoveries WHERE host=? AND state IN ('pending','repairing') ORDER BY created_at,id", (host,))]
+
+    def retargetable_candidates(self, host):
+        """A changed input may replace a failed repair, never an in-flight one."""
+        return [dict(r) for r in self.db.execute("""SELECT r.* FROM resource_recoveries r
+            JOIN slots s ON s.slot_id=r.slot_id
+            WHERE r.host=? AND r.recovery_kind='candidate' AND r.detached=1
+              AND r.state IN ('pending','exhausted') AND r.error IS NOT NULL
+              AND r.lease_until<=? AND s.state='held'
+              AND r.id=(SELECT id FROM resource_recoveries WHERE slot_id=r.slot_id
+                        ORDER BY created_at DESC,rowid DESC LIMIT 1)
+            ORDER BY r.created_at,r.id""", (host, self.ledger.clock()))]
+
+    def candidate_waiter(self, recovery):
+        """Only a live current owner can offer a new, authenticated Unity pin."""
+        from .admission_scope import allows
+        from .maintenance import Maintenance
+        if Maintenance(self.ledger).requested():
+            return None
+        for row in self.db.execute("""SELECT q.* FROM reservations q JOIN work_items w ON w.id=q.item_id
+            WHERE q.item_id=? AND q.kind='unity_slot' AND q.mode='interactive' AND q.state='queued'
+              AND q.generation=w.generation AND q.commit_sha<>?
+              AND w.execution_contract='single-worker-v1' AND w.state='running'
+              AND w.host=? AND w.token IS NOT NULL AND w.lease_expires_at>?
+              AND w.withdraw_deadline IS NULL AND q.created_at>?
+            ORDER BY q.sequence DESC""", (recovery['item_id'], recovery['commit_sha'], recovery['host'],
+                                          self.ledger.clock(), recovery['created_at'])):
+            if allows(self.db, row['item_id']):
+                return dict(row)
+        return None
+
+    def tried_candidate(self, recovery, commit):
+        # The audit survives restart and preserves the per-input repair budget.
+        for row in self.db.execute("""SELECT details FROM audit
+                WHERE item_id=? AND kind='candidate_recovery_retarget'""", (recovery['slot_id'],)):
+            details = json.loads(row['details'])
+            if (details['failed_commit'] == recovery['commit_sha']
+                    and details['item_id'] == recovery['item_id'] and details['commit_sha'] == commit):
+                return True
+        return False
+
+    def retarget_candidate(self, recovery_id, new_id, commit, evidence, *, reservation_id=None, operator_reason=None):
+        """Publish a successor after its caller validates and durably pins its source.
+
+        The caller holds the old recovery's physical lock. An explicit host repair
+        during maintenance can use retained source without reviving its old job.
+        """
+        from .maintenance import Maintenance
+        with self.ledger._transaction():
+            original = self.get(recovery_id)
+            r = next((r for r in self.retargetable_candidates(original['host']) if r['id'] == recovery_id), None)
+            if r is None or self.ledger.active_reservation_on(r['slot_id']):
+                return None
+            if commit == r['commit_sha'] or self.tried_candidate(r, commit):
+                return None
+            if operator_reason is not None:
+                if not operator_reason.strip() or not Maintenance(self.ledger).requested():
+                    raise ValueError('operator candidate recovery requires a reason and maintenance pause')
+            else:
+                request = self.candidate_waiter(r)
+                if not request or request['reservation_id'] != reservation_id or request['commit_sha'] != commit:
+                    return None
+            now = self.ledger.clock()
+            self.db.execute("UPDATE resource_recoveries SET state='superseded',updated_at=? WHERE id=?", (now, r['id']))
+            self.db.execute("""INSERT INTO resource_recoveries
+                (id,slot_id,host,reservation_id,item_id,worker_pid,commit_sha,detached,resume_job,
+                 reason,evidence,created_at,updated_at,recovery_kind)
+                VALUES(?,?,?,?,?,?,?,1,0,?,?,?,?,'candidate')""",
+                (new_id, r['slot_id'], r['host'], r['reservation_id'], r['item_id'], r['worker_pid'],
+                 r['commit_sha'], r['reason'], str(evidence), now, now))
+            self.ledger._audit(r['slot_id'], 'candidate_recovery_retarget',
+                operator_reason or 'current worker requested corrected Unity inputs',
+                {'recovery_id': new_id, 'previous_recovery_id': r['id'], 'failed_commit': r['commit_sha'],
+                 'item_id': r['item_id'], 'commit_sha': commit, 'reservation_id': reservation_id})
+            return self.get(new_id)
 
     def due(self, host):
         now = self.ledger.clock()
@@ -565,6 +644,7 @@ class RecoveryController:
     def tick(self):
         self.store.discover(self.host)
         self.watch()
+        self.retarget_candidates()
         repaired = 0
         for pending in self.store.due(self.host):
             with repair_lock(self.evidence_root / pending['id'] / '.lock') as acquired:
@@ -580,6 +660,67 @@ class RecoveryController:
                                      slot_ids=set(self.pool.entries) if getattr(self.pool, 'entries', None) is not None else None)
         self.report()
         return {'repaired': repaired}
+
+    def retarget_candidates(self):
+        if not getattr(self.pool, 'keep_open', False) or not hasattr(self, 'editor'):
+            return
+        for recovery in self.store.retargetable_candidates(self.host):
+            if recovery['slot_id'] not in self.pool.entries:
+                continue
+            request = self.store.candidate_waiter(recovery)
+            if request:
+                self.retarget_candidate(recovery['id'], request['commit_sha'],
+                                        reservation_id=request['reservation_id'])
+
+    def retarget_candidate(self, recovery_id, commit, *, reservation_id=None, operator_reason=None, repair_now=False):
+        """Validate an owned correction; leave repair, probing and handoff to the normal loop."""
+        from .worktrees import WorktreeError
+        if repair_now and operator_reason is None:
+            raise ValueError('immediate candidate repair is a host maintenance operation')
+        with repair_lock(self.evidence_root / recovery_id / '.lock') as acquired:
+            if not acquired:
+                return None
+            recovery = self.store.get(recovery_id)
+            if not recovery or recovery not in self.store.retargetable_candidates(self.host):
+                return None
+            if self.store.tried_candidate(recovery, commit):
+                return None
+            slot, entry = self.editor._slot(recovery['slot_id'])
+            peers = [key for key, value in self.pool.entries.items()
+                     if (value['repo'], value['build_target']) == (entry['repo'], entry['build_target'])]
+            if self.store.known_candidate(self.host, peers, commit):
+                return None
+            # Validation uses the same owned clean HEAD boundary as await-resource.
+            # No checkpoint prose or arbitrary commit in the clone can offer a pin.
+            try:
+                self.pool.worktrees.verification_commit(entry['repo'], recovery['item_id'], commit)
+            except (WorktreeError, ValueError, OSError):
+                if operator_reason is not None:
+                    raise
+                return None
+            new_id = str(uuid4())
+            evidence = self.evidence_root / new_id
+            evidence.mkdir(parents=True, exist_ok=False)
+            plan = {'slot_id': slot['slot_id'], 'failed_commit': recovery['commit_sha'],
+                    'baseline_commit': commit, 'previous_recovery_id': recovery_id,
+                    'reservation_id': reservation_id}
+            previous = self.evidence_root / recovery_id / 'candidate-baseline.json'
+            if previous.exists():
+                saved = json.loads(previous.read_text(encoding='utf-8'))
+                if saved['slot_id'] != slot['slot_id'] or saved['failed_commit'] != recovery['commit_sha']:
+                    raise ValueError('previous candidate recovery plan does not match')
+                plan['previous_baseline_commit'] = saved['baseline_commit']
+            from .launcher import _write_worker_file
+            _write_worker_file(evidence / 'candidate-baseline.json', json.dumps(plan, indent=2), sync=True)
+            with repair_lock(evidence / '.lock') as target_locked:
+                if not target_locked:
+                    return None
+                result = self.store.retarget_candidate(recovery_id, new_id, commit, evidence,
+                    reservation_id=reservation_id, operator_reason=operator_reason)
+                if result and repair_now:
+                    self._repair(new_id)
+                    result = self.store.get(new_id)
+                return result
 
     def _revalidate(self, recovery_id):
         recovery = self.store.begin_revalidation(recovery_id, self.host)

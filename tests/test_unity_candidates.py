@@ -248,6 +248,172 @@ class CandidateRepairTests(SlotFixture):
         self.assertIn('candidate CS0246', self.ledger.item(self.item)['candidate_repair']['reason'])
         self.assertFalse(any(r['item_id'] == self.item for r in self.ledger.reservations(states=('queued',))))
 
+    def failed_baseline(self, *, exhausted=False, generated=False):
+        self.fail_candidate()
+        self.ledger.cancel(self.other, 'fixture complete')
+        original = self.mcp.refresh
+        self.generated = Path('Assets/新增 图集.png.meta') if generated else self.meta
+        self.imported = 'guid: preserved\ntextureCompression: 2\n'
+        def refresh(slot):
+            original(slot)
+            (Path(slot['folder']) / self.generated).write_text(self.imported, encoding='utf-8')
+        self.mcp.refresh = refresh
+        self.assertEqual(self.controller().tick()['repaired'], 0)
+        if exhausted:
+            for delay in (61, 181):
+                self.advance(delay)
+                self.assertEqual(self.controller().tick()['repaired'], 0)
+            self.assertEqual(self.store.get(self.record['id'])['state'], 'exhausted')
+
+    def corrected_request(self, *, correct=True):
+        from agent.execution import queue_resource
+        self.correction = self.trees.add_stage('Farm-Client', self.item, 'farmbot/farm-1', self.bad)
+        (self.correction / self.meta).write_text('guid: preserved\nenableMipMap: 0\n', encoding='utf-8')
+        (self.correction / self.generated).write_text(self.imported if correct else 'guid: preserved\n',
+                                                    encoding='utf-8')
+        git('add', '.', cwd=self.correction)
+        git('commit', '-qm', 'retain native metadata correction', cwd=self.correction)
+        self.corrected = self.trees.head(self.correction)
+        self.ledger.connection.execute("UPDATE work_items SET execution_contract='single-worker-v1',skill='work' WHERE id=?",
+                                       (self.item,))
+        self.ledger.set_worker(self.item, 123, 'test')
+        self.token = self.ledger.claim(self.item, worker_id='correcting-owner')['token']
+        self.ledger.connection.execute("UPDATE work_items SET lease_seconds=3600,lease_expires_at=? WHERE id=?",
+                                       (self.now + 3600, self.item))
+        self.advance(1)
+        self.request = queue_resource(self.ledger, self.item, self.token, 'unity_slot', 'interactive', self.corrected)
+
+    def test_corrected_request_replaces_dirty_pinned_baseline_and_preserves_tracked_metadata(self):
+        self.failed_baseline()
+        self.corrected_request()
+        self.assertEqual(self.controller().tick()['repaired'], 1)
+        self.assertEqual(self.store.get(self.record['id'])['state'], 'superseded')
+        row = self.ledger.connection.execute('SELECT * FROM resource_recoveries ORDER BY rowid DESC LIMIT 1').fetchone()
+        self.assertEqual((row['state'], row['attempts']), ('recovered', 1))
+        self.assertEqual(self.ledger.slot('unity_slot:1')['parked_commit'], self.corrected)
+        self.assertEqual(self.ledger.item(self.item)['state'], 'running')
+        self.assertEqual(self.ledger.reservation(self.request['reservation_id'])['state'], 'queued')
+        self.assertIsNone(self.ledger.active_reservation(self.item))
+        context = self.ledger.item(self.item)['candidate_repair']
+        self.assertEqual(context['metadata_ref_hint'], f"refs/farmbot/slot-recovery/{self.record['id']}")
+        self.assertTrue(Path(context['metadata_evidence']).joinpath('source-meta.json').exists())
+        self.assertEqual(source_snapshot(self.pool.folder(self.pool.entries['unity_slot:1']))['dirty'], [])
+
+    def test_new_metadata_correction_recovers_an_exhausted_slot_after_controller_restart(self):
+        self.failed_baseline(exhausted=True, generated=True)
+        self.corrected_request()
+        self.assertEqual(self.controller().tick()['repaired'], 1)
+        self.assertEqual(self.ledger.slot('unity_slot:1')['parked_commit'], self.corrected)
+        backup = (self.root / 'recovery evidence' / self.record['id'] /
+                  f"{self.record['id']}-baseline-2" / 'untracked-meta' / self.generated)
+        self.assertEqual(backup.read_text(encoding='utf-8'), self.imported)
+        previous = self.store.get(self.record['id'])
+        self.assertEqual((previous['state'], previous['attempts']), ('superseded', 3))
+        self.assertEqual(self.controller().tick()['repaired'], 0)
+
+    def test_cancelled_stale_expired_withdrawn_or_paused_request_cannot_retarget(self):
+        from agent.maintenance import Maintenance
+        self.failed_baseline()
+        self.corrected_request()
+        db = self.ledger.connection
+        for sql, restore in (
+            ("UPDATE reservations SET state='cancelled'", "UPDATE reservations SET state='queued'"),
+            ("UPDATE reservations SET generation=generation+1", "UPDATE reservations SET generation=generation-1"),
+            ("UPDATE work_items SET lease_expires_at=0", f"UPDATE work_items SET lease_expires_at={self.now+3600}"),
+            ("UPDATE work_items SET withdraw_deadline=1", "UPDATE work_items SET withdraw_deadline=NULL"),
+            ("UPDATE work_items SET state='awaiting_input'", "UPDATE work_items SET state='running'"),
+            ("UPDATE work_items SET host='other'", "UPDATE work_items SET host='test'"),
+        ):
+            table_id = 'reservation_id' if 'reservations' in sql else 'id'
+            key = self.request['reservation_id'] if table_id == 'reservation_id' else self.item
+            with self.subTest(sql=sql):
+                db.execute(sql + f' WHERE {table_id}=?', (key,))
+                self.controller().retarget_candidates()
+                self.assertEqual(self.store.get(self.record['id'])['state'], 'pending')
+                db.execute(restore + f' WHERE {table_id}=?', (key,))
+        Maintenance(self.ledger).pause('hold admission')
+        self.controller().retarget_candidates()
+        self.assertEqual(self.store.get(self.record['id'])['state'], 'pending')
+
+    def test_dirty_owned_candidate_or_changed_head_cannot_offer_recovery_source(self):
+        self.failed_baseline()
+        self.corrected_request()
+        (self.correction / self.meta).write_text('uncommitted importer setting\n', encoding='utf-8')
+        self.controller().retarget_candidates()
+        self.assertEqual(self.store.get(self.record['id'])['state'], 'pending')
+        git('commit', '-qam', 'different HEAD', cwd=self.correction)
+        self.controller().retarget_candidates()
+        self.assertEqual(self.store.get(self.record['id'])['state'], 'pending')
+
+    def test_corrected_request_cannot_discard_non_metadata_changes_in_old_baseline(self):
+        self.failed_baseline()
+        self.corrected_request()
+        folder = self.pool.folder(self.pool.entries['unity_slot:1'])
+        (folder / 'README.md').write_text('unexplained source change', encoding='utf-8')
+        self.assertEqual(self.controller().tick()['repaired'], 0)
+        self.assertEqual((folder / 'README.md').read_text(encoding='utf-8'), 'unexplained source change')
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
+
+    def test_known_bad_commit_and_unselected_issue_cannot_retarget(self):
+        from agent.admission_scope import KIND
+        self.failed_baseline()
+        self.corrected_request()
+        controller = self.controller()
+        with patch.object(controller.store, 'known_candidate', return_value={'reason': 'already rejected'}):
+            controller.retarget_candidates()
+        self.assertEqual(self.store.get(self.record['id'])['state'], 'pending')
+        self.ledger.note('maintenance', KIND, details={'issue_id': OTHER, 'identifier': 'FARM-2'})
+        controller.retarget_candidates()
+        self.assertEqual(self.store.get(self.record['id'])['state'], 'pending')
+
+    def test_cancel_during_source_validation_is_rechecked_before_retarget(self):
+        from agent.execution import cancel_queued_resource
+        self.failed_baseline()
+        self.corrected_request()
+        verify = self.trees.verification_commit
+        def cancelled(*args):
+            result = verify(*args)
+            cancel_queued_resource(self.ledger, self.item, self.token, self.request['reservation_id'])
+            return result
+        with patch.object(self.trees, 'verification_commit', side_effect=cancelled):
+            self.controller().retarget_candidates()
+        self.assertEqual(self.store.get(self.record['id'])['state'], 'pending')
+        self.assertEqual(self.ledger.connection.execute("SELECT COUNT(*) FROM audit WHERE kind='candidate_recovery_retarget'").fetchone()[0], 0)
+
+    def test_still_bad_correction_has_three_attempts_and_resubmitting_same_sha_does_not_reset(self):
+        from agent.execution import cancel_queued_resource, queue_resource
+        self.failed_baseline()
+        self.corrected_request(correct=False)
+        self.assertEqual(self.controller().tick()['repaired'], 0)
+        successor = self.store.pending('test')[0]
+        for delay in (61, 181):
+            self.advance(delay)
+            self.ledger.renew(self.item, self.token)
+            self.assertEqual(self.controller().tick()['repaired'], 0)
+        self.assertEqual(self.store.get(successor['id'])['state'], 'exhausted')
+        cancel_queued_resource(self.ledger, self.item, self.token, self.request['reservation_id'])
+        self.advance(1)
+        queue_resource(self.ledger, self.item, self.token, 'unity_slot', 'interactive', self.corrected)
+        self.assertEqual(self.controller().tick()['repaired'], 0)
+        self.assertEqual(self.store.get(successor['id'])['attempts'], 3)
+        self.assertEqual(self.ledger.connection.execute("SELECT COUNT(*) FROM audit WHERE kind='candidate_recovery_retarget'").fetchone()[0], 1)
+
+    def test_operator_recovery_requires_maintenance_and_never_resumes_waiting_job(self):
+        from agent.execution import cancel_queued_resource
+        from agent.maintenance import Maintenance
+        self.failed_baseline(exhausted=True)
+        self.corrected_request()
+        cancel_queued_resource(self.ledger, self.item, self.token, self.request['reservation_id'])
+        self.ledger.connection.execute("UPDATE work_items SET state='awaiting_input',token=NULL WHERE id=?", (self.item,))
+        with self.assertRaisesRegex(ValueError, 'maintenance'):
+            self.controller().retarget_candidate(self.record['id'], self.corrected, operator_reason='restore slot')
+        Maintenance(self.ledger).pause('restore slot')
+        result = self.controller().retarget_candidate(self.record['id'], self.corrected,
+            operator_reason='restore slot', repair_now=True)
+        self.assertIsNotNone(result)
+        self.assertEqual(result['state'], 'recovered')
+        self.assertEqual(self.ledger.item(self.item)['state'], 'awaiting_input')
+
 
 class ImportSuspensionTests(unittest.TestCase):
     def test_unconfirmed_disable_never_enters_mutation_section(self):
