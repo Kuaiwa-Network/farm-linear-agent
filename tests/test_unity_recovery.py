@@ -90,6 +90,22 @@ class EditorRecoveryTests(SlotFixture):
         adapter.repair(dict(r, attempts=2))
         self.assertIn(('terminate', r['slot_id']), mcp.calls)
 
+    def test_setup_reload_gets_reconnect_budget_before_any_editor_restart(self):
+        from agent.slots import SlotError
+        adapter, pool, mcp, record = self.setup_repair()
+        started = self.now
+        original = mcp.wait_quiet
+        def reconnect(slot, timeout):
+            original(slot, timeout)
+            if self.now - started < 40:
+                raise SlotError('no connected Editor instance', stage='editor')
+        mcp.wait_quiet = reconnect
+        mcp.quiescent = lambda slot, mode: True
+        adapter.repair(dict(record, recovery_kind='setup', attempts=1))
+        self.assertGreaterEqual(self.now - started, 40)
+        self.assertNotIn(('terminate', record['slot_id']), mcp.calls)
+        self.assertEqual(sum(name == 'start' for name, _ in mcp.calls), 1)
+
     def test_changed_configured_folder_is_never_signalled(self):
         adapter, pool, mcp, r = self.setup_repair()
         self.ledger.connection.execute('UPDATE slots SET folder=? WHERE slot_id=?',
