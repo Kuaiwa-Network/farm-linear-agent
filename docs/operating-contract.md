@@ -204,6 +204,35 @@ Monitor distinguishes a live worker waiting for resources, project preparation,
 resource readiness and ordinary work. Readiness, stage names and released slots
 are never test success. Capacity details remain allowlisted public data.
 
+### Corrected Unity inputs after failed baseline recovery
+
+Unity may generate missing `.meta` files or rewrite existing importer metadata.
+The host preserves tracked changes in a recovery Git ref and new files in the
+private recovery evidence before restoring source. The worker reviews those
+changes, preserves valid GUIDs and checks references when identities change,
+then commits the appropriate inputs in its owned Client worktree.
+
+For a detached candidate recovery whose baseline has failed, a new queued Unity
+request from the same issue's live current worker can replace the old baseline.
+The host rechecks the owned clean exact HEAD, current generation, lease, host,
+withdrawal, maintenance and admission scope. Cancelled, stale or dirty requests
+cannot provide recovery input. The successor pins the new SHA before becoming
+pending, retains the old journal as `superseded`, and gets at most three repair
+attempts. Resubmitting a previously selected SHA for the same failure does not
+reset its budget. A fresh post-import source/Editor identity check still gates
+reuse; the worker reservation is granted separately through normal admission.
+
+The original metadata evidence remains available across successors. Repair never
+resumes a stopped or waiting job or certifies tests. An explicitly authorized host
+operation during maintenance may select the original issue's clean corrected HEAD
+to recover an already exhausted slot without reviving its cancelled request.
+Both old and new recovery locks fence this transition and any immediate repair.
+
+No schema migration is required. The successor uses existing recovery and audit
+tables plus its private baseline plan. Before rollback, settle pending successor
+repairs: older code cannot preserve metadata from the previous baseline when a
+successor switches to its corrected target. Keep all journals and metadata refs.
+
 ## Automatic worker cache retention
 
 `serve` runs a separate `worker_retention` loop. By default it starts a backlog

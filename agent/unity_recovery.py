@@ -190,6 +190,10 @@ class UnityRecovery:
         evidence_dir = Path(recovery['evidence_dir'])
         evidence_dir.mkdir(parents=True, exist_ok=True)
         baseline = self.candidate_baseline(recovery, slot, entry, evidence_dir)
+        plan = json.loads((evidence_dir / 'candidate-baseline.json').read_text(encoding='utf-8'))
+        previous_baseline = plan.get('previous_baseline_commit')
+        if previous_baseline is not None and not pool.worktrees.COMMIT.fullmatch(previous_baseline):
+            raise SlotError('previous candidate recovery baseline is not a commit', stage='git')
         reusable = False
         if pool.editor_is_open(slot):
             try:
@@ -212,7 +216,7 @@ class UnityRecovery:
         guard = pool.mcp.suspend_imports(slot) if reusable else nullcontext()
         with guard:
             before = source_snapshot(folder)
-            if before['commit_sha'] not in (recovery['commit_sha'], baseline):
+            if before['commit_sha'] not in (recovery['commit_sha'], baseline, previous_baseline):
                 # A known-input refusal can arrive while this slot is still at another
                 # verified clean candidate; dirty foreign inputs are never discarded.
                 if before['dirty']:
