@@ -146,6 +146,30 @@ class SingleWorkerTests(LedgerBase):
         with self.assertRaises(LedgerError):
             self.ledger.renew(self.key, self.token)
 
+    def test_current_owner_receives_copy_and_shared_component_boundaries_in_launch_authority(self):
+        prompt = dispatch.dispatch_message(
+            item={'id': 'copy', 'skill': 'work', 'execution_contract': CONTRACT},
+            issue={'identifier': 'FARM-1638', 'url': 'https://linear.app/issue/FARM-1638'},
+            skill_path=SKILLS['work'].skill_md, worktrees={'farmgui': '/owned/ui'},
+            db_path='/state/db', runtime='codex', guidance='', repo_root=ROOT,
+            state_dir='/state/copy', budget=SKILLS['work'].budget)
+        authority, payload = prompt.split('\n\n', 1)
+        self.assertEqual(json.loads(payload)['skill'], str(SKILLS['work'].skill_md))
+        for requirement in (
+            'A wording\nrequest does not authorize replacing image lettering with Text',
+            'hiding/cropping/masking the old lettering',
+            'complete independent clear edits',
+            'Dynamic text means variable parts inside an authored sentence',
+            'existing generic dialog or toast',
+            'hidden text nodes or a business template store',
+            'shared UI\nmust not accumulate',
+            'passing tests do not establish preserved visual design or approval',
+        ):
+            with self.subTest(requirement=requirement):
+                self.assertIn(requirement, authority)
+        from agent.worker_dispatch import CHAT_AUTHORITY
+        self.assertNotIn('complete independent clear edits', CHAT_AUTHORITY)
+
     def test_acquired_request_cannot_be_cancelled_as_queued(self):
         self.claim_owner()
         grant = self.reservation()

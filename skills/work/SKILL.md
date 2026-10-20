@@ -100,6 +100,24 @@ owned Client, preserve valid GUIDs, inspect the diff and test bindings/behavior.
 No separate UI task, source PR approval or controller receipt is required.
 Missing art is a concrete human question; do not invent final assets.
 
+For copy-only work, first distinguish editable text from lettering baked into an
+image or authored art. Changing the words does not authorize replacing image
+lettering with Text, cropping/masking/hiding it, or overlaying substitute text.
+Use suitable approved replacement assets if available. Otherwise preserve the
+original presentation, complete independent clear edits, and ask for the asset
+or an explicit decision on the visual alternative. List deferred art wording
+honestly; retaining the PNG file while hiding its lettering is not preserving art.
+
+Dynamic text means a fixed authored sentence with replaceable parts, for example
+`七日登录可领取{grade}品{crop}`. Keep that template in the owning visible text
+field and fill its variables. A generic dialog/toast accepting an entire message
+is a different existing API: keep feature copy with the caller or its existing
+resources. Do not add hidden Text nodes to shared components as a business copy
+store, or migrate unrelated strings just to satisfy a template rule. Review
+changed node types, image crops/visibility, overlays and shared-component
+responsibilities alongside tests; readable text and passing tests cannot approve
+a new visual design.
+
 Keep source commits, candidate SHAs, report paths, failures and next action in a
 concise checkpoint. Reports belong in `state_dir`, never source commits. A human
 question parks only when a real decision/input is missing. Draft or update a
