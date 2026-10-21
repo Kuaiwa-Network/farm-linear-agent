@@ -1,6 +1,7 @@
 """A single owner delivers fixes/features without stage or evidence choreography."""
 import argparse
 import json
+import os
 from pathlib import Path
 from unittest.mock import patch, Mock
 
@@ -393,6 +394,79 @@ class SingleWorkerTests(LedgerBase):
         self.ledger.release(grant['reservation_id'], grant['token'], 'worker reported quiescent')
         with self.assertRaisesRegex(LedgerError, 'confirmed comment'):
             self.ledger.finish(self.key, self.token, 'delivered', report)
+
+    def finish_command(self, report, *options):
+        from agent.__main__ import parser, run
+        evidence = Path(self.tmp.name) / 'delivery.json'
+        evidence.write_text(json.dumps(report), encoding='utf-8')
+        args = parser().parse_args(['--db', str(self.path), 'finish', '--item', self.key, '--token', self.token,
+                                    '--outcome', 'delivered', '--input', str(evidence), *options])
+        # No host config: a developer's own .local profile must not judge these fixture PR URLs.
+        with patch.dict(os.environ, {'FARMBOT_CONFIG': str(Path(self.tmp.name) / 'missing.json')}):
+            return run(args, self.ledger, lambda: Mock(app_user_id='test-app'))
+
+    def in_review_requested(self):
+        return self.ledger.connection.execute("SELECT 1 FROM issue_workflow_updates WHERE issue_id=? "
+                                              "AND target='In Review'", (ISSUE,)).fetchone() is not None
+
+    def test_delivered_finish_verifies_its_prs_before_the_card_moves_to_review(self):
+        from agent.publication import PublicationError
+        self.claim_owner()
+        action = self.ledger.prepare_comment(self.key, self.token, 'delivery', 'Delivered ' + PR)
+        self.ledger.confirm_comment(action['action_id'], 'remote-comment')
+        report = {'summary': 'Fix applied', 'verification': 'Affected tests pass', 'prs': [PR],
+                  'comment_action_id': action['action_id']}
+        unknown = PublicationError('GitHub has no pull request at ' + PR)
+        with patch('agent.__main__.verify_delivered_prs', side_effect=unknown) as verify:
+            self.assertTrue(self.finish_command(report, '--check-input')['input_valid'])  # shape only
+            verify.assert_not_called()
+            for options in (('--check-ready',), ()):
+                with self.subTest(options=options), self.assertRaisesRegex(PublicationError, 'no pull request'):
+                    self.finish_command(report, *options)
+            self.assertEqual(verify.call_count, 2)
+            ledger, args, token, item, urls = verify.call_args.args
+            self.assertEqual((args.item, token, item['id'], urls), (self.key, self.token, self.key, [PR]))
+        self.assertEqual(self.ledger.item(self.key)['state'], 'running')
+        self.assertFalse(self.in_review_requested())
+        with patch('agent.__main__.verify_delivered_prs') as verify:
+            self.assertTrue(self.finish_command(report, '--check-ready')['local_completion_checked'])
+            self.assertEqual(self.finish_command(report)['state'], 'delivered')
+        self.assertEqual(verify.call_count, 2)
+        self.assertTrue(self.in_review_requested())
+
+    def test_no_change_delivery_has_no_pr_to_verify(self):
+        self.claim_owner()
+        action = self.ledger.prepare_comment(self.key, self.token, 'delivery', 'Already fixed on main')
+        self.ledger.confirm_comment(action['action_id'], 'remote-comment')
+        with patch('agent.__main__.verify_delivered_prs') as verify:
+            result = self.finish_command({'summary': 'Already fixed', 'verification': 'Reproduced on main',
+                                          'no_change': 'Fixed by an earlier merge', 'comment_action_id': action['action_id']})
+        self.assertEqual(result['state'], 'delivered')
+        verify.assert_not_called()
+
+    def test_delivery_verification_checks_each_pr_in_its_own_configured_repository(self):
+        from types import SimpleNamespace
+        from agent.__main__ import verify_delivered_prs
+        self.claim_owner()
+        local = Path(self.tmp.name) / 'host'
+        config = SimpleNamespace(local_root=local, issue_prefix='FARM', runtime='codex', environment='legacy',
+                                 repos={'Farm-Client': 'https://github.com/Kuaiwa-Network/Farm-Client.git',
+                                        'farmgui': 'git@github.com:Kuaiwa-Network/farmgui.git',
+                                        'common': str(local / 'not-github')})
+        host = SimpleNamespace(db=str(local / 'agent' / 'ledger.sqlite3'), item=self.key)
+        client, ui = 'https://github.com/kuaiwa-network/farm-client/pull/7', 'https://github.com/Kuaiwa-Network/farmgui/pull/8'
+        with patch('agent.__main__.load_config', return_value=config), \
+                patch('agent.publication.PublicationVerifier') as verifier:
+            verify_delivered_prs(self.ledger, host, self.token, self.ledger.item(self.key), [client, ui])
+            self.assertEqual(verifier.return_value.verify_pr.call_args_list, [
+                ((repo, self.key, 'FARM-1', url), {'delivered': True}) for repo, url in
+                (('Farm-Client', client), ('farmgui', ui))])
+            for url in ('https://github.com/Kuaiwa-Network/farm-hive/pull/9', 'https://github.com/other/farmgui/pull/8'):
+                with self.subTest(url=url), self.assertRaisesRegex(LedgerError, 'not under a configured'):
+                    verify_delivered_prs(self.ledger, host, self.token, self.ledger.item(self.key), [url])
+            elsewhere = SimpleNamespace(db=str(self.path), item=self.key)
+            with self.assertRaisesRegex(LedgerError, 'configured host ledger'):
+                verify_delivered_prs(self.ledger, elsewhere, self.token, self.ledger.item(self.key), [client])
 
     def test_delivery_requires_resolution_of_actual_human_question(self):
         from agent.__main__ import parser, run

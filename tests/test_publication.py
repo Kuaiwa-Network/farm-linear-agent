@@ -167,6 +167,64 @@ class PublicationTests(unittest.TestCase):
                 with self.assertRaises(publication.PublicationError):
                     self.verifier.verify_pr('farmgui', 'job', 'FARM-1248', url)
 
+    def test_delivered_pr_may_be_ready_or_merged_but_must_still_be_this_jobs_exact_head(self):
+        url = 'https://github.com/Kuaiwa-Network/farmgui/pull/113'
+        metadata = {'html_url': url, 'state': 'open', 'draft': True,
+                    'head': {'ref': self.branch, 'sha': self.trees.head(self.path), 'repo': self.repo},
+                    'base': {'ref': 'main', 'repo': self.repo}}
+        api = self.verifier.api
+        current = copy.deepcopy(metadata)
+        self.verifier.api = lambda endpoint, **kwargs: (current if endpoint.endswith('/pulls/113')
+                                                        else api(endpoint, **kwargs))
+        accepted = [('open draft', {}), ('marked ready by a person', {'draft': False}),
+                    ('merged by a person', {'state': 'closed', 'draft': False, 'merged': True})]
+        for name, change in accepted:
+            with self.subTest(accepted=name):
+                current = {**metadata, **change}
+                self.assertEqual(self.verifier.verify_pr('farmgui', 'job', 'FARM-1248', url, delivered=True), url)
+                if change:  # a late attachment is still only an open draft
+                    with self.assertRaises(publication.PublicationError):
+                        self.verifier.verify_pr('farmgui', 'job', 'FARM-1248', url)
+        refused = [('closed without merging', {'state': 'closed', 'merged': False}),
+                   ('unknown draft state', {'draft': None}),
+                   ('final commit never pushed', {'head': {**metadata['head'], 'sha': '0' * 40}}),
+                   ('another issue branch', {'head': {**metadata['head'], 'ref': 'farmbot/farm-1249'}}),
+                   ('another repository', {'head': {**metadata['head'], 'repo': {'full_name': 'other/farmgui'}}}),
+                   ('another base', {'base': {**metadata['base'], 'ref': 'release'}}),
+                   ('another PR', {'html_url': url + '0'})]
+        for name, change in refused:
+            with self.subTest(refused=name):
+                current = {**metadata, **change}
+                with self.assertRaisesRegex(publication.PublicationError, 'open or merged PR'):
+                    self.verifier.verify_pr('farmgui', 'job', 'FARM-1248', url, delivered=True)
+        current = None  # GitHub's 404 for a number it does not know
+        with self.assertRaisesRegex(publication.PublicationError, 'GitHub has no pull request at ' + url):
+            self.verifier.verify_pr('farmgui', 'job', 'FARM-1248', url, delivered=True)
+        with self.assertRaises(publication.PublicationError):
+            self.verifier.verify_pr('farmgui', 'job', 'FARM-1248',
+                                    'https://github.com/Kuaiwa-Network/Farm-Client/pull/113', delivered=True)
+
+    def test_file_backed_github_serves_only_offline_fake_profiles(self):
+        from types import SimpleNamespace
+        stub = Path(self.tmp.name) / 'stub'
+        stub.mkdir()
+        (stub / 'github.json').write_text(json.dumps({'repos/o/r': {'full_name': 'o/r'}}), encoding='utf-8')
+        offline = SimpleNamespace(runtime='fake', environment='legacy')
+        with patch.dict(os.environ, {'FARMBOT_LINEAR_STUB_DIR': str(stub)}):
+            reader = publication.github_reader(offline)
+            self.assertEqual(reader('repos/o/r'), {'full_name': 'o/r'})
+            self.assertIsNone(reader('repos/o/r/pulls/1', missing_ok=True))
+            with self.assertRaises(publication.PublicationError):
+                reader('repos/o/r/pulls/1')
+            self.assertEqual([json.loads(line)['endpoint'] for line in
+                              (stub / 'github-calls.jsonl').read_text(encoding='utf-8').splitlines()],
+                             ['repos/o/r', 'repos/o/r/pulls/1', 'repos/o/r/pulls/1'])
+            self.assertIs(publication.github_reader(SimpleNamespace(runtime='codex', environment='legacy')),
+                          publication.github_api)
+            with self.assertRaisesRegex(ValueError, 'live profiles refuse'):
+                publication.github_reader(SimpleNamespace(runtime='fake', environment='development'))
+        self.assertIs(publication.github_reader(offline), publication.github_api)
+
     def test_equivalent_ssh_remote_is_verified(self):
         git('remote', 'set-url', '--push', 'origin', 'git@github.com:Kuaiwa-Network/farmgui.git', cwd=self.path)
         self.assertEqual(self.verify()['status'], 'verified')

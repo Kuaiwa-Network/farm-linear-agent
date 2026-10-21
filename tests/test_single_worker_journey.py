@@ -1,6 +1,8 @@
-"""Real launcher/CLI/Git journeys; local origins and file-backed Linear, no live services."""
+"""Real launcher/CLI/Git journeys; local origins and file-backed Linear and GitHub, no live services."""
 import json
+import os
 import unittest
+from unittest.mock import patch
 
 import test_feature_journey as fixture
 from agent.execution import CONTRACT
@@ -13,6 +15,26 @@ class SingleWorkerJourneyTests(unittest.TestCase):
         self.f.replay_legacy = False
         self.f.setUp()
         self.addCleanup(self.f.doCleanups)
+        # Fetches still reach the local origins; the effective push URL stays the configured GitHub one, which
+        # delivery verification compares. Nothing in these journeys pushes, and no credential helper is configured.
+        self.enterContext(patch.dict(os.environ, {
+            'GIT_CONFIG_COUNT': '2', 'GIT_CONFIG_KEY_1': f'url.{fixture.ORG}.pushInsteadOf',
+            'GIT_CONFIG_VALUE_1': fixture.ORG}))
+
+    def github(self, changes, branch):
+        """The file-backed GitHub a delivered finish verifies: each changed repository's draft PR 123 at the
+        worktree HEAD when the step runs."""
+        answers = {}
+        for repo in changes:
+            name = 'example-org/' + repo
+            metadata = {'full_name': name, 'private': True, 'owner': {'login': 'example-org'},
+                        'permissions': {'push': True}, 'html_url': fixture.ORG + repo, 'default_branch': 'main'}
+            answers['repos/' + name] = metadata
+            answers['repos/' + name + '/pulls/123'] = {
+                'html_url': fixture.ORG + repo + '/pull/123', 'state': 'open', 'draft': True,
+                'head': {'ref': branch, 'sha': '{rev:' + repo + ':HEAD}', 'repo': metadata},
+                'base': {'ref': 'main', 'repo': metadata}}
+        return ['file', str(self.f.stub / 'github.json'), json.dumps(answers)]
 
     def journey(self, title, changes, test_code):
         f = self.f
@@ -25,6 +47,9 @@ class SingleWorkerJourneyTests(unittest.TestCase):
         evidence = state / 'delivery.json'
         body = state / 'delivery.txt'
         prs = [fixture.ORG + repo + '/pull/123' for repo in changes]
+        unknown = state / 'unknown-pr.json'
+        refused = state / 'unknown-pr-refused.txt'
+        identifier = f.c.ledger.issue(f.c.ledger.item(key)['issue_id'])['identifier']
         steps = [['claim', '--item', '{item}', '--worker-id', 'one-owner']]
         for repo, source in changes.items():
             path = f.c.paths.worktrees / key / repo / 'behavior.py'
@@ -42,11 +67,23 @@ class SingleWorkerJourneyTests(unittest.TestCase):
             ['file', str(body), title + '\n' + '\n'.join(prs)],
             ['prepare-comment', '--item', '{item}', '--token', '{token}', '--kind', 'delivery', '--body-file', str(body)],
             ['post-comment', '--item', '{item}', '--token', '{token}', '--action-id', '{action_id}'],
+            self.github(changes, 'farmbot/' + identifier.lower()),
+            # A PR number GitHub does not know is refused before the card can move to review.
+            ['file', str(unknown), json.dumps({'summary': title, 'verification': str(reports),
+                'prs': [*prs, fixture.ORG + 'Farm-Client/pull/124'], 'comment_action_id': '{action_id}'})],
+            ['refused', str(refused), 'finish', '--item', '{item}', '--token', '{token}', '--outcome', 'delivered',
+             '--input', str(unknown)],
             ['file', str(evidence), json.dumps({'summary': title, 'verification': str(reports), 'prs': prs,
                                               'comment_action_id': '{action_id}'})],
             ['finish', '--item', '{item}', '--token', '{token}', '--outcome', 'delivered', '--input', str(evidence)]]
         run, payload = f.launch(key, steps, title)
         f.settle(key, run, title)
+        self.assertIn('GitHub has no pull request at ' + fixture.ORG + 'Farm-Client/pull/124',
+                      refused.read_text(encoding='utf-8'))
+        calls = [json.loads(line)['endpoint'] for line in
+                 (f.stub / 'github-calls.jsonl').read_text(encoding='utf-8').splitlines()]
+        for repo in changes:
+            self.assertIn(f'repos/example-org/{repo}/pulls/123', calls)
         self.assertEqual(f.c.ledger.item(key)['state'], 'delivered')
         self.assertEqual(reports.read_text(encoding='utf-8'), 'candidate tests passed')
         self.assertEqual(len(f.runs(key)), 1)
