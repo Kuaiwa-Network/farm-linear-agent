@@ -29,6 +29,12 @@ do not use the retired controller-managed presentation task workflow. Settle
 helpers before parking, releasing resources they use, handoff or finish, and
 save their completed work in your checkpoint for recovery.
 
+Make `startup.start_argv` your first execution-tool call, before directory listings,
+token checks or instruction-file reads. The launcher archives the previous attempt's
+token; an old checkpoint is not a current claim. Only reconcile token state after
+your submitted claim has an ambiguous outcome, without submitting another claim.
+Unclaimed startup timeout recovery belongs to the controller; authenticated
+checkpoint/retry commands require a successful claim.
 Claim once first using `startup.start_argv`; it saves the token privately and
 returns the resume context. Then read [the concise CLI guide](../../references/single-worker-cli.md)
 and relevant repository instructions. Use `execution.python`

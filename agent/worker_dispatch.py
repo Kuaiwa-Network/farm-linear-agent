@@ -3,6 +3,27 @@ import json
 from pathlib import Path
 import sys
 
+
+def startup_argv(item, db_path, state_dir):
+    return [sys.executable, '-m', 'agent', '--db', str(db_path), 'claim',
+            '--item', item['id'], '--worker-id', item['id'] + ':worker', '--context',
+            '--save-token', str(Path(state_dir) / 'token')]
+
+
+def startup_instruction(*, item, db_path, state_dir, repo_root, **unused):
+    return ('STARTUP FIRST: Your first execution-tool call must run this exact argv from '
+            + json.dumps(str(repo_root), ensure_ascii=False) + ': '
+            + json.dumps(startup_argv(item, db_path, state_dir), ensure_ascii=False) + '\n'
+            'Do not list directories, check token existence, read skill/CLI files, fetch context or call other '
+            'tools before submitting this claim. The launcher has already archived any previous token file; '
+            'the saved checkpoint belongs to the prior attempt and is not a current claim. '
+            'Use the normal execution tool with unchanged sandbox and automatic review. '
+            'After this call succeeds, read the returned context and current instructions. '
+            'Only if this submitted claim has an ambiguous outcome, reconcile that same call and its saved '
+            'token; never submit a second claim. A pending tool response is not a confirmed capacity denial. '
+            'Before claiming, you cannot use authenticated checkpoint or retry-approval commands; '
+            'the controller owns startup timeout recovery.\n')
+
 WORKER_STORAGE_AUTHORITY = (
     'The launcher provides attempt-local GOCACHE and GOTMPDIR for regenerable Go data and '
     'FARMBOT_BUILD_ROOT for disposable build outputs when the repository supports an external '
@@ -58,7 +79,7 @@ AUTHORITY = """You are the main worker responsible for this delegated Linear iss
 The controller moves delegated issue work to In Progress when its worker starts and to In Review
 after a verified delivered finish. Workers must not set issue status themselves.
 First run startup.start_argv once from repo_root using execution.python; it saves the token privately and returns
-resume context. Reconcile an existing token file or ambiguous claim outcome instead of claiming again. Then read
+resume context. Reconcile an ambiguous outcome of that submitted claim instead of claiming again. Then read
 the current skill, CLI and relevant repository instructions before investigation or editing.
 Use the listed owned worktrees for all necessary source, UI, generated assets, metadata, tests and CI registration.
 Read each repository's AGENTS.md and applicable instructions before editing it. Changing repositories does not
@@ -157,9 +178,7 @@ def message(*, item, issue, skill_path, worktrees, db_path, runtime, guidance, b
         'recovery': {'candidate_repair': item.get('candidate_repair'), 'prior_context': prior_context},
         'tools': tools or {}, 'memory': memory, 'runtime': runtime,
         'renew_minutes': budget['renew_minutes'], 'lease_seconds': budget['lease_seconds'],
-        'startup': {'start_argv': [sys.executable, '-m', 'agent', '--db', str(db_path), 'claim',
-                    '--item', item['id'], '--worker-id', item['id'] + ':worker', '--context',
-                    '--save-token', str(Path(state_dir) / 'token')]},
+        'startup': {'start_argv': startup_argv(item, db_path, state_dir)},
         'guidance': guidance or '',
     }
     return ((CHAT_AUTHORITY if chat else AUTHORITY) + UPLOAD_AUTHORITY + WORKER_STORAGE_AUTHORITY

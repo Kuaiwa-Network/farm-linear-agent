@@ -29,8 +29,8 @@ def dispatch_message(**arguments):
     current_chat = (arguments['item'].get('skill') == 'chat' and skill_path.parent.name == 'chat'
                     and skill_path.parent.parent.name != 'legacy')
     if single(arguments['item']) or current_chat:
-        from .worker_dispatch import message
-        return APPROVAL_RETRY_AUTHORITY + message(**arguments)
+        from .worker_dispatch import message, startup_instruction
+        return startup_instruction(**arguments) + APPROVAL_RETRY_AUTHORITY + message(**arguments)
     return legacy_dispatch.dispatch_message(**arguments)
 
 

@@ -25,6 +25,7 @@ from .attention import QUESTION_KEY, question_from
 from .publication import SUFFIXES, PublicationError, is_issue_branch, issue_branch, suffix_of
 from .resource_recovery import RecoveryStore, SCHEMA as RECOVERY_SCHEMA
 from .maintenance import Maintenance, SCHEMA as MAINTENANCE_SCHEMA
+from .startup_recovery import StartupRecovery, SCHEMA as STARTUP_SCHEMA
 from .issue_workflow import SCHEMA as ISSUE_WORKFLOW_SCHEMA, request_update as request_workflow_update
 from .router import CONVERSATION_SKILLS, WRITE_SKILLS
 from .stages import current_root
@@ -661,6 +662,7 @@ class Ledger:
             """)
             self.connection.executescript(RECOVERY_SCHEMA)
             self.connection.executescript(MAINTENANCE_SCHEMA)
+            self.connection.executescript(STARTUP_SCHEMA)
             self.connection.executescript(ISSUE_WORKFLOW_SCHEMA)
             # Columns added after the first ledgers were written; CREATE TABLE IF NOT EXISTS leaves those files as they were.
             for table, column, declaration in (("reservations", "server_test_plan", "TEXT"),
@@ -675,6 +677,7 @@ class Ledger:
                                                 ("work_items", "task_request", "TEXT"),
                                                 ("work_items", "task_client_base", "TEXT"),
                                                 ("work_items", "capacity_retries", "INTEGER NOT NULL DEFAULT 0"),
+                                                ("work_items", "startup_retries", "INTEGER NOT NULL DEFAULT 0"),
                                                 ("work_items", "publication_retries", "INTEGER NOT NULL DEFAULT 0"),
                                                 ("work_items", "retry_not_before", "REAL NOT NULL DEFAULT 0"),
                                                 ("work_items", "root_repo", "TEXT"),
@@ -745,7 +748,7 @@ class Ledger:
                                             "priority", "host", "generation", "lease_expires_at",
                                             "worker_pid", "needs_resource", "root_repo", "next_root_repo",
                                             "created_at", "predecessor_id", "parent_id", "task_key", "task_client_base",
-                                            "capacity_retries", "publication_retries", "retry_not_before",
+                                            "capacity_retries", "startup_retries", "publication_retries", "retry_not_before",
                                             "withdraw_deadline", "withdraw_reason"]}
         result.update(identifier=issue["identifier"], target=json.loads(row["target_json"]) if row["target_json"] else None,
                       authority=_authority(row),
@@ -1297,6 +1300,8 @@ class Ledger:
             row = self._row(item_id)
             if row["state"] != "queued":
                 raise LedgerError("only a queued work item can be claimed")
+            if StartupRecovery(self).pending(item_id):
+                raise LedgerError("startup recovery awaits proven worker teardown")
             if row["next_root_repo"] is not None:
                 raise LedgerError("previous worker has not finished teardown")
             if Maintenance(self).pending(item_id):
@@ -1325,6 +1330,7 @@ class Ledger:
                             claimed_fingerprint=issue_row["fingerprint"], revalidated_fingerprint=None,
                             generation=generation, requeue_requested=0, resume_authorized=0,
                             stage=stage, checkpoint=_json(checkpoint))
+            StartupRecovery(self).claimed(self._row(item_id))
             result = self._view(self._row(item_id))
             result["token"] = token  # the only time the raw token exists outside the worker
             return result
@@ -1348,6 +1354,8 @@ class Ledger:
             row = self._row(item_id)
             if row["state"] not in ("queued", "running"):
                 raise LedgerError("worker can only be recorded for queued or running items")
+            if StartupRecovery(self).pending(item_id):
+                raise LedgerError("startup recovery awaits proven worker teardown")
             self.connection.execute(
                 "UPDATE work_items SET worker_pid=?,host=?,lease_seconds=COALESCE(?,lease_seconds),updated_at=? WHERE id=?",
                 (pid, host, lease_seconds, self.clock(), row["id"]))
@@ -1355,6 +1363,7 @@ class Ledger:
                 self.connection.execute("UPDATE work_items SET stage='unity-worker-starting' WHERE id=?", (item_id,))
             self.connection.execute("UPDATE job_cleanup SET worker_pid=?,done=0 WHERE item_id=?", (pid, item_id))
             self._audit(row["id"], "worker", f"pid {pid} on {host}")
+            StartupRecovery(self).launched(row, pid, host)
             request_workflow_update(self, row, 'In Progress')
             return self._view(self._row(row["id"]))
 
@@ -3190,7 +3199,7 @@ class Ledger:
                 # A retry is a person's decision to run the job again, so a withdrawal it outlived goes: queue()
                 # would never launch it otherwise.
                 self._set_state(row["id"], "queued", reason, worker_pid=None, generation=row["generation"] + 1,
-                                requeue_requested=0, capacity_retries=0, publication_retries=0, retry_not_before=0,
+                                requeue_requested=0, capacity_retries=0, startup_retries=0, publication_retries=0, retry_not_before=0,
                                 root_repo=row['root_repo'] if row['state'] in ('blocked', 'failed') else None,
                                 next_root_repo=None, withdraw_deadline=None, withdraw_reason=None)
                 self.connection.execute('DELETE FROM resource_job_retries WHERE item_id=?', (row['id'],))
