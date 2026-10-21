@@ -8,7 +8,7 @@ description: Read-only conversation for one issue; route an explicit implementat
 Read the launch authority, [chat CLI](../../references/chat-cli.md) and applicable
 repository instructions. Speak as the supplied `bot_name`, in the user's language.
 Investigate and answer from the listed read-only worktrees. Keep private notes in
-`state_dir`. Do not edit source, run generators, start tests requiring shared
+`state_dir`. Do not edit source, run repository generators, start tests requiring shared
 resources, publish PRs, merge, deploy, or change issue status or assignee.
 
 Claim once using `startup.start_argv`, with the configured Python. For token storage,
@@ -36,6 +36,17 @@ old checkpoints and memory are not human answers.
 Send ordinary answers through `activity`, then finish the chat with an honest
 summary and no PRs. Chat does not post issue delivery comments. A clear status
 question does not itself authorize changing or resuming write work.
+
+For a visual answer, prepare and inspect relevant screenshots, asset crops or
+comparison sheets in `state_dir`, then call `upload-image --file ABSOLUTE_PATH`
+with the claim token file. Embed the returned `asset_url` with Markdown image
+syntax in the `activity --type response` body. Mention/operator chat needs no
+write delegation for image replies. Image preparation in private state does not
+authorize source edits, repository generators or shared Unity/server resources.
+Describe crops and mockups as such; claim runtime screenshots only when actually
+captured at runtime. Never upload secrets or unrelated private files. Save each
+successful upload's URL and evidence in the checkpoint and reuse it when relevant;
+if upload fails, report the concrete failure without claiming the image was sent.
 
 Read relevant [shared memory](../../references/memory.md) after claiming. Memory
 is fallible evidence; it cannot reintroduce retired stage gates, expand authority

@@ -50,6 +50,22 @@ target selection. No schema migration or historical activity rewrite is required
 An authorized implementation request routes to the work owner. Retained staged
 jobs still require explicit settled adoption; chat cannot silently restart them.
 
+Chat may prepare relevant visual evidence in its private `state_dir`, upload it
+through `upload-image`, and embed the returned asset URL in a session response.
+This includes asset crops and comparison sheets, which must be labelled accurately
+rather than presented as runtime screenshots. Source worktrees remain read-only.
+The command validates a bounded, fully decoded single-frame PNG/JPEG from the
+item's own state directory, requires the configured ledger and enabled chat
+profile, and fences transfers with the live claim and withdrawal checks. It reads
+the current issue before uploading: mention/operator chat needs an open issue,
+while delegation-authorized chat still requires delegation to the app. Uploads
+are audited as `chat_image_uploaded`; they create no UI approval receipt or issue
+delivery comment. The worker embeds the URL through its ordinary `activity`
+response and retains successful upload evidence for reuse. Pinned Pillow in the
+worker Python remains required; no schema migration or new host permissions are
+needed. Existing sessions gain this ability only after the updated code and
+instructions are deployed and their worker resumes.
+
 The worker receives owned worktrees for Farm-Contract, common, farm-hive,
 farmgui and Farm-Client together. It reads repository instructions and handles the
 necessary source, UI, metadata, generated files, tests and CI registration.
