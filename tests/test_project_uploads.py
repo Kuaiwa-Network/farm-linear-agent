@@ -178,4 +178,7 @@ class ProjectInstructionTests(unittest.TestCase):
                     skill_path=skills[skill].skill_md, worktrees={}, db_path='/state/db', runtime='codex',
                     guidance='', repo_root=ROOT, state_dir='/state/uploads', budget=skills[skill].budget)
                 self.assertIn(UPLOAD_AUTHORITY, prompt.split('\n\n', 1)[0])
+                self.assertIn('--out STATE_DIR/uploads', prompt)
+                self.assertIn('24 hours by default', prompt)
+                self.assertIn('state_dir/reports', prompt)
                 self.assertIn('Project Overview', skills[skill].skill_md.read_text(encoding='utf-8'))

@@ -42,13 +42,16 @@ nothing and follow the CLI's withdrawal instruction. Never bypass a refused comm
 
 UPLOAD_AUTHORITY = (
     "Use download-uploads for this issue's attachments and its current Project Overview resources, "
-    "saving them under state_dir. Both chat and work use this same authenticated helper: it refreshes "
+    "saving them with --out STATE_DIR/uploads. Both chat and work use this same authenticated helper: it refreshes "
     "the issue's project relation and Overview, downloads referenced uploads, safely extracts ZIPs and "
     "records their sources in the manifest. Without --url it includes both issue and project uploads; "
     "use repeated --url with unsigned URLs to select files. Read issue-context after fetch-issue for "
     "project content. Do not write ad hoc download scripts, fetch private upload URLs anonymously, "
     "expose credentials or bypass a source/access refusal. Report concrete read failures; an unread "
-    "archive does not prove missing assets. "
+    "archive does not prove missing assets. Downloaded ZIPs and unchanged extracted files expire after "
+    "all workers for this item have fully exited and the retention grace period (24 hours by default) "
+    "has passed. The manifest and hashes are retained; use download-uploads again when files have expired. "
+    "Save resource review reports and derived comparison images outside uploads, under state_dir/reports. "
 )
 
 AUTHORITY = """You are the main worker responsible for this delegated Linear issue, from investigation to delivery.

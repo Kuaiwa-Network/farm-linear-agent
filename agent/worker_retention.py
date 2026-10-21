@@ -269,13 +269,18 @@ def retire_attempt(runs_root, attempt, *, keep_hours=24, now=None, apply=False,
                 return {**result, 'status': 'young'}
             roots = [(attempt, descriptor, relative) for relative in CACHE_ROOTS]
             job_roots = JOB_CACHE_ROOTS if latest <= batch.cutoff else ()
+            uploads = None
             if job_roots:
                 job_descriptor = (None if descriptor is None else
                                   parents.enter_context(_posix_directory(attempt.parent)))
                 roots.extend((attempt.parent, job_descriptor, relative) for relative in job_roots)
+                from .upload_retention import upload_plan
+                uploads = parents.enter_context(upload_plan(attempt.parent, job_descriptor, batch))
             evidence = {'version': 1, 'policy': 'disposable-worker-caches', 'checked_at': now,
                         'keep_hours': keep_hours, 'roots': list(CACHE_ROOTS), **proof,
                         'job_roots': list(job_roots),
+                        'upload_cache': ({'root': 'uploads', 'manifest_sha256': uploads['sha256'],
+                                          'candidates': len(uploads['targets'])} if uploads else None),
                         **_previous_totals(attempt, descriptor, proof),
                         'status': 'started', 'files': 0, 'bytes': 0}
             if apply:
@@ -301,6 +306,9 @@ def retire_attempt(runs_root, attempt, *, keep_hours=24, now=None, apply=False,
                             _windows_tree(root, batch, keep=True)
                         else:
                             _posix_tree(child, batch)
+                if uploads and not batch.full():
+                    from .upload_retention import retire_uploads
+                    retire_uploads(uploads, batch)
             except Exception as exc:
                 result.update(status='held', reason=str(exc) if isinstance(exc, RetentionHeld) else type(exc).__name__)
                 raise

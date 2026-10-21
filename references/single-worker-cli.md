@@ -52,6 +52,12 @@ commands for old state inspection and offline replay; repository handoff,
 presentation subtasks, mandatory baseline comparison, UI receipts and semantic
 closing checks are refused for this contract.
 
+Keep downloads in `STATE_DIR/uploads`. ZIPs and unchanged extracted files expire
+after every worker attempt for the item has fully exited and the retention grace
+period has passed (24 hours by default). The manifest and hashes remain; rerun
+`download-uploads` to fetch expired inputs. Save review reports and derived images
+under `STATE_DIR/reports`, outside the download cache.
+
 Chat and work share `download-uploads`. It refreshes the issue's project relation
 and reads uploads directly embedded/linked in the issue description, human comments
 and current Project Overview (short summary and rich body). No `--url` downloads

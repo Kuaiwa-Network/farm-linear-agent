@@ -336,6 +336,26 @@ other historical worker scratch/source directories from names or extensions.
 Global Go/NuGet/Unity/Docker caches, module sources, Unity slots, maintenance
 archives and arbitrary build folders are outside this sweep.
 
+The fixed job-level `STATE_DIR/uploads` download cache is also eligible after
+the newest verified attempt teardown ages past the same grace period. Cleanup
+reads and pins its bounded v1 `manifest.json`, selecting only downloaded ZIPs
+and their recorded extracted members. Member paths must belong to the recorded
+archive's extraction directory. Each file must still match its recorded size
+and SHA-256 and pass the existing file-age, regular-file and link checks before
+deletion. Ambiguous/unsafe manifests hold cleanup; missing manifests grant no
+deletion authority. Custom historical download directories are never guessed.
+
+The manifest, resource inventory, hashes and sources remain unchanged. Unlisted
+files, changed files, direct non-ZIP attachments, reports and derived comparison
+images remain; workers save reports/images in `STATE_DIR/reports`. Empty extraction
+directories may remain. `download-uploads` can refetch expired archives and
+re-extract members using the preserved manifest and current source allowlist.
+The ordinary retention receipt includes the manifest SHA-256 and candidate count
+before deletion; batches share the same file budget and job/resume lock as caches.
+Existing canonical upload caches qualify without schema or manifest migration.
+Rollback stops future ZIP expiry but cannot restore already deleted cache bytes;
+they require an authorized refetch while the Linear source remains accessible.
+
 The entire job must have no tracked active worker and every recorded attempt
 must have valid teardown evidence. Windows requires matching Job identity,
 recorded empty descendants and a fresh native empty-Job query. POSIX requires
