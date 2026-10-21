@@ -57,6 +57,12 @@ Use `COMMAND --help` for syntax. Historical commands in the parser do not grant
 chat write access. New implementation belongs to `work`; old staged state requires
 host adoption, preserving its source, reports and genuine unanswered questions.
 
+Keep downloads in `STATE_DIR/uploads`. ZIPs and unchanged extracted files expire
+after all of the item's workers fully exit and the retention grace period passes
+(24 hours by default). The manifest and hashes remain. Rerun `download-uploads`
+when inputs have expired; keep resource reports and comparison images in
+`STATE_DIR/reports`, outside the cache.
+
 `fetch-issue` refreshes Project Overview context for `issue-context` (`issue.project`:
 `description` is the short summary, `content` is the Overview body). `download-uploads`
 refreshes it again and uses the same downloader as work: without `--url`, it includes

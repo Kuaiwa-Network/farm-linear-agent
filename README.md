@@ -119,6 +119,13 @@ configuration can change the grace period/interval or disable this sweep:
 "worker_retention": {"enabled": true, "keep_hours": 24, "sweep_seconds": 3600}
 ```
 
+The fixed `STATE_DIR/uploads` cache also expires downloaded ZIPs and their
+extracted files, after every attempt for the job has exited and the grace period
+has passed. Only manifest-listed files whose size and SHA-256 still match are
+removed. The manifest, hashes, review reports and derived images are preserved;
+workers keep reports in `STATE_DIR/reports` and refetch expired inputs as needed.
+Custom historical download directories are not inferred or swept.
+
 New workers receive attempt-local `GOCACHE`, `GOTMPDIR` and `FARMBOT_BUILD_ROOT`.
 Only regenerable build outputs belong there; durable evidence belongs elsewhere
 under `state_dir`. Known Codex download caches and the earlier controller-managed

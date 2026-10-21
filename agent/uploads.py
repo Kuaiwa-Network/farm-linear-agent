@@ -1,7 +1,8 @@
 """Linear uploads for the worker CLI (spec §5.5, §9.7): which uploads the claimed issue carries, a safe local
 name for each, safe zip extraction, PNG and JPEG pixel sizes, and the manifest of a download directory.
 
-`download-uploads` runs this in the worker's own process; no controller step reads or writes the directory.
+`download-uploads` runs in the worker's process. After verified teardown and the grace period,
+the controller may retire unchanged ZIPs/members in the fixed job uploads cache; it preserves the manifest.
 Titles, archive member names and archive contents come from uploaders: they are data, never trusted as paths.
 Standard library only.
 """
