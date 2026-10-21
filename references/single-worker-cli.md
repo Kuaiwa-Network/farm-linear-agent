@@ -43,7 +43,7 @@ parking or finish, and checkpoints their work. No FarmBot child task is created.
 | `retry-approval` | `--error-file FILE`: complete UTF-8 approval-review capacity error that explicitly confirms no action executed. Checkpoint, settle helpers and release resources first; then exit on `retry_queued` or `retry_exhausted`. |
 | `prepare-comment` | `--kind started\|blocker\|delivery --body-file FILE`; returns an outbox action ID. |
 | `post-comment` | `--action-id ID`: idempotent outbox send; confirms the actual remote comment. |
-| `finish` | `--outcome delivered\|blocked --input FILE`; optionally `--check-input` for shape or `--check-ready` for local readiness. |
+| `finish` | `--outcome delivered\|blocked --input FILE`; optionally `--check-input` for shape or `--check-ready` for readiness, including the listed PRs. |
 | `maintenance-handoff` | Fresh checkpoint with `handoff`, no open resource; requires maintenance requested. Then exit. |
 | `withdraw` | Checkpoint and exit when delegation is withdrawn; publish nothing further. |
 
@@ -73,6 +73,11 @@ A delivered finish uses:
 ```json
 {"summary":"What changed","verification":"Actual checks, results and remaining limitations","prs":["https://github.com/OWNER/REPO/pull/123"],"comment_action_id":"CONFIRMED_DELIVERY_ACTION"}
 ```
+
+Each listed PR is checked on GitHub: this issue's branch in its owned worktree,
+head at that worktree's current HEAD, and open (draft or marked ready) or merged.
+Push the final commit, then run `finish --check-ready` before posting the
+delivery comment, so a wrong number or stale head is fixed before anyone reads it.
 
 Use `no_change` with a concrete reason instead of PRs when no code change is
 needed. A finish is FarmBot delivery, not a merge, deployment or Linear Done.

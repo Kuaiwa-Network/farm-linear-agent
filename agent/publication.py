@@ -5,6 +5,8 @@ withhold publishing scope while allowing the worker to investigate locally.
 """
 from datetime import datetime, timezone
 import json
+import os
+from pathlib import Path
 import re
 import subprocess
 import sys
@@ -95,6 +97,35 @@ def github_api(endpoint, *, missing_ok=False):
     return data
 
 
+class StubGitHub:
+    """Test double for github_api in offline fixtures, whose worker CLI runs in a subprocess beyond a test's patches.
+    Answers GET endpoints from `github.json` in the Linear stub directory and records each call; an endpoint the file
+    does not list is GitHub's 404."""
+    def __init__(self, directory):
+        self.directory = Path(directory)
+
+    def __call__(self, endpoint, *, missing_ok=False):
+        with open(self.directory / 'github-calls.jsonl', 'a', encoding='utf-8') as handle:
+            handle.write(json.dumps({'endpoint': endpoint}, ensure_ascii=False) + '\n')
+        data = json.loads((self.directory / 'github.json').read_text(encoding='utf-8')).get(endpoint)
+        if data is None and missing_ok:
+            return None
+        if not isinstance(data, dict):
+            raise PublicationError('GitHub metadata request failed')
+        return data
+
+
+def github_reader(config):
+    """github_api, or an offline profile's StubGitHub: a fake-runtime host whose Linear stub fixture also supplies
+    `github.json`. Live profiles refuse stub selectors, as they do for Linear."""
+    stub = os.environ.get('FARMBOT_LINEAR_STUB_DIR')
+    if stub and config.runtime == 'fake' and (Path(stub) / 'github.json').is_file():
+        from .environment import validate_runtime
+        validate_runtime(config)
+        return StubGitHub(stub)
+    return github_api
+
+
 class PublicationVerifier:
     def __init__(self, worktrees, *, api=None, issue_prefix='FARM'):
         self.worktrees = worktrees
@@ -110,24 +141,38 @@ class PublicationVerifier:
         except (WorktreeError, OSError, subprocess.TimeoutExpired) as exc:
             raise PublicationError('cannot verify the configured worktree and push destination') from exc
 
-    def verify_pr(self, repo, item_id, identifier, url):
-        """Prove a late Linear attachment is this job's actual draft output."""
+    def verify_pr(self, repo, item_id, identifier, url, *, delivered=False):
+        """Prove a late Linear attachment is this job's actual draft output.
+
+        delivered: a PR a finished delivery names. A person may since have marked it ready for review or merged
+        it, so either counts, but it must still be this job's exact repository, branch and HEAD. A PR closed
+        without merging never counts, and neither does one that GitHub does not know."""
         verified = self.verify(repo, item_id, identifier)
         prefix = verified['url'].rstrip('/') + '/pull/'
         if not isinstance(url, str) or not url.startswith(prefix) or not re.fullmatch(r'[1-9][0-9]*', url[len(prefix):]):
             raise PublicationError('PR URL differs from the verified repository')
-        pr = self.api('repos/' + verified['repository'] + '/pulls/' + url[len(prefix):])
+        endpoint = 'repos/' + verified['repository'] + '/pulls/' + url[len(prefix):]
+        pr = self.api(endpoint, missing_ok=True) if delivered else self.api(endpoint)
+        if pr is None:
+            raise PublicationError(f'GitHub has no pull request at {url}')
         if not isinstance(pr, dict):
             raise PublicationError('GitHub returned invalid PR metadata')
         head, base = pr.get('head'), pr.get('base')
-        if (pr.get('html_url') != url or pr.get('state') != 'open' or pr.get('draft') is not True
+        if delivered:
+            current = (pr.get('state') == 'open' and isinstance(pr.get('draft'), bool)
+                       or pr.get('state') == 'closed' and pr.get('merged') is True)
+            requirement = "an open or merged PR for this job's exact repository, branch and current HEAD"
+        else:
+            current = pr.get('state') == 'open' and pr.get('draft') is True
+            requirement = "an open draft for this job's exact repository, branch and HEAD"
+        if (pr.get('html_url') != url or not current
                 or not isinstance(head, dict) or not isinstance(base, dict)
                 or head.get('ref') != verified['branch'] or head.get('sha') != verified['head']
                 or base.get('ref') != verified['base_branch']
                 or not isinstance(head.get('repo'), dict) or not isinstance(base.get('repo'), dict)
                 or head['repo'].get('full_name') != verified['repository']
                 or base['repo'].get('full_name') != verified['repository']):
-            raise PublicationError("PR must be an open draft for this job's exact repository, branch and HEAD")
+            raise PublicationError(f"{url} must be {requirement}")
         return url
 
     def _verify(self, repo, item_id, identifier, branch, suffix_roles=False, require_main=False):
