@@ -247,6 +247,21 @@ journal without changing the successor's claim or reservation. Open reservations
 with mismatched generations and reservations ahead of the current generation
 remain held. No schema migration is needed; already-held slots still require
 guarded `recover-server-slot` after the controller stops.
+Server setup now journals the verified startup Docker identity before its next
+Docker call, including combined leases. A failed identity probe therefore retains
+the lease needed for normal recovery; controlled preparation errors retain their
+specific diagnostic in the audit.
+
+For older standalone reservations with no journal, explicit host recovery requires
+a stopped current-generation worker, verified teardown of all attempts, the most
+recent settled slot journal's matching local daemon/context identity, and fresh
+absence checks for every expected Docker name and ownership/reservation label.
+It only releases the reservation when all checks pass; it never deletes discovered
+resources, invents a token, or substitutes this path for a corrupt journal. Missing
+historical evidence, changed identity, combined leases and uncertain resources stay
+held. A separate private absence receipt is retained before the fenced ledger
+update. Recovery does not resume the issue or certify tests. No schema migration is
+needed; older code can read the released state but cannot perform this recovery.
 The existing one-open-reservation-per-job limit is retained; simultaneous Unity
 and managed server reservations are not introduced in this first rollout.
 
