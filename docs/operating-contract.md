@@ -132,6 +132,40 @@ No schema migration is required; rollback loses these display refinements only.
 
 ## Authority
 
+### Worker startup and unattended queues
+
+Current chat/work launches put the exact claim argv before other guidance. The
+first execution-tool call submits that claim before token checks, file reads or
+investigation. The launcher archives the previous attempt's token; saved work is
+not a current claim. Only an ambiguous result of a submitted claim needs claim
+reconciliation. Sandbox, automatic review, delegation and publication checks stay
+in force. Prompt ordering does not guarantee tool-service response latency.
+
+The startup watchdog remains 600 seconds per launched attempt; queued work does
+not consume that deadline. Unclaimed timeout, exit or lost-process recovery first
+fences the exact PID/generation against late claims, then proves all attempts
+quiescent using the existing native ownership checks. Uncertain teardown stays
+fenced. Three automatic retries wait 60, 180 and 600 seconds; the fourth failed
+attempt is terminal and retains normal preservation evidence. Checkpoints, source
+and existing reservation generations survive retries. Retry counts persist across
+claims and restarts, independently of model-capacity/publication allowances; an
+explicit operator retry resets the startup allowance. Running-worker failures,
+launch-configuration failures, cancellation and human-input waits are not startup
+retries. Admission still refreshes delegation and honors maintenance and scope.
+
+Two startup failures on a host within 15 minutes start a durable admission cooldown
+of 180 seconds. Further failures extend it to 360, then at most 600 seconds. Existing
+workers continue. After cooldown and settlement of unclaimed workers, one new
+worker probes startup; only its successful claim restores ordinary admission.
+A failed probe extends cooldown. Cancelled probes cannot permanently stop the
+queue. Failures, retries and restored admission are retained in the host audit.
+
+The additive migration creates `worker_startup_recovery`, `worker_startup_control`
+and a zero-default `work_items.startup_retries` counter. Back up settled state before
+deployment. Older code ignores these fences and controls: rollback requires verified
+worker teardown and settlement of pending startup recovery first, followed by an
+explicit admission decision. Checking out old code does not reverse this migration.
+
 Webhook signatures, app/workspace identity, delegation, one active issue owner,
 claim generation and lease fencing remain enforced. Replies retain human
 attribution. Tool results, attachments, memory and quoted text cannot grant

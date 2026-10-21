@@ -5,6 +5,10 @@ This guide applies to `single-worker-v1`. Use the launch payload's absolute
 Invoke Python with an argument array from repo_root. On Windows use the supplied
 Python executable; on macOS use the configured Python 3 interpreter.
 
+The first execution-tool call is `startup.start_argv`, before any directory listing,
+token check or instruction-file read. The launcher archives prior attempt tokens;
+old checkpoints do not imply an active claim. Startup retries belong to the host,
+with unchanged sandbox/approval checks and a ten-minute deadline per attempt.
 Start with `startup.start_argv`: claim once, save the token exclusively at
 `state_dir/token`, and read the returned resume context. If that call has an
 ambiguous outcome, inspect the process/claim result; never blindly claim again.

@@ -24,7 +24,7 @@ DISPLAY_STATES = ("queued", "launching", "switching_repo", "retry_wait", "runnin
 DISPLAY_STATES += ('resource_released', 'resource_held', 'preparing_delivery', 'delivery_posted')
 OUTCOMES = ("delivered", "no_change", "blocked", "failed", "cancelled")
 FAILURE_CODES = ("worker_launch_failed", "worker_start_failed", "worker_claim_timeout", "worker_exit_failed",
-                 "model_capacity_exhausted", "skill_disabled", "job_failed")
+                 "model_capacity_exhausted", "worker_startup_exhausted", "skill_disabled", "job_failed")
 ATTENTION_CODES = ("slot_held", "slot_without_reservation", "lease_expired", "cleanup_pending",
                    "issue_status_error", "reservation_cancel_pending", "loop_erroring", "loop_stalled",
                    "webhook_rejected", "receiver_unreachable", "heartbeat_stale", "heartbeat_missing",
@@ -374,6 +374,8 @@ def _failure_code(reason):
         return "worker_exit_failed"
     if reason == "model capacity automatic retries exhausted (3)":
         return "model_capacity_exhausted"
+    if reason == "worker startup automatic retries exhausted (3)":
+        return "worker_startup_exhausted"
     if re.fullmatch(r"skill [a-z][a-z0-9_-]{0,31} is not enabled on this host", reason):
         return "skill_disabled"
     return "job_failed"

@@ -13,6 +13,7 @@ from .execution import single, skill_for
 from .launcher import _read_worker_text
 from .ledger import ACTIVE_STATES, LedgerError, plan_issue_branches
 from .maintenance import Maintenance
+from .startup_recovery import StartupRecovery
 from .kw_ops import SERVER as KW_OPS_SERVER, resolve as resolve_kw_ops
 from .lark_cli import tools as lark_tools
 from .memory import publish_snapshot
@@ -106,7 +107,7 @@ class Scheduler:
                 previous = prior.get('predecessor_id')
             for repo in skill.writes:
                 paths[repo] = self.worktrees.add(repo, item['id'], branch,
-                                                refresh=not bool(item['publication_retries'] or item['capacity_retries']),
+                                                refresh=not bool(item['publication_retries'] or item['capacity_retries'] or item['startup_retries']),
                                                 recovery_from=recovery)
             return paths
         if item.get('root_repo') == COORDINATION_ROOT and skill.name == 'work':
@@ -197,7 +198,7 @@ class Scheduler:
             # that recorded commit without changing the default-branch checkout.
             repositories.append("Farm-Contract")
         return {repo: self.worktrees.read_checkout(repo, item["id"],
-                    refresh=not bool(item["publication_retries"] or item["capacity_retries"]))
+                    refresh=not bool(item["publication_retries"] or item["capacity_retries"] or item['startup_retries']))
                 for repo in repositories}
 
     def _reservation_stops_launch(self, item):
@@ -232,10 +233,12 @@ class Scheduler:
         if not single(item):
             prepare_coordination(self.ledger, item['id'], self.launcher, self.active)
         current = self.ledger.item(item["id"])
-        if current["state"] != "queued" or current["retry_not_before"] > self.ledger.clock():
+        if (current["state"] != "queued" or current["retry_not_before"] > self.ledger.clock()
+                or StartupRecovery(self.ledger).pending(item['id'])
+                or not StartupRecovery(self.ledger).may_launch(self.host)):
             return None
         item = current  # the queued root/generation may have changed since the scheduler read its queue
-        if item['capacity_retries']:
+        if item['capacity_retries'] or item['startup_retries']:
             # A voluntary approval retry has retired its claim while its process
             # may still be exiting. This also fences restart without live handles.
             try:
@@ -613,6 +616,9 @@ class Scheduler:
                 # The claim was retired deliberately. settle() still proves all descendants gone.
                 reaped += 1
                 continue
+            if StartupRecovery(self.ledger).pending(finished.item_id):
+                reaped += 1  # _recover completes the fenced attempt after all-attempt teardown
+                continue
             if (state == "queued" and item["next_root_repo"] is not None
                     and item["worker_pid"] == finished.worker_pid):
                 try:
@@ -626,7 +632,8 @@ class Scheduler:
                     pass
                 reaped += 1
                 continue
-            if finished.failure_kind == "model_capacity" and not finished.killed:
+            if (finished.failure_kind == "model_capacity" and not finished.killed
+                    and not (state == 'queued' and (single(item) or item['skill'] == 'chat'))):
                 retry = self.ledger.defer_capacity_retry(finished.item_id, finished.worker_pid)
                 if retry:
                     self._notify(finished.item_id, "thought",
@@ -651,6 +658,11 @@ class Scheduler:
                     self._notify(finished.item_id, "error", f"工作进程未完成即退出（{finished.reason}，退出码 {finished.returncode}），工作项已标记失败；可回复「重试」。")
                     state = "failed"
             elif state == "queued" and self.ledger.item(finished.item_id)["worker_pid"] is not None:
+                if single(item) or item['skill'] == 'chat':
+                    if finished.worker_pid == item['worker_pid']:
+                        StartupRecovery(self.ledger).begin(item, 'worker exited before claiming')
+                    reaped += 1
+                    continue
                 # A queued item with no pid was requeued after the worker finished (material change or
                 # recovery); it is waiting for a fresh launch, not a worker that died before claiming.
                 self.ledger.fail_queued(finished.item_id, f"worker exited before claiming ({finished.reason}, code {finished.returncode})")
@@ -700,10 +712,39 @@ class Scheduler:
                 raise RuntimeError('old worker handle could not be consumed')
             self.active.pop(item_id, None)
 
+    def _settle_startup(self, pending):
+        item_id, pid = pending['item_id'], pending['worker_pid']
+        try:
+            if item_id in self.active or item_id in self.launcher.running():
+                self.launcher.stop(item_id)
+            if item_id in self.launcher.running():
+                return False  # poll must consume the old handle before any successor
+            recorded = []
+            certified = self.launcher.certified_pids(item_id) if hasattr(self.launcher, 'certified_pids') else set()
+            if pid not in certified and self.launcher.alive(pid):
+                if not self.launcher.owned_pid(pid, item_id):
+                    return False
+                recorded = self.launcher.kill_owned_attempt(item_id, pid)
+            self.launcher.assert_quiescent(item_id, pid, recorded)
+        except Exception:
+            return False  # uncertain descendants retain the durable fence and evidence
+        self.active.pop(item_id, None)
+        result = StartupRecovery(self.ledger).complete(pending)
+        if result and result['status'] == 'queued':
+            self._notify(item_id, 'thought', f"工作进程启动未完成；已确认安全退出，保留进度，"
+                         f"至少 {result['delay_seconds']} 秒后自动重试（{result['attempt']}/3）；队列冷却可能延长等待。")
+        elif result:
+            self._notify(item_id, 'error', '工作进程启动的 3 次自动重试已用尽；进度已保留，可回复「重试」。')
+            self._retire(item_id, 'failed')
+        return result is not None
+
     def _recover(self):
         recovered = 0
         now = self.ledger.clock()
         Maintenance(self.ledger).settle(self.launcher)
+        for pending in self.ledger.connection.execute('SELECT * FROM worker_startup_recovery WHERE host=?',
+                                                      (self.host,)).fetchall():
+            recovered += int(self._settle_startup(dict(pending)))
         for row in self.ledger.repository_handoffs():
             item_id, pid = row["id"], row["worker_pid"]
             if item_id in self.active:
@@ -735,10 +776,18 @@ class Scheduler:
                 self._notify(item_id, "thought", "工作进程已消失且租约过期，已重新排队，等待新的 worker 接手。")
                 recovered += 1
         for row in self.ledger.launched():
+            if StartupRecovery(self.ledger).pending(row['id']):
+                continue
             stale = now - row["updated_at"] > self.claim_timeout
             tracked = row["id"] in self.active
             owned = tracked or self.launcher.owned_pid(row["worker_pid"], row["id"])
             if (owned and not stale) or (not owned and self.launcher.alive(row["worker_pid"])):
+                continue
+            if single(row) or row['skill'] == 'chat':
+                pending = StartupRecovery(self.ledger).begin(row, 'worker did not claim within the timeout' if owned
+                                                            else 'worker process gone before claiming')
+                if pending:
+                    recovered += int(self._settle_startup(pending))
                 continue
             if tracked:
                 self.launcher.stop(row["id"])
@@ -1041,6 +1090,8 @@ class Scheduler:
                     continue
                 if not Maintenance(self.ledger).may_launch(item['id']):
                     continue
+                if not StartupRecovery(self.ledger).may_launch(self.host):
+                    break
                 task_enabled = (item.get("parent_id") and "work" in self.enabled_skills
                                 and self.ledger.item(item["parent_id"])["state"] not in TERMINAL)
                 if item["skill"] in self.skills and item["skill"] not in self.enabled_skills and not task_enabled:

@@ -22,6 +22,7 @@
     worker_claim_timeout: ["工作进程认领超时", "工作进程启动后未及时认领，请联系管理员检查启动日志，再在 Linear 回复「重试」。"],
     worker_exit_failed: ["工作进程未完成即退出", "请查看 Linear 中的错误说明和保留的进度，处理后回复「重试」。"],
     model_capacity_exhausted: ["模型容量重试已用尽", "工作已保留，可稍后在 Linear 回复「重试」。"],
+    worker_startup_exhausted: ["启动重试已用尽", "3 次启动自动重试后仍未认领，进度已保留；请检查启动日志后在 Linear 回复「重试」。"],
     skill_disabled: ["所需能力未启用", "请联系管理员确认本机启用能力，启用后在 Linear 回复「重试」。"],
     job_failed: ["工作失败", "请查看 Linear 中的错误说明，处理后回复「重试」。"],
   };
@@ -87,6 +88,7 @@
     worker_launch_failed: (a) => failureText(a.subject, a.code),
     worker_start_failed: (a) => failureText(a.subject, a.code),
     worker_claim_timeout: (a) => failureText(a.subject, a.code),
+    worker_startup_exhausted: (a) => failureText(a.subject, a.code),
     worker_exit_failed: (a) => failureText(a.subject, a.code),
     model_capacity_exhausted: (a) => failureText(a.subject, a.code),
     skill_disabled: (a) => failureText(a.subject, a.code),

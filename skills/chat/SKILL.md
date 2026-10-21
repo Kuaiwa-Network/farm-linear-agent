@@ -5,7 +5,11 @@ description: Read-only conversation for one issue; route an explicit implementat
 
 # FarmBot conversation
 
-Read the launch authority, [chat CLI](../../references/chat-cli.md) and applicable
+First submit `startup.start_argv` through the normal execution tool, before token
+checks, directory listings or instruction-file reads. The launcher archives the
+previous attempt's token. Reconcile only an ambiguous result of that submitted
+claim; never submit it again or use authenticated retries before claiming.
+Then read the launch authority, [chat CLI](../../references/chat-cli.md) and applicable
 repository instructions. Speak as the supplied `bot_name`, in the user's language.
 Investigate and answer from the listed read-only worktrees. Keep private notes in
 `state_dir`. Do not edit source, run repository generators, start tests requiring shared
