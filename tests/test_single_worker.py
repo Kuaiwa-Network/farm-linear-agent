@@ -128,6 +128,10 @@ class SingleWorkerTests(LedgerBase):
         self.assertIn('read-only conversation worker', prompt)
         self.assertIn('request-repair', prompt)
         self.assertIn('live delegation', prompt)
+        self.assertIn('upload-image --file ABSOLUTE_PATH', prompt)
+        self.assertIn('![description](asset_url)', prompt)
+        self.assertIn('Image replies need no', prompt)
+        self.assertIn('Never upload credentials or unrelated private files', prompt)
         self.assertIn('GOCACHE and GOTMPDIR', prompt.split('\n\n', 1)[0])
         self.assertIn('recovery under state_dir outside these disposable paths', prompt)
 

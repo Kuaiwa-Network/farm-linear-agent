@@ -979,11 +979,14 @@ def run(args, ledger, api_factory):
         paths = Paths(config)
         if Path(args.db).resolve() != paths.ledger.resolve():
             raise LedgerError("preview upload must use the configured host ledger")
+        chat = item["skill"] == "chat" and not item.get("parent_id")
+        if chat and "chat" not in (config.enabled_skills or []):
+            raise LedgerError("chat image upload requires chat enablement on this host")
         internal = item.get("parent_id") and "work" in (config.enabled_skills or [])
         scene = internal and item["skill"] == "scene" and item["root_repo"] in (None, "Farm-Client")
-        if not single(item) and not scene and (item["skill"] != "fgui" or item["root_repo"] not in (None, "farmgui")):
+        if not chat and not single(item) and not scene and (item["skill"] != "fgui" or item["root_repo"] not in (None, "farmgui")):
             raise LedgerError("preview upload requires this job's farmgui authoring stage")
-        if not single(item) and not internal and "fgui" not in (config.enabled_skills or []):
+        if not chat and not single(item) and not internal and "fgui" not in (config.enabled_skills or []):
             raise LedgerError("preview upload requires explicit fgui enablement on this host")
         image = read_image(args.file, paths.runs / args.item)
         ledger.renew(args.item, token)
@@ -991,8 +994,12 @@ def run(args, ledger, api_factory):
         api = api_factory()
         issue = api.fetch_issue(item["issue_id"])
         ledger.observe_issue(issue)
-        if (not api.app_user_id or issue.get("delegate_id") != api.app_user_id or issue.get("archived")
-                or issue.get("status_type") in TERMINAL_STATUS_TYPES):
+        if issue.get("archived") or issue.get("status_type") in TERMINAL_STATUS_TYPES:
+            raise LedgerError("image upload requires an open issue")
+        # A mention/operator chat may answer with images without write delegation.
+        # A delegation-authorized chat still loses that authority when withdrawn.
+        if ((not chat or item["authority"] == "delegation")
+                and (not api.app_user_id or issue.get("delegate_id") != api.app_user_id)):
             raise LedgerError("issue must remain open and delegated to FarmBot")
         def keepalive():
             ledger.renew(args.item, token)
@@ -1000,10 +1007,10 @@ def run(args, ledger, api_factory):
         keepalive()
         result = api.upload_image(image, keepalive=keepalive)
         keepalive()
-        if scene or single(item):
+        if chat or scene or single(item):
             with ledger._transaction():
-                ledger._owned(args.item, token)
-                ledger._audit(args.item, "scene_preview_uploaded", details=result)
+                refuse_withdrawn(ledger._owned(args.item, token))
+                ledger._audit(args.item, "chat_image_uploaded" if chat else "scene_preview_uploaded", details=result)
         else:
             from .fgui_records import record_preview
             record_preview(ledger, args.item, token, image, result)

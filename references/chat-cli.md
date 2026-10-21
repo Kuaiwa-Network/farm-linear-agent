@@ -19,6 +19,7 @@ All commands start with `PYTHON -m agent --db DATABASE`; they take `--item ITEM`
 | `fetch-issue` | No token arguments; current Linear facts. |
 | `issue-context` | No token arguments; `--view resume` or `full`. |
 | `download-uploads` | Claim token file, `--out STATE_DIR/uploads`, optional repeatable `--url UNSIGNED_ISSUE_URL`; authenticated issue attachments for read-only investigation. |
+| `upload-image` | Claim token file, `--file ABSOLUTE_PATH`; upload an inspected PNG/JPEG from this item's `state_dir` for a visual answer. Returns `asset_url`, SHA-256, size, content type and dimensions. |
 | `pop-inbox` | Claim token file; attributed current requests. |
 | `renew` | Claim token file; inspect maintenance and withdrawal flags. |
 | `retry-approval` | Claim token file, `--error-file FILE`; complete not-executed capacity review message. Checkpoint first; exit on `retry_queued` or `retry_exhausted`. A retry grants no additional authority. |
@@ -37,6 +38,20 @@ A chat finish payload is:
 ```json
 {"summary":"Answer provided","verification":"What was checked and its limits","prs":[],"comment_action_id":null}
 ```
+
+To include an uploaded image, put `![Asset comparison](RETURNED_ASSET_URL)` in the
+UTF-8 response file and send it with `activity --type response --body-file FILE`.
+Upload alone does not post a reply. Keep the returned evidence in the checkpoint
+and reuse a successful URL instead of uploading again just to retry the response.
+Only single-frame PNG/JPEG files are supported: at most 20 MiB, 8192 pixels per
+side and 16 million pixels total, with a matching portable filename. Files must
+be ordinary files inside this item's state directory, without links or traversal.
+The configured worker Python needs the pinned Pillow in `requirements-ui.txt`;
+missing validation support is a host setup error, not permission to bypass it.
+The command checks the configured ledger, active claim, enabled chat profile and
+fresh open issue. Mention/operator chat needs no delegation; delegation-authorized
+chat still requires the app's delegation. Withdrawal and cancellation fence the
+upload. This grants no source, PR, issue-field or shared-resource write authority.
 
 Use `COMMAND --help` for syntax. Historical commands in the parser do not grant
 chat write access. New implementation belongs to `work`; old staged state requires
