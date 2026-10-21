@@ -18,6 +18,13 @@ token or put it in an argument. Fetch current facts, read the resume context and
 actual attributed session messages, and inspect the full context when needed.
 Renew normally and check maintenance/withdrawal before more work.
 
+Use `download-uploads` under `state_dir` to read both issue attachments and the
+current Project Overview's embedded files/images. It discovers the project from
+the live issue, authenticates downloads, safely extracts ZIPs and records sources.
+Without `--url` both sources are included; use unsigned URLs to select files.
+Inspect actual extracted resources before reporting missing assets. Use this
+shared helper, not a custom downloader; report an access/source refusal honestly.
+
 Answer a status or explanation request directly. If a current actual session
 request clearly asks for implementation, call `request-repair` with that message
 ID and a concise investigation summary. The host checks live delegation. New

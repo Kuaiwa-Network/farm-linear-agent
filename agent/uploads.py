@@ -241,16 +241,38 @@ def output_directory(raw, *, create=True):
 
 
 class _TagTitles(HTMLParser):
-    """Collects (attribute text, title) for every <linear-image> and <linear-embed> tag."""
+    """Titles from HTML attributes and Linear's JSON-bodied image/file embeds."""
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.found = []
+        self.embedded_tag, self.body = None, []
 
     def handle_starttag(self, tag, attrs):
         if tag in ("linear-image", "linear-embed"):
             values = dict(attrs)
             self.found.append((" ".join(value for value in values.values() if value), values.get("title")))
+            self.embedded_tag, self.body = tag, []
+
+    def handle_data(self, data):
+        if self.embedded_tag:
+            self.body.append(data)
+
+    def handle_endtag(self, tag):
+        if tag != self.embedded_tag:
+            return
+        self.embedded_tag = None
+        try:
+            value = json.loads("".join(self.body))
+        except ValueError:
+            return
+        if not isinstance(value, dict):
+            return
+        fields = value.get("attrs", value)
+        if isinstance(fields, dict):
+            url, title = fields.get("href") or fields.get("src"), fields.get("title") or fields.get("name")
+            if isinstance(url, str) and isinstance(title, str):
+                self.found.append((url, title))
 
 
 _MARKDOWN_LINK = re.compile(r"!?\[((?:\\.|[^\]\\\n]){1,300})\]\(\s*<?(https://uploads\.linear\.app/[^\s)>]+)")
@@ -275,15 +297,20 @@ def _titles(text):
 
 
 def issue_uploads(issue):
-    """{unsigned URL: {"sources", "title"}} for the uploads in the issue's description and human comments.
+    """Uploads directly referenced by the issue and its current Project Overview.
 
-    A source is "description" or "comment:<id>". The title is the first <linear-image> title or Markdown link
-    text naming the upload, reading the description first and then comments in the order they were posted.
+    The caller supplies a freshly fetched issue, including its project relation. No linked project,
+    document, bot comment or cached manifest expands this allowlist. Sources retain project identity.
+    Issue titles take precedence over project titles when the same upload appears in both places.
     """
     comments = sorted((comment for comment in issue.get("comments") or [] if comment.get("author_kind") == "human"),
                       key=lambda comment: (comment.get("created_at") or "", comment.get("id") or ""))
     texts = [("description", issue.get("description") or "")]
     texts += [(f"comment:{comment['id']}", comment.get("body") or "") for comment in comments]
+    project = issue.get("project")
+    if project:
+        texts += [(f"project:{project['id']}:{field}", project.get(field) or "")
+                  for field in ("description", "content")]
     found = {}
     for source, text in texts:
         titles = _titles(text)
@@ -623,7 +650,7 @@ class _Run:
 
 
 def download_issue_uploads(api, issue, directory, *, urls=None, limits=LIMITS, renew=None):
-    """Download the issue's uploads, or the `urls` among them, into `directory` and rewrite its manifest.
+    """Download issue/Project Overview uploads, or the `urls` among them, and rewrite the manifest.
 
     An upload the manifest already holds whose files still match is not fetched again. A failed download is
     recorded and the run goes on. `limits` apply to this run, and `renew` runs before each download. Returns
@@ -633,7 +660,7 @@ def download_issue_uploads(api, issue, directory, *, urls=None, limits=LIMITS, r
     available = issue_uploads(issue)
     wanted = set(available if urls is None else urls)
     if wanted - available.keys():
-        raise LedgerError("only uploads of the claimed issue can be downloaded")
+        raise LedgerError("only uploads of the claimed issue or its current Project Overview can be downloaded")
     previous = _read_manifest(directory, issue["id"], limits)
     uploads = {entry["url_path"]: entry for entry in previous if entry["source_zip"] is None}
     members = {}
@@ -666,6 +693,8 @@ def download_issue_uploads(api, issue, directory, *, urls=None, limits=LIMITS, r
                          for member in extracted]
         else:
             continue
+        # Keep the v1 manifest field: on_issue means available in this issue's current input scope,
+        # including its Project Overview. sources distinguishes direct and project references.
         entry.update(sources=found["sources"] if found else old["sources"], on_issue=found is not None)
         for member in extracted:
             member.update(sources=entry["sources"], on_issue=entry["on_issue"])
@@ -676,6 +705,7 @@ def download_issue_uploads(api, issue, directory, *, urls=None, limits=LIMITS, r
     save_stream(io.BytesIO(payload).read, manifest, max_bytes=len(payload))  # the module's own output, never refused
     summary = [{"url_path": entry["url_path"], "name": entry["name"], "result": result, "error": entry["error"],
                 "size": entry["size"], "content_type": entry["content_type"], "pixels": entry["pixels"],
+                "sources": entry["sources"],
                 "members": None if entry["status"] != "ok" or not entry["extract_dir"] else
                 {status: sum(member["status"] == status for member in extracted)
                  for status in ("ok", "refused", "failed")}}

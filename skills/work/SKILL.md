@@ -34,8 +34,12 @@ returns the resume context. Then read [the concise CLI guide](../../references/s
 and relevant repository instructions. Use `execution.python`
 with argument arrays and `--token-file`, never put a token in logs. Renew normally,
 and before expensive operations. Post concise progress when something changes.
-Download issue attachments with `download-uploads` into `state_dir`; the helper
-handles authentication and safe local names. Reuse its intact local files.
+Download issue attachments and the current Project Overview's embedded files/images
+with `download-uploads` into `state_dir`, just as chat does. The helper discovers the
+project from the live issue, handles authentication, safe local names and ZIP
+extraction, and records sources. Without `--url` both sources are included; use
+unsigned URLs to select files. Reuse intact local files and inspect actual resources
+before reporting missing assets. Do not replace this helper with a custom downloader.
 
 Test the candidate and its affected behavior first. Follow real repository test
 requirements. Decide whether a failure is related using the actual diff, failure

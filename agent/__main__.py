@@ -101,8 +101,8 @@ def parser():
     cmd("ui-verification-status", "--item", "--receipt-id", token=True)
     cmd("authorize-ui-guard-repair", "--item", "--receipt-id", "--input", token=True)
     uploads.add_argument("--url", action="append",
-                         help="one of the claimed issue's upload URLs, unsigned as issue-context shows it; repeatable; "
-                              "default: every upload in its description and human comments")
+                         help="an unsigned upload URL from the issue or its current Project Overview; repeatable; "
+                              "default: uploads in the issue description, human comments and Project Overview")
     prepare = cmd("prepare-comment", "--item", "--body-file", token=True)
     prepare.add_argument("--kind", required=True, choices=["started", "blocker", "delivery"])
     cmd("post-comment", "--item", "--action-id", token=True)
@@ -1027,9 +1027,10 @@ def run(args, ledger, api_factory):
         available = issue_uploads(issue)
         for number, url in enumerate(args.url or [], 1):
             if url not in available:
-                raise LedgerError(f"--url {number} is not an upload of the claimed issue; pass an unsigned URL "
-                                  "from its description or human comments, as issue-context shows it")
-        out = output_directory(args.out)  # created only once every --url is known to be the issue's
+                raise LedgerError(f"--url {number} is not an upload of the claimed issue or its current "
+                                  "Project Overview; pass an unsigned URL from its description, human comments "
+                                  "or project content, as issue-context shows it")
+        out = output_directory(args.out)  # created only after every --url passes the fresh source allowlist
         summary = download_issue_uploads(api, issue, out, urls=args.url,
                                          renew=lambda: ledger.renew(args.item, token))
         ledger.renew(args.item, token)  # a claim lost during the transfers still fails the command

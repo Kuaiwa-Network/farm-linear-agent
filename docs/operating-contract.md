@@ -90,7 +90,29 @@ unrelated failure does not itself require another merge or test run.
 Retained reports may be reused only when relevant code and inputs still match.
 Results, skips and limitations must be reported honestly.
 The first worker action claims and reads resume context, before investigation.
-Issue attachments use the authenticated download helper and private local cache.
+Issue and current Project Overview attachments use the same authenticated
+`download-uploads` helper and private local cache for chat and work. Every download
+refreshes the issue's actual project relation and its short summary/rich Overview
+body. Only uploads directly referenced there or in the issue description/human
+comments enter the allowlist; unrelated projects, linked documents, bot comments
+and old cache entries cannot extend it. No custom downloader is needed or permitted
+as a fallback after refusal. Source/access failures remain explicit and an unread
+archive cannot establish that assets are missing.
+
+Project context is included in refreshed `issue-context`; signed URL parameters
+are stripped before storage. Downloads retain app authentication, origin/redirect
+checks, claim renewals, limits, safe ZIP extraction and cached-file hashes. Sources
+record `project:PROJECT_UUID:content` or `project:PROJECT_UUID:description` in summaries
+and the existing v1 manifest. Its `on_issue` flag means the upload remains in this
+issue's current allowed input scope, including its Project Overview. Removed sources
+remain as local evidence but cannot authorize a later download. Shared Overview
+updates are reference context, not automatic issue fingerprint/replay triggers;
+workers must review relevant resources before using them.
+
+No database or manifest migration is required. Old snapshots without project context
+remain readable. Rolling back removes project download support and ignores the optional
+context; it does not remove retained files. Running services/workers need an authorized
+release to use this behavior.
 Final verification follows settled generated assets and test inputs; exploratory
 runs are reusable only when the relevant inputs still match.
 

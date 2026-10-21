@@ -228,6 +228,19 @@ def _normalize(raw):
             value[field] = _person(raw[field], field)
     if "label_groups" in raw:
         value["label_groups"] = _label_groups(raw["label_groups"], value["labels"])
+    if "project" in raw:
+        project = raw["project"]
+        value["project"] = None
+        if project is not None:
+            fields = {"id", "name", "url", "description", "content"}
+            if not isinstance(project, dict) or not fields <= project.keys():
+                raise LedgerError("project requires id, name, url, description and content")
+            value["project"] = {"id": _uuid(project["id"], "project id")}
+            for field in fields - {"id"}:
+                value["project"][field] = _text(project[field], f"project {field}",
+                                               empty=field in ("description", "content"))
+            if not LINEAR_URL.fullmatch(project["url"]):
+                raise LedgerError("project url must be an https://linear.app/ URL")
     if not isinstance(value["comments"], list):
         raise LedgerError("comments must be an array")
     comments, seen = [], set()
@@ -320,7 +333,8 @@ def _in_scope(issue):
 
 def _fingerprint(issue, own_bodies, own_prs=()):
     # Issue input only: labels, label groups, people, reply parents and comment links are left out, so reassigning
-    # or relabelling an issue never requeues its work.
+    # or relabelling an issue never requeues its work. Shared Project Overview is reference context,
+    # not an automatic replay trigger for every issue. Downloads refresh its live membership/content.
     material = {key: issue[key] for key in ["title", "description", "attachments"]}
     material["attachments"] = [url for url in issue["attachments"] if url not in own_prs]
     material["comments"] = [{"id": comment["id"], "body": comment["body"]}
