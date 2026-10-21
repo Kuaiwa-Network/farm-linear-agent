@@ -137,7 +137,7 @@ class DockerServices:
         return {"daemon_id": info["ID"], "endpoint_sha256": hashlib.sha256(endpoint.encode()).hexdigest()}
 
     def preflight(self, count):
-        self.binding()
+        binding = self.binding()
         info = json.loads(self.command("info", "--format", "{{json .}}"))
         if info.get("OSType") != "linux" or info.get("MemTotal", 0) < (count * 2624 + 2048) * 1024**2:
             raise ServerSlotError("Linux Docker backend lacks the configured pool's memory headroom")
@@ -153,6 +153,30 @@ class DockerServices:
                 digest = relay_source_digest()
                 if (found.get("Config", {}).get("Labels") or {}).get("farmbot.server.proxy.source_sha256") != digest:
                     raise ServerSlotError("relay image provenance does not match this FarmBot revision")
+        return binding
+
+    def verify_absent(self, lease):
+        """Read-only proof for a lost journal; never delete or adopt discovered resources."""
+        if lease.get("docker_binding") != self.binding():
+            raise ServerSlotError("Docker daemon/context changed before missing-journal recovery")
+        name = lease['project']
+        targets = [('network', name), ('network', name + '-ingress')]
+        targets += [('container', name + '-' + role) for role in IMAGE_ROLES]
+        targets += [('volume', name + '-' + role) for role in ('mongo', 'etcd', 'nats')]
+        for kind, target in targets:
+            if self.inspect(kind, target, lease) is not None:
+                raise ServerSlotError("missing-journal recovery found Docker resources; preserve for investigation")
+        # Also find renamed resources and reservations with unexpected ownership labels.
+        for kind in ('container', 'network', 'volume'):
+            for filters in (("farmbot.server.reservation=" + lease['reservation_id'],),
+                            ("farmbot.server.owner=" + lease['owner'], "farmbot.server.slot=" + lease['slot'])):
+                args = [kind, 'ls', *(['--all'] if kind == 'container' else []), '--quiet']
+                for value in filters:
+                    args += ['--filter', 'label=' + value]
+                if self.command(*args):
+                    raise ServerSlotError("missing-journal recovery found labelled Docker resources")
+        if lease['docker_binding'] != self.binding():
+            raise ServerSlotError("Docker daemon/context changed during missing-journal recovery")
 
     @staticmethod
     def labels(lease):
@@ -277,6 +301,7 @@ class ServerSlotPool:
         self.services, self.clock = services or DockerServices(settings), clock
         self.owner = hashlib.sha256(str(self.root).encode("utf-8")).hexdigest()
         self.ready = False
+        self.docker_binding = None
 
     def folder(self, slot):
         if not isinstance(slot, str) or not re.fullmatch(r"server_slot:[1-9][0-9]*", slot):
@@ -287,7 +312,7 @@ class ServerSlotPool:
         self.ready = False
         self.admission.server_resources.pop(self.host, None)
         _safe_directory(self.root)
-        self.services.preflight(self.settings["count"])
+        self.docker_binding = self.services.preflight(self.settings["count"])
         for index in range(1, self.settings["count"] + 1):
             slot = "server_slot:" + str(index)
             folder = _safe_directory(self.folder(slot))
@@ -450,8 +475,10 @@ class ServerSlotPool:
                      "project": "farmbot-server-" + self.owner[:12] + "-" + reservation["reservation_id"].replace("-", ""),
                      "ports": ports, "state": "starting", "expires_at": self.clock() + self.settings["timeout_seconds"]}
             try:
-                if hasattr(self.services, "binding"):
-                    lease["docker_binding"] = self.services.binding()
+                if self.docker_binding is not None:
+                    lease["docker_binding"] = self.docker_binding
+                # Persist the startup identity before another Docker call. start() rechecks it
+                # before creating anything, so a failed probe still leaves a recoverable journal.
                 self._save(lease)
                 self.services.start(lease)
                 lease["state"] = "ready"
@@ -475,12 +502,13 @@ class ServerSlotPool:
                     self.ledger.resume(item_id, "isolated server services ready")
                 granted += 1
             except Exception as exc:
-                self._hold(slot, "server preparation failed: " + type(exc).__name__)
+                detail = str(exc) if isinstance(exc, ServerSlotError) else type(exc).__name__
+                self._hold(slot, "server preparation failed: " + detail)
                 if single(self.ledger.item(item_id)):
                     with self.ledger._transaction():
                         self.ledger.connection.execute("UPDATE work_items SET stage='resource-preparation-failed',updated_at=? "
                             "WHERE id=? AND state='running'", (self.clock(), item_id))
-                        self.ledger._audit(item_id, 'resource_preparation_failed', type(exc).__name__)
+                        self.ledger._audit(item_id, 'resource_preparation_failed', detail[:200])
                 else:
                     self.ledger.fail_queued(item_id, "server preparation failed; slot held for investigation")
         return {"settled": settled, "granted": granted}
@@ -508,8 +536,8 @@ class ServerSlotPool:
                  'project':'farmbot-server-' + self.owner[:12] + '-' + reservation['reservation_id'].replace('-', ''),
                  'ports':{role:ports[role] for role in ROLES}, 'game_port':ports['game'], 'state':'starting',
                  'expires_at':self.clock() + self.settings['timeout_seconds']}
-        if hasattr(self.services, 'binding'):
-            lease['docker_binding'] = self.services.binding()
+        if self.docker_binding is not None:
+            lease['docker_binding'] = self.docker_binding
         self._save(lease)
         self.services.start(lease)
         lease.update(state='ready', ready_at=self.clock())
@@ -526,6 +554,12 @@ class ServerSlotPool:
         current = self.ledger.slot(slot)
         if not current or current["kind"] != "server_slot" or current["state"] != "held":
             raise ServerSlotError("only a held server slot can be recovered")
+        if current['host'] != self.host or Path(current['folder']).absolute() != self.folder(slot):
+            raise ServerSlotError("server recovery configuration does not match slot ownership")
+        try:
+            self._path(slot).lstat()
+        except FileNotFoundError:
+            return self._recover_missing_journal(slot, reason)
         lease, reservation = self._lease(slot)
         if not self.quiescent(lease["item_id"]):
             raise ServerSlotError("server worker teardown is not verified")
@@ -545,6 +579,76 @@ class ServerSlotPool:
         self._path(slot).replace(self.folder(slot) / (lease["reservation_id"] + ".json"))
         self.ledger.set_slot_state(slot, "idle_closed")
         self.ledger.note(slot, "server_slot_recovered", reason[:200])
+        return self.ledger.slot(slot)
+
+    def _recover_missing_journal(self, slot, reason):
+        """Recover an old pre-journal failure only with historical identity and fresh absence proof.
+
+        The caller owns the controller lock. A missing file alone never proves that Docker is
+        empty; a matching, settled controller journal anchors the daemon/context identity.
+        """
+        reservation = self.ledger.active_reservation_on(slot)
+        if (not reservation or reservation['kind'] != 'server_slot' or reservation['resource'] != slot
+                or reservation['host'] != self.host or reservation.get('integration')
+                or not re.fullmatch(r'[0-9a-f-]{36}', reservation['reservation_id'])):
+            raise ServerSlotError("missing-journal recovery requires one standalone server reservation")
+        item = self.ledger.item(reservation['item_id'])
+        if (item['generation'] != reservation['generation'] or item['worker_pid']
+                or item['state'] not in ('failed', 'blocked', 'cancelled', 'awaiting_resource')):
+            raise ServerSlotError("missing-journal recovery requires a stopped current-generation worker")
+        if not self.quiescent(item['id']):
+            raise ServerSlotError("server worker teardown is not verified")
+        previous = [r for r in self.ledger.reservations() if r['resource'] == slot
+                    and r['kind'] == 'server_slot' and r['host'] == self.host
+                    and r['state'] in ('released', 'cancelled') and r['sequence'] < reservation['sequence']]
+        if not previous:
+            raise ServerSlotError("missing-journal recovery has no settled Docker identity evidence")
+        prior = max(previous, key=lambda r: r['sequence'])
+        if not re.fullmatch(r'[0-9a-f-]{36}', prior['reservation_id']):
+            raise ServerSlotError("missing-journal recovery has invalid historical reservation identity")
+        evidence_path = self.folder(slot) / (prior['reservation_id'] + '.json')
+        evidence_text = _read_worker_text(evidence_path)
+        evidence = json.loads(evidence_text)
+        def project(identity):
+            return 'farmbot-server-' + self.owner[:12] + '-' + identity.replace('-', '')
+        binding = evidence.get('docker_binding')
+        if (evidence.get('state') not in ('cleaned', 'recovered') or evidence.get('owner') != self.owner
+                or evidence.get('slot') != slot or evidence.get('reservation_id') != prior['reservation_id']
+                or evidence.get('item_id') != prior['item_id'] or evidence.get('commit') != prior['commit_sha']
+                or evidence.get('project') != project(prior['reservation_id'])
+                or not isinstance(binding, dict) or not binding.get('daemon_id') or not binding.get('endpoint_sha256')):
+            raise ServerSlotError("missing-journal recovery has invalid Docker identity evidence")
+        proof = {'slot': slot, 'owner': self.owner, 'reservation_id': reservation['reservation_id'],
+                 'item_id': item['id'], 'commit': reservation['commit_sha'],
+                 'project': project(reservation['reservation_id']), 'docker_binding': binding,
+                 'state': 'absence_verified', 'generation': reservation['generation'],
+                 'previous_journal': str(evidence_path),
+                 'previous_journal_sha256': hashlib.sha256(evidence_text.encode('utf-8')).hexdigest(),
+                 'reason': reason[:500], 'checked_at': self.clock()}
+        self.services.verify_absent(proof)
+        # Save evidence before changing the ledger; no reservation token is reconstructed.
+        receipt = self.folder(slot) / (reservation['reservation_id'] + '.missing-journal-recovery.json')
+        _write_worker_file(receipt, json.dumps(proof, indent=2) + '\n', sync=True)
+        with self.ledger._transaction():
+            if (self.ledger.active_reservation_on(slot) != reservation
+                    or self.ledger.slot(slot)['state'] != 'held'
+                    or self.ledger.item(item['id']) != item or self._path(slot).exists()
+                    or not self.quiescent(item['id'])):
+                raise ServerSlotError("missing-journal recovery ownership changed during verification")
+            state = 'cancelled' if reservation['state'] == 'cancel_requested' else 'released'
+            self.ledger.connection.execute(
+                'UPDATE reservations SET state=?,released_at=?,release_reason=? WHERE reservation_id=?',
+                (state, self.clock(), ('server recovery: ' + reason)[:500], reservation['reservation_id']))
+            self.ledger.connection.execute(
+                "UPDATE slots SET state='idle_closed',parked_commit=NULL,updated_at=? WHERE slot_id=?",
+                (self.clock(), slot))
+            if item['state'] == 'awaiting_resource':
+                self.ledger._set_state(item['id'], 'failed', 'server lease recovered; explicit retry required',
+                                       worker_pid=None)
+            self.ledger._audit(item['id'], 'reservation', state,
+                               {'reservation_id': reservation['reservation_id'], 'reason': reason[:200]})
+            self.ledger._audit(slot, 'server_slot_recovered', reason[:200],
+                               {'missing_journal': True, 'receipt': str(receipt)})
         return self.ledger.slot(slot)
 
     def close(self):

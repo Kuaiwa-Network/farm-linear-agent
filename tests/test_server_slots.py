@@ -95,6 +95,130 @@ class ServerPoolFixture(unittest.TestCase):
         return item["id"]
 
 class PoolTests(ServerPoolFixture):
+    def missing_journal(self):
+        previous = self.request()
+        self.pool.tick()
+        lease = dict(self.services.started[-1], docker_binding={'daemon_id': 'fixture', 'endpoint_sha256': '1'*64})
+        self.pool._save(lease)
+        self.ledger.cancel(previous, 'previous run done')
+        self.pool.tick()
+        item = self.request()
+        self.services.error = ServerSlotError('local Docker command unavailable or timed out: info')
+        self.pool.tick()
+        current = self.ledger.active_reservation(item)
+        self.pool._path(current['resource']).unlink()  # Historical failure before the journal was saved.
+        self.services.error = None
+        return item, current
+
+    def test_docker_probe_failure_keeps_startup_identity_in_journal(self):
+        binding = {'daemon_id': 'fixture', 'endpoint_sha256': '1'*64}
+        with patch.object(self.services, 'preflight', return_value=binding):
+            self.pool.ensure()
+        item = self.request()
+        def start(lease):
+            saved = json.loads(self.pool._path(lease['slot']).read_text())
+            self.assertEqual(saved['docker_binding'], binding)
+            self.assertEqual(saved['reservation_id'], lease['reservation_id'])
+            raise ServerSlotError('local Docker command unavailable or timed out: info')
+        with patch.object(self.services, 'start', side_effect=start):
+            self.pool.tick()
+        reservation = self.ledger.active_reservation(item)
+        self.assertEqual(self.ledger.slot(reservation['resource'])['state'], 'held')
+        self.assertIn('timed out: info', self.ledger.connection.execute(
+            "SELECT reason FROM audit WHERE kind='server_slot_held' ORDER BY id DESC").fetchone()[0])
+        self.pool.recover(reservation['resource'], 'daemon restored')
+        self.assertEqual(self.services.cleaned[-1]['docker_binding'], binding)
+
+    def test_missing_journal_recovery_preserves_checkpoint_and_never_cleans(self):
+        item, reservation = self.missing_journal()
+        before = self.ledger.item(item)
+        cleaned = list(self.services.cleaned)
+        with patch.object(self.services, 'verify_absent', create=True) as verify:
+            self.pool.recover(reservation['resource'], 'operator recovery')
+        verify.assert_called_once()
+        self.assertEqual(self.services.cleaned, cleaned)
+        self.assertEqual(self.ledger.item(item), before)
+        self.assertEqual(self.ledger.reservation(reservation['reservation_id'])['state'], 'released')
+        self.assertEqual(self.ledger.slot(reservation['resource'])['state'], 'idle_closed')
+        receipt = self.pool.folder(reservation['resource']) / (reservation['reservation_id'] + '.missing-journal-recovery.json')
+        proof = json.loads(receipt.read_text())
+        self.assertNotIn('token', proof)
+        self.assertEqual(proof['state'], 'absence_verified')
+
+    def test_missing_journal_recovery_refuses_live_worker_or_changed_generation(self):
+        item, reservation = self.missing_journal()
+        with patch.object(self.services, 'verify_absent', create=True) as verify:
+            self.exited = False
+            with self.assertRaisesRegex(ServerSlotError, 'teardown'):
+                self.pool.recover(reservation['resource'], 'operator recovery')
+            self.exited = True
+            self.ledger.connection.execute('UPDATE work_items SET generation=generation+1 WHERE id=?', (item,))
+            with self.assertRaisesRegex(ServerSlotError, 'current-generation'):
+                self.pool.recover(reservation['resource'], 'operator recovery')
+            verify.assert_not_called()
+        self.assertEqual(self.ledger.slot(reservation['resource'])['state'], 'held')
+
+    def test_missing_journal_recovery_retains_hold_if_absence_cannot_be_proved(self):
+        item, reservation = self.missing_journal()
+        for error in ('daemon changed', 'Docker resources exist', 'inspection timed out'):
+            with self.subTest(error=error), patch.object(self.services, 'verify_absent', create=True,
+                                                        side_effect=ServerSlotError(error)):
+                with self.assertRaisesRegex(ServerSlotError, error):
+                    self.pool.recover(reservation['resource'], 'operator recovery')
+                self.assertEqual(self.ledger.reservation(reservation['reservation_id'])['state'], 'active')
+                self.assertEqual(self.ledger.slot(reservation['resource'])['state'], 'held')
+
+    def test_missing_journal_recovery_requires_untampered_historical_identity(self):
+        item, reservation = self.missing_journal()
+        previous = self.services.started[0]
+        path = self.pool.folder(reservation['resource']) / (previous['reservation_id'] + '.json')
+        value = json.loads(path.read_text())
+        value['owner'] = 'foreign'
+        path.write_text(json.dumps(value))
+        with patch.object(self.services, 'verify_absent', create=True) as verify:
+            with self.assertRaisesRegex(ServerSlotError, 'invalid Docker identity'):
+                self.pool.recover(reservation['resource'], 'operator recovery')
+            verify.assert_not_called()
+
+    def test_corrupt_existing_journal_never_uses_absence_recovery(self):
+        item, reservation = self.missing_journal()
+        self.pool._path(reservation['resource']).write_text('invalid json')
+        with patch.object(self.services, 'verify_absent', create=True) as verify:
+            with self.assertRaises(json.JSONDecodeError):
+                self.pool.recover(reservation['resource'], 'operator recovery')
+            verify.assert_not_called()
+
+    def test_missing_journal_recovery_rechecks_fence_after_inspection(self):
+        item, reservation = self.missing_journal()
+        def change(_):
+            self.ledger.connection.execute('UPDATE work_items SET generation=generation+1 WHERE id=?', (item,))
+        with patch.object(self.services, 'verify_absent', create=True, side_effect=change):
+            with self.assertRaisesRegex(ServerSlotError, 'ownership changed'):
+                self.pool.recover(reservation['resource'], 'operator recovery')
+        self.assertEqual(self.ledger.slot(reservation['resource'])['state'], 'held')
+
+    def test_missing_journal_recovery_refuses_absent_history_and_wrong_slot_path(self):
+        item = self.request()
+        self.services.error = ServerSlotError('binding failed')
+        self.pool.tick()
+        reservation = self.ledger.active_reservation(item)
+        self.pool._path(reservation['resource']).unlink()
+        with patch.object(self.services, 'verify_absent', create=True) as verify:
+            with self.assertRaisesRegex(ServerSlotError, 'no settled'):
+                self.pool.recover(reservation['resource'], 'operator recovery')
+            self.ledger.connection.execute('UPDATE slots SET folder=? WHERE slot_id=?',
+                                           (str(self.root.parent), reservation['resource']))
+            with self.assertRaisesRegex(ServerSlotError, 'configuration'):
+                self.pool.recover(reservation['resource'], 'operator recovery')
+            verify.assert_not_called()
+
+    def test_missing_journal_recovery_preserves_cancellation(self):
+        item, reservation = self.missing_journal()
+        self.ledger.cancel_reservations(item, 'operator cancellation')
+        with patch.object(self.services, 'verify_absent', create=True):
+            self.pool.recover(reservation['resource'], 'operator recovery')
+        self.assertEqual(self.ledger.reservation(reservation['reservation_id'])['state'], 'cancelled')
+
     def test_single_issue_acceptance_never_starts_services_for_older_paused_request(self):
         from agent.maintenance import Maintenance
         older = self.request('a'*40)
@@ -572,6 +696,45 @@ class AdmissionTests(ServerPoolFixture):
 
 
 class SettingsTests(unittest.TestCase):
+    def test_absence_proof_checks_names_and_labels_without_mutations(self):
+        services = DockerServices(SETTINGS)
+        lease = {'docker_binding': {'daemon_id': 'fixture'}, 'project': 'farmbot-server-test',
+                 'owner': 'owner', 'reservation_id': 'lease', 'slot': 'server_slot:1'}
+        with patch.object(services, 'binding', return_value=lease['docker_binding']), \
+                patch.object(services, 'inspect', return_value=None) as inspect, \
+                patch.object(services, 'command', return_value='') as command:
+            services.verify_absent(lease)
+        self.assertEqual(inspect.call_count, 10)
+        self.assertEqual(command.call_count, 6)
+        self.assertTrue(all(call.args[1] == 'ls' for call in command.call_args_list))
+        self.assertTrue(all('--all' in call.args for call in command.call_args_list if call.args[0] == 'container'))
+
+    def test_absence_proof_refuses_existing_renamed_or_unknown_resources(self):
+        services = DockerServices(SETTINGS)
+        lease = {'docker_binding': {'daemon_id': 'fixture'}, 'project': 'farmbot-server-test',
+                 'owner': 'owner', 'reservation_id': 'lease', 'slot': 'server_slot:1'}
+        with patch.object(services, 'binding', return_value=lease['docker_binding']), \
+                patch.object(services, 'inspect', return_value={'Id': 'existing'}), \
+                patch.object(services, 'command') as command:
+            with self.assertRaisesRegex(ServerSlotError, 'found Docker resources'):
+                services.verify_absent(lease)
+            command.assert_not_called()
+        with patch.object(services, 'binding', return_value=lease['docker_binding']), \
+                patch.object(services, 'inspect', return_value=None), \
+                patch.object(services, 'command', return_value='renamed-resource'):
+            with self.assertRaisesRegex(ServerSlotError, 'labelled'):
+                services.verify_absent(lease)
+        with patch.object(services, 'binding', return_value={'daemon_id': 'different'}), \
+                patch.object(services, 'command') as command:
+            with self.assertRaisesRegex(ServerSlotError, 'daemon/context'):
+                services.verify_absent(lease)
+            command.assert_not_called()
+        with patch.object(services, 'binding', side_effect=[lease['docker_binding'], {'daemon_id': 'different'}]), \
+                patch.object(services, 'inspect', return_value=None), \
+                patch.object(services, 'command', return_value=''):
+            with self.assertRaisesRegex(ServerSlotError, 'during missing-journal'):
+                services.verify_absent(lease)
+
     def test_invalid_or_oversized_budgets_and_unpinned_images_refused(self):
         for raw in ({"unity_mib": 100, "max_reserved_mib": 10}, {"min_commit_mib": True}, {"typo": 1}):
             with self.assertRaises(ValueError):
