@@ -354,6 +354,40 @@ def withdraw_question(ledger, api, item_id):
         owe_closing(ledger, item, content, exc)
 
 
+def verify_delivered_prs(ledger, args, token, item, urls):
+    """A single owner's delivery names only its actual PRs: each one GitHub knows, open or merged, on this issue's
+    branch at the owned worktree's current HEAD. A mistyped number or a final commit never pushed stops here, before
+    the card moves to review."""
+    from .execution import REPOSITORIES
+    from .publication import PublicationError, PublicationVerifier, github_reader, github_repository
+    from .publication_retry import verify_with_retries
+    from .workflow import JobWorktrees
+    from .worktrees import Worktrees
+    config = load_config(secure_permissions=False)
+    paths = Paths(config)
+    if Path(args.db).resolve() != paths.ledger.resolve():
+        raise LedgerError("delivery verification must use the configured host ledger")
+
+    def repository(url):
+        for name in REPOSITORIES:
+            try:
+                prefix = 'https://github.com/' + github_repository(config.repos.get(name)) + '/pull/'
+            except PublicationError:
+                continue
+            if url.casefold().startswith(prefix.casefold()):
+                return name
+        raise LedgerError(f"PR URL is not under a configured publishing repository: {url}")
+
+    identifier = ledger.issue(item['issue_id'])['identifier']
+    verifier = PublicationVerifier(JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger),
+                                   api=github_reader(config), issue_prefix=config.issue_prefix)
+    for url in urls:
+        repo = repository(url)
+        verify_with_retries(lambda: verifier.verify_pr(repo, args.item, identifier, url, delivered=True),
+                            lambda: ledger.renew(args.item, token))
+    ledger.renew(args.item, token)  # network checks cannot outlive cancellation or the claim
+
+
 def verify_late_prs(ledger, args, token, progress):
     """Only consult GitHub when Linear has already observed unregistered output."""
     published = progress.get("published_prs", []) if isinstance(progress, dict) else []
@@ -1366,6 +1400,8 @@ def run(args, ledger, api_factory):
             return {'input_valid': True, 'completion_checked': False,
                     'maintenance_requested': item['maintenance_requested'],
                     'next': 'Complete live gates and confirmed delivery, then run finish without --check-input.'}
+        if single(item) and item['skill'] in WRITE_SKILLS and args.outcome == 'delivered' and evidence.get('prs'):
+            verify_delivered_prs(ledger, args, token, item, evidence['prs'])
         if item['skill'] == 'work' and args.outcome == 'delivered' and not single(item):
             from .presentation_artifacts import verify_parent_head
             from .workflow import task_views

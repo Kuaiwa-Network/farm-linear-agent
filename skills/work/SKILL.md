@@ -144,10 +144,12 @@ before any publication. Never bypass review, change permissions/models, or treat
 safety denial or uncertain execution outcome as this capacity failure.
 
 Review the final diff and required verification yourself. Use `verify-publication`
-before pushing each exact issue branch or creating/updating its draft PR. Publish
+before pushing each exact issue branch or creating/updating its draft PR. Push the
+final commit and run `finish --check-ready` before posting the delivery. Publish
 a clear delivery with the PRs, behavior tested and limitations; then `finish`.
-FarmBot verifies ownership, destination, live claim, resource release and the
-confirmed delivery comment, not a second semantic acceptance matrix. Do not
+FarmBot verifies ownership, destination, live claim, resource release, that each
+listed PR is this issue's open or merged PR at your worktree's current HEAD, and
+the confirmed delivery comment, not a second semantic acceptance matrix. Do not
 merge PRs, deploy or change Linear status.
 
 On maintenance, collect in-flight work, stop your services, release resources,

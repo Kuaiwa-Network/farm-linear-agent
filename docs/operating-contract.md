@@ -175,6 +175,19 @@ Main need not move into the candidate merely because publication is later.
 Confirmed delivery outbox records remain required. Real unresolved human
 questions and changed issue inputs still fence completion.
 
+A delivered finish of the current owner also checks every PR it lists on GitHub
+before the card can move to In Review. Each must be in a configured publishing
+repository, on this issue's branch in the owned worktree, based on the default
+branch, with its head at that worktree's current HEAD. It may be an open draft,
+an open PR a person marked ready for review, or a PR already merged; a PR closed
+without merging, or a number GitHub does not know, is refused.
+`finish --check-ready` runs the same check so the worker finds a wrong number or
+an unpushed final commit before posting the delivery comment; `--check-input`
+stays shape-only. Transient GitHub failures get the publication check's bounded
+retries. `no_change` deliveries list no PR and are unaffected. Legacy staged
+jobs keep their own delivery checks. No schema migration is involved; older
+code simply finishes without this check.
+
 ## Approval-review capacity recovery
 
 When automatic approval review returns the complete `Selected model is at capacity`
