@@ -18,7 +18,7 @@ All commands start with `PYTHON -m agent --db DATABASE`; they take `--item ITEM`
 | --- | --- |
 | `fetch-issue` | No token arguments; current Linear facts. |
 | `issue-context` | No token arguments; `--view resume` or `full`. |
-| `download-uploads` | Claim token file, `--out STATE_DIR/uploads`, optional repeatable `--url UNSIGNED_ISSUE_URL`; authenticated issue attachments for read-only investigation. |
+| `download-uploads` | Claim token file, `--out STATE_DIR/uploads`, optional repeatable `--url UNSIGNED_UPLOAD_URL`; authenticated issue and current Project Overview attachments for read-only investigation. |
 | `upload-image` | Claim token file, `--file ABSOLUTE_PATH`; upload an inspected PNG/JPEG from this item's `state_dir` for a visual answer. Returns `asset_url`, SHA-256, size, content type and dimensions. |
 | `pop-inbox` | Claim token file; attributed current requests. |
 | `renew` | Claim token file; inspect maintenance and withdrawal flags. |
@@ -56,3 +56,13 @@ upload. This grants no source, PR, issue-field or shared-resource write authorit
 Use `COMMAND --help` for syntax. Historical commands in the parser do not grant
 chat write access. New implementation belongs to `work`; old staged state requires
 host adoption, preserving its source, reports and genuine unanswered questions.
+
+`fetch-issue` refreshes Project Overview context for `issue-context` (`issue.project`:
+`description` is the short summary, `content` is the Overview body). `download-uploads`
+refreshes it again and uses the same downloader as work: without `--url`, it includes
+uploads directly embedded/linked in the issue description, human comments and its
+current project's summary/Overview body. It does not follow other project/document
+links. ZIP members and images are available locally; summary and manifest `sources`
+identify `project:PROJECT_UUID:content` or `project:PROJECT_UUID:description`.
+Use this helper instead of custom download scripts. Missing access or an unread ZIP
+does not establish missing art.

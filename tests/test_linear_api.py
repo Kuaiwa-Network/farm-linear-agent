@@ -353,6 +353,26 @@ class LinearAPITests(unittest.TestCase):
         self.assertEqual([c["author_kind"] for c in issue["comments"]], ["bot"])
         self.assertEqual([c[0].rsplit("/", 1)[-1] for c in self.http.calls][:2], ["token", "graphql"])
 
+    def test_fetch_issue_reads_the_related_project_overview_and_strips_signatures(self):
+        project = {"id": "30000000-0000-4000-8000-000000000001", "name": "公会优化",
+                   "url": "https://linear.app/example/project/guild", "description": f"summary {SIGNED}",
+                   "content": '<linear-embed node-type="file">' + json.dumps(
+                       {"href": SIGNED, "name": "切图.zip"}) + '</linear-embed>'}
+        fetched = self.fetched([], project=project)
+        self.assertIn('project { id name url description content }', ' '.join(ISSUE_QUERY.split()))
+        self.assertEqual(fetched['project'], {**project, 'description': f'summary {UNSIGNED}',
+                                             'content': strip_signed(project['content'])})
+        self.assertNotIn('signature', json.dumps(fetched))
+        self.assertEqual(self.fetched([], project={**project, 'content': None})['project']['content'], '')
+        self.assertIsNone(self.fetched([], project=None)['project'])
+
+    def test_project_read_errors_do_not_fall_back_to_an_incomplete_issue(self):
+        api = self.api({'FarmBotIssue': [{'data': {'issue': None}, 'errors': [
+            {'message': 'Project content denied', 'extensions': {'code': 'FORBIDDEN'}}]}]})
+        api.app_user_id, api.token, api.expires = APP, 'tok', float('inf')
+        with self.assertRaises(linear_api_module.LinearError):
+            api.fetch_issue('FARM-1')
+
     def test_fetch_issue_reads_a_trashed_issue_as_archived(self):
         """Withdrawn-work design E3, U7, as `issue_status`: an issue in the trash is closed like an archived one, in the
         full read too. A settle decides on that read (silent-delegation design S14), so it drops the episode of a card

@@ -40,6 +40,7 @@ ISSUE_QUERY = """query FarmBotIssue($id: String!, $after: String) {
     id identifier url branchName title description priority archivedAt trashed updatedAt
     state { name type } team { id } labels { nodes { name parent { id name } } } attachments { nodes { url } }
     delegate { id } assignee { id name url app } creator { id name url app }
+    project { id name url description content }
     comments(first: 50, after: $after) {
       nodes { id url body createdAt updatedAt user { id name url app } botActor { id } parent { id } }
       pageInfo { hasNextPage endCursor }
@@ -658,6 +659,13 @@ class LinearAPI:
                 "status_type": issue["state"]["type"], "labels": [n["name"] for n in issue["labels"]["nodes"]],
                 "label_groups": _label_groups(issue["labels"]["nodes"]),
                 "assignee": people["assignee"], "creator": people["creator"],
+                # Project.content is the rich Overview body; description is only its short summary.
+                # Read it through the issue relation, never a worker-supplied project ID or link.
+                "project": ({"id": issue["project"]["id"], "name": issue["project"]["name"],
+                             "url": issue["project"]["url"],
+                             "description": strip_signed(issue["project"].get("description") or ""),
+                             "content": strip_signed(issue["project"].get("content") or "")}
+                            if issue.get("project") else None),
                 "priority": int(issue["priority"] or 0),
                 "archived": issue.get("archivedAt") is not None or issue.get("trashed") is True,
                 "delegate_id": (issue.get("delegate") or {}).get("id"),

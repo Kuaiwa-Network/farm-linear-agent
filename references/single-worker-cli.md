@@ -21,7 +21,7 @@ parking or finish, and checkpoints their work. No FarmBot child task is created.
 | --- | --- |
 | `fetch-issue` | No token arguments. Read live issue facts before delivery or after a new request. |
 | `issue-context` | No token arguments; `--view resume` or `full` includes history, questions, reports and inputs. |
-| `download-uploads` | `--out STATE_DIR/uploads`, optional repeatable `--url UNSIGNED_ISSUE_URL`: authenticated download of this issue's attachments, with a local manifest. Reuse intact files; never fetch private upload URLs anonymously. |
+| `download-uploads` | `--out STATE_DIR/uploads`, optional repeatable `--url UNSIGNED_UPLOAD_URL`: authenticated download of issue and current Project Overview attachments, with a local manifest. Reuse intact files; never fetch private upload URLs anonymously. |
 | `renew` | Read maintenance/withdrawal flags; keep the current claim alive. |
 | `checkpoint` | `--input FILE`: bounded JSON progress, candidate SHAs, report paths and next action. |
 | `pop-inbox` | Read attributed requests. Reuse actual existing answers. |
@@ -51,6 +51,15 @@ Use `COMMAND --help` for exact syntax. The large parser retains historical
 commands for old state inspection and offline replay; repository handoff,
 presentation subtasks, mandatory baseline comparison, UI receipts and semantic
 closing checks are refused for this contract.
+
+Chat and work share `download-uploads`. It refreshes the issue's project relation
+and reads uploads directly embedded/linked in the issue description, human comments
+and current Project Overview (short summary and rich body). No `--url` downloads
+both sources; repeat unsigned `--url` to select files. Read refreshed `issue.project`
+in `issue-context`: `description` is the summary and `content` is the Overview body.
+The manifest and summary record `project:PROJECT_UUID:content`/`description` sources;
+ZIPs use the existing safe extraction and cache. Other project/document links do
+not expand the download scope. Do not write a custom downloader after a refusal.
 
 For `retry-approval`, save the complete returned message starting with
 `Automatic approval review failed: Selected model is at capacity.` including its
