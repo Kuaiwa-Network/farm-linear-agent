@@ -40,7 +40,7 @@ parking or finish, and checkpoints their work. No FarmBot child task is created.
 | `unity-tool` | `--name NAME --input FILE`: JSON object arguments, bound to the reserved instance; raw MCP result. |
 | `unity-test-result` | `--job-id ID`: read a retained test report in the owned instance, including failed jobs whose normal response has `result=null`. Save stdout privately. No test launch or release. |
 | `unity-read` | `--uri URI`: read a resource from the reserved Unity instance. |
-| `release-resource` | **Use the reservation token file returned by resource-status**, not the claim token. `--outcome quiescent\|unclean`. |
+| `release-resource` | **Use the reservation token file returned by resource-status**, not the claim token. `--outcome quiescent\|unclean`. Before server/combined release, save a current checkpoint with results and `handoff`; exit immediately on `worker_handoff: true`. The controller cleans services after verified teardown and resumes the same issue. |
 | `publish-ui` | `--packages FILE`: JSON package name/ID map; native export into private staging, no Client installation. |
 | `prepare-go-dependencies` | `--repo REPO --module MODULE --commit SHA`; inspect `go-dependencies --request-id ID`. |
 | `verify-publication` | `--repo REPO`: fresh exact destination/branch/private-repository check before publishing. |

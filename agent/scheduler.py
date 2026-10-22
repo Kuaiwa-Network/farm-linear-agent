@@ -14,6 +14,7 @@ from .launcher import _read_worker_text
 from .ledger import ACTIVE_STATES, LedgerError, plan_issue_branches
 from .maintenance import Maintenance
 from .startup_recovery import StartupRecovery
+from .resource_handoff import requested as resource_handoff_requested, pending_cleanup as server_cleanup_pending
 from .kw_ops import SERVER as KW_OPS_SERVER, resolve as resolve_kw_ops
 from .lark_cli import tools as lark_tools
 from .memory import publish_snapshot
@@ -114,7 +115,8 @@ class Scheduler:
                             raise LedgerError('preserved branch belongs to a different issue')
                         recovery_branches[owner] = saved[repo]
                 paths[repo] = self.worktrees.add(repo, item['id'], branch,
-                                                refresh=not bool(item['publication_retries'] or item['capacity_retries'] or item['startup_retries']),
+                                                refresh=not bool(item['publication_retries'] or item['capacity_retries'] or item['startup_retries']
+                                                                 or resource_handoff_requested(self.ledger, item)),
                                                 recovery_from=recovery, recovery_branches=recovery_branches)
             return paths
         if item.get('root_repo') == COORDINATION_ROOT and skill.name == 'work':
@@ -245,7 +247,11 @@ class Scheduler:
                 or not StartupRecovery(self.ledger).may_launch(self.host)):
             return None
         item = current  # the queued root/generation may have changed since the scheduler read its queue
-        if item['capacity_retries'] or item['startup_retries']:
+        # A released server lease is still occupied until its pool has cleaned it.
+        # Never relaunch its owner first: that would make quiescence impossible again.
+        if server_cleanup_pending(self.ledger, item['id']):
+            return None
+        if item['capacity_retries'] or item['startup_retries'] or resource_handoff_requested(self.ledger, item):
             # A voluntary approval retry has retired its claim while its process
             # may still be exiting. This also fences restart without live handles.
             try:

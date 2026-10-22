@@ -2488,33 +2488,37 @@ class Ledger:
         The slot is left 'switching', not free: the folder is the pool's to park or close before anyone else
         may take it, and only the pool knows what commit it ends up on.
         """
-        _text(reason, "reason")
         with self._transaction():
-            row = self._reservation_owned(reservation_id, token)
-            if row["state"] in ("released", "cancelled"):
-                return row["state"]
-            from .integration import get as integration_request
-            combined = integration_request(self, reservation_id)
-            if combined and row['resource'] and self.slot(row['resource'])['state'] == 'held':
-                raise LedgerError('combined resource is held; verified controller recovery is required')
-            state = "cancelled" if row["state"] == "cancel_requested" else "released"
-            self.connection.execute(
-                "UPDATE reservations SET state=?,released_at=?,release_reason=? WHERE reservation_id=?",
-                (state, self.clock(), reason[:500], reservation_id))
-            if row["resource"]:
-                self.connection.execute("UPDATE slots SET state='switching',updated_at=? WHERE slot_id=?",
-                                        (self.clock(), row["resource"]))
-            if combined and combined['server_slot']:
-                # A held companion keeps its own fence for recover-server-slot, as settle_companion keeps a
-                # held Editor. Refusing here instead would raise out of SlotPool.settle on every tick and
-                # stop the whole Unity pool behind one server hold.
-                self.connection.execute("UPDATE slots SET state='switching',updated_at=? WHERE slot_id=? "
-                                        "AND state<>'held'", (self.clock(), combined['server_slot']))
-            self._audit(row["item_id"], "reservation", state, details={"reservation_id": reservation_id,
-                                                                      "reason": reason[:200]})
-            self.connection.execute("UPDATE work_items SET stage='working',needs_resource=NULL WHERE id=? "
-                                    "AND state='running' AND execution_contract='single-worker-v1'", (row['item_id'],))
-            return state
+            return self._release_in_transaction(reservation_id, token, reason)
+
+    def _release_in_transaction(self, reservation_id, token, reason):
+        """Caller holds the reservation/claim transaction across a cooperative handoff."""
+        _text(reason, "reason")
+        row = self._reservation_owned(reservation_id, token)
+        if row["state"] in ("released", "cancelled"):
+            return row["state"]
+        from .integration import get as integration_request
+        combined = integration_request(self, reservation_id)
+        if combined and row['resource'] and self.slot(row['resource'])['state'] == 'held':
+            raise LedgerError('combined resource is held; verified controller recovery is required')
+        state = "cancelled" if row["state"] == "cancel_requested" else "released"
+        self.connection.execute(
+            "UPDATE reservations SET state=?,released_at=?,release_reason=? WHERE reservation_id=?",
+            (state, self.clock(), reason[:500], reservation_id))
+        if row["resource"]:
+            self.connection.execute("UPDATE slots SET state='switching',updated_at=? WHERE slot_id=?",
+                                    (self.clock(), row["resource"]))
+        if combined and combined['server_slot']:
+            # A held companion keeps its own fence for recover-server-slot, as settle_companion keeps a
+            # held Editor. Refusing here instead would raise out of SlotPool.settle on every tick and
+            # stop the whole Unity pool behind one server hold.
+            self.connection.execute("UPDATE slots SET state='switching',updated_at=? WHERE slot_id=? "
+                                    "AND state<>'held'", (self.clock(), combined['server_slot']))
+        self._audit(row["item_id"], "reservation", state, details={"reservation_id": reservation_id,
+                                                                  "reason": reason[:200]})
+        self.connection.execute("UPDATE work_items SET stage='working',needs_resource=NULL WHERE id=? "
+                                "AND state='running' AND execution_contract='single-worker-v1'", (row['item_id'],))
+        return state
 
     def hold(self, reservation_id, reason, *, recovery_kind='execution'):
         """A failing quiescence probe keeps the reservation open and takes the slot out of the pool (spec §7)."""

@@ -279,8 +279,8 @@ For server tests, request services only when needed, using an explicit scoped
 package/test/race plan. The worker runs the actual commands against isolated
 loopback services. Local tests that need no services need no server reservation.
 Docker administration remains host-owned. Server cleanup retains the existing
-process-quiescence requirement; containers can remain reserved for cleanup until
-the worker exits. This release does not claim immediate container reuse.
+process-quiescence requirement; containers remain reserved for cleanup until
+the checkpointed server-release handoff exits and teardown is verified.
 Released or cancelled reservations from an older worker generation can settle
 after a finish/requeue handoff, including after controller restart. Cleanup still
 verifies the lease's exact Docker identities and ownership and waits for all
@@ -458,6 +458,29 @@ profile ownership and controller locking still apply. Rollback stops the new
 sweep but cannot restore regenerable data already deleted; preserved source and
 evidence remain available for rebuild/recovery.
 
+## Server release handoff
+
+A single worker stays alive while waiting for and using resources. Releasing
+server services, including a combined Client/server lease, is a process handoff:
+the worker first saves a current checkpoint with results, candidate SHAs, report
+paths and the next action in `handoff`. The authenticated release atomically
+releases the reservation and retires the claim, returning `worker_handoff: true`.
+The worker exits; the same issue resumes only after all-attempt teardown and
+server cleanup are verified. Generation, candidates, checkpoint and retry budgets
+remain intact. Unity-only releases do not retire the worker.
+
+Released services block relaunch of their owner until the pool recycles them;
+this also fences maintenance/retry/restart paths. A cancelled or withdrawn job
+is never requeued by release. Uncertain cleanup remains held for host recovery.
+Idle Unity Editors yield memory only when a configured server slot is available
+to use it. Held or unsettled server slots cannot indefinitely suppress Unity
+warmup or close a healthy idle Editor. Normal memory admission still applies.
+
+This adds no schema migration. The durable handoff audit and existing queued
+state survive restart. Settle handoffs and services before rolling back: older
+controllers do not enforce the new released-service relaunch fence. Deploy the
+matching controller, worker CLI and instructions together.
+
 ## Cooperative maintenance pause
 
 Maintenance blocks new worker/resource admission. Existing workers finish or
@@ -524,8 +547,8 @@ both pins; uncertain setup holds resources and journals. The controller creates 
 read-only server snapshot during preparation; worker commands only validate it. A
 release never lifts a held server half, which waits for verified `recover-server-slot`,
 and Unity settlement continues meanwhile. Server cleanup still
-requires verified teardown of all worker attempts, including after release while
-the continuing worker lives. Settle pairs and preserve journals before rollback:
+requires verified teardown of all worker attempts; the checkpointed release
+handoff retires the continuing worker before reuse. Settle pairs and preserve journals before rollback:
 older code cannot interpret companion ownership. See [the reference](../references/client-server-integration.md).
 
 ### Existing execution contracts

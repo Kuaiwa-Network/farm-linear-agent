@@ -267,7 +267,8 @@ class SlotPool:
             return 0
         # Do not immediately spend budget that the previous tick reclaimed for a server.
         from .integration import server_pending
-        waiting = server_pending(self.ledger, single_only=getattr(self, 'single_only', False)) if self.admission else []
+        waiting = (server_pending(self.ledger, single_only=getattr(self, 'single_only', False))
+                   if self.admission and self.admission.server_capacity_available(self.ledger, self.host) else [])
         if waiting:
             from .integration import get as integration_request
             if (not integration_request(self.ledger, waiting[0]['reservation_id']) or
@@ -426,6 +427,8 @@ class SlotPool:
                 continue
             with self.admission.lock:
                 pending = server_pending(self.ledger, single_only=getattr(self, 'single_only', False))
+                if not self.admission.server_capacity_available(self.ledger, self.host):
+                    break
                 if pending:
                     # A combined request needs one Editor retained; close only surplus Editors.
                     from .integration import get as integration_request

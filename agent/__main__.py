@@ -1343,8 +1343,8 @@ def run(args, ledger, api_factory):
                         "next_action": "checkpoint and park or fail, then exit; verified server slot recovery is required"}
             return {"state": "recovery_queued", "reservation": held, "item": ledger.item(args.item),
                     "next_action": "exit; the controller will recover Unity and resume the saved job"}
-        ledger.release(reservation["reservation_id"], token, "worker reported quiescent")
-        return ledger.reservation(reservation["reservation_id"])
+        from .resource_handoff import release
+        return release(ledger, reservation["reservation_id"], token)
     if c == "withdraw":
         # A worker ends its own withdrawn work (withdrawn-work design P2, A10): its checkpoint is saved, and the job
         # ends cancelled, so a later delegation continues it from the plan. It needs a flag, or a fresh read that

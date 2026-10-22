@@ -129,6 +129,10 @@ retained bounded report; missing results never justify a pass or an automatic re
 Editor or edit its slot directory. Collect actual nonzero results and
 return Unity to quiet Edit Mode before release-resource. An ambiguous test launch must be reconciled, not retried
 blindly. Stop your own local server processes before releasing services. A quiescent release is checked by the host.
+Before releasing a server slot or combined Client/server lease, save a current checkpoint with results,
+candidate SHAs, report paths and handoff (the next action). A successful release returns worker_handoff=true:
+exit immediately; the claim is retired. The host verifies all attempts exited, recycles services, then resumes
+the same issue and checkpoint automatically. Do not poll, renew, finish or request another resource after handoff.
 Keep normal native sandboxing and automatic review; never change the sandbox backend or bypass a denial.
 For acceptance requiring both candidates online, request one interactive unity_slot with --integration-plan
 and the clean Client --commit. The plan pins the clean owned farm-hive commit, one server argv and scenarios.

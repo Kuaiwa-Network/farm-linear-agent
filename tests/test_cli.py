@@ -537,9 +537,15 @@ class CliTests(unittest.TestCase):
         report = self.run_cli('run-integration', '--item',item, '--token',token, '--client-command',client_command)
         self.assertEqual(report['status'], 'passed', report)
         self.assertTrue(report['teardown'])
-        self.run_cli('release-resource', '--item',item, '--token',lease['token'], '--outcome','quiescent')
+        self.run_cli('release-resource', '--item',item, '--token',lease['token'], '--outcome','quiescent', success=False)
+        checkpoint = self.json_file('server-release.json', {'summary':'Paired native commands passed',
+            'candidates':{'farm-hive':server_sha}, 'handoff':'Review the saved report and deliver'})
+        self.run_cli('checkpoint', '--item',item, '--token',token, '--input',checkpoint)
+        released = self.run_cli('release-resource', '--item',item, '--token',lease['token'], '--outcome','quiescent')
+        self.assertTrue(released['worker_handoff'])
+        self.run_cli('renew', '--item',item, '--token',token, success=False)
         with closing(Ledger(self.db)) as ledger:
-            self.assertEqual(ledger.renew(item, token)['state'], 'running')
+            self.assertEqual(ledger.item(item)['state'], 'queued')
             self.assertIsNone(ledger.active_reservation(item))
             audit = ledger.connection.execute("SELECT details FROM audit WHERE item_id=? AND kind='client_server_verification'",
                                                (item,)).fetchone()
