@@ -41,11 +41,107 @@ class PairFixture(ServerPoolFixture):
 
 
 class PairTests(PairFixture):
-    def request_pair(self):
-        item = self.request(root='Farm-Client', reserve=False)
+    def unbound_pair(self):
+        # A prior ordinary lease supplies controller-owned, settled identity evidence.
+        previous = self.request()
+        self.pool.tick()
+        self.ledger.cancel(previous, 'prior run complete')
+        self.pool.tick()
+        item = self.request_pair(single=True)
+        reservation = self.acquire()
+        self.pool.docker_binding = None  # Historical service helper omitted the startup pin.
+        self.services.error = ServerSlotError('Docker daemon/context changed before server setup')
+        self.assertFalse(self.unity_pool()._hand_over(reservation))
+        self.services.error = None
+        from agent.resource_recovery import RecoveryStore
+        store = RecoveryStore(self.ledger)
+        with self.ledger._transaction():
+            recovery = store.request_in_transaction('unity_slot:1', 'pre-start failure', recovery_kind='setup')
+        attempt = store.begin(recovery['id'])
+        store.detach(recovery['id'], attempt['attempts'])
+        self.assertEqual(self.ledger.item(item)['state'], 'queued')
+        return item, reservation, companion(self.ledger, reservation)['resource']
+
+    def test_unbound_pair_recovery_proves_absence_and_preserves_item_and_original_journal(self):
+        item, reservation, slot = self.unbound_pair()
+        before = self.ledger.item(item)
+        journal = self.pool._path(slot)
+        original = journal.read_bytes()
+        cleaned = list(self.services.cleaned)
+        with patch.object(self.services, 'verify_absent', create=True) as verify:
+            self.pool.recover(slot, 'operator verified pre-start failure')
+        self.assertEqual(verify.call_args.args[0]['docker_binding']['daemon_id'], 'fixture')
+        self.assertEqual(self.services.cleaned, cleaned)
+        self.assertEqual(self.ledger.item(item), before)
+        self.assertEqual(self.ledger.slot(slot)['state'], 'idle_closed')
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
+        self.assertFalse(journal.exists())
+        self.assertEqual((journal.parent / (reservation['reservation_id'] + '.json')).read_bytes(), original)
+        proof = json.loads((journal.parent / (reservation['reservation_id'] + '.unbound-integration-recovery.json')).read_text())
+        self.assertNotIn('token', proof)
+        self.assertEqual(proof['state'], 'absence_verified')
+
+    def test_unbound_pair_recovery_refuses_unsettled_or_changed_worker(self):
+        item, reservation, slot = self.unbound_pair()
+        for column, value in (('state', 'running'), ('worker_pid', 123), ('generation', 99)):
+            before = self.ledger.item(item)[column]
+            self.ledger.connection.execute(f'UPDATE work_items SET {column}=? WHERE id=?', (value, item))
+            with patch.object(self.services, 'verify_absent', create=True) as verify:
+                with self.assertRaisesRegex(ServerSlotError, 'stopped current-generation'):
+                    self.pool.recover(slot, 'operator recovery')
+                verify.assert_not_called()
+            self.ledger.connection.execute(f'UPDATE work_items SET {column}=? WHERE id=?', (before, item))
+        self.exited = False
+        with self.assertRaisesRegex(ServerSlotError, 'teardown'):
+            self.pool.recover(slot, 'operator recovery')
+        self.exited = True
+        self.ledger.connection.execute("UPDATE reservations SET state='active' WHERE reservation_id=?",
+                                       (reservation['reservation_id'],))
+        with self.assertRaisesRegex(ServerSlotError, 'settled pair'):
+            self.pool.recover(slot, 'operator recovery')
+
+    def test_unbound_pair_recovery_preserves_hold_on_absence_or_fence_failure(self):
+        item, reservation, slot = self.unbound_pair()
+        original = self.pool._path(slot).read_bytes()
+        for error in ('daemon changed', 'Docker resources exist', 'inspection timed out'):
+            with self.subTest(error=error), patch.object(self.services, 'verify_absent', create=True,
+                                                        side_effect=ServerSlotError(error)):
+                with self.assertRaisesRegex(ServerSlotError, error):
+                    self.pool.recover(slot, 'operator recovery')
+                self.assertEqual(self.ledger.slot(slot)['state'], 'held')
+                self.assertEqual(self.pool._path(slot).read_bytes(), original)
+        def change(_):
+            self.ledger.connection.execute('UPDATE work_items SET generation=generation+1 WHERE id=?', (item,))
+        with patch.object(self.services, 'verify_absent', create=True, side_effect=change):
+            with self.assertRaisesRegex(ServerSlotError, 'ownership changed'):
+                self.pool.recover(slot, 'operator recovery')
+        self.assertEqual(self.pool._path(slot).read_bytes(), original)
+
+    def test_unbound_pair_recovery_requires_settled_historical_identity(self):
+        item, reservation, slot = self.unbound_pair()
+        previous = self.services.started[0]
+        path = self.pool.folder(slot) / (previous['reservation_id'] + '.json')
+        evidence = json.loads(path.read_text())
+        evidence['owner'] = 'foreign'
+        path.write_text(json.dumps(evidence))
+        with patch.object(self.services, 'verify_absent', create=True) as verify:
+            with self.assertRaisesRegex(ServerSlotError, 'invalid Docker identity'):
+                self.pool.recover(slot, 'operator recovery')
+            verify.assert_not_called()
+
+    def request_pair(self, *, single=False):
+        skill = 'work' if single else 'fix'
+        item = self.request(root='Farm-Client', reserve=False, skill=skill,
+                            execution_contract='single-worker-v1' if single else 'staged-v1')
+        if single:
+            self.ledger.set_worker(item, 123, 'test')
         token = self.ledger.claim(item, worker_id='worker')['token']
-        self.ledger.await_resource(item, token, 'unity_slot', 'interactive', skill=SKILLS['fix'],
-                                   commit_sha='a'*40, integration_plan=plan())
+        if single:
+            from agent.execution import queue_resource
+            queue_resource(self.ledger, item, token, 'unity_slot', 'interactive', 'a'*40, integration_plan=plan())
+        else:
+            self.ledger.await_resource(item, token, 'unity_slot', 'interactive', skill=SKILLS[skill],
+                                       commit_sha='a'*40, integration_plan=plan())
         self.ledger.ensure_slot('unity_slot:1', kind='unity_slot', host='test', folder=str(self.root / 'editor'),
                                mcp_address='http://localhost:9999')
         return item

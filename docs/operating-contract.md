@@ -551,6 +551,17 @@ requires verified teardown of all worker attempts; the checkpointed release
 handoff retires the continuing worker before reuse. Settle pairs and preserve journals before rollback:
 older code cannot interpret companion ownership. See [the reference](../references/client-server-integration.md).
 
+The combined hand-over's thread-local server helper inherits the main pool's
+startup-verified Docker identity. Starting services rechecks that identity before
+creating resources; it never adopts a changed daemon or endpoint. For historical
+combined startup journals that lack this identity, `recover-server-slot` can retire
+the hold only after Unity has settled the pair, the current-generation worker and
+all its attempts are quiescent, and a prior settled controller journal anchors a
+fresh proof that no matching Docker resources exist. The recovery archives the
+original journal and a separate proof, preserves the issue checkpoint, and performs
+no Docker cleanup. Ambiguous identity, existing resources, changed ownership or an
+unsettled pair retain the hold. No schema migration is required.
+
 ### Existing execution contracts
 
 The schema adds `work_items.execution_contract`. Existing rows remain

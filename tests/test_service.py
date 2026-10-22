@@ -169,6 +169,36 @@ class ServeTests(unittest.TestCase):
         if components.go_dependencies is not None:
             self.addCleanup(components.go_dependencies.ledger.close)
 
+    def test_combined_helper_keeps_verified_docker_identity_on_its_own_connection(self):
+        from dataclasses import replace
+        from agent.server_slots import ServerSlotPool, ServerSlotError
+        from test_server_slots import SETTINGS
+        service = build(replace(self.c.config, server_slots=SETTINGS,
+                                resource_admission={'max_reserved_mib': 32768}))
+        self.close_later(service)
+        self.addCleanup(service.server_pool.close)
+        binding = {'daemon_id': 'verified-daemon', 'endpoint_sha256': '1' * 64}
+        service.server_pool.ready = True
+        service.server_pool.docker_binding = binding
+        connections = []
+        def prepare(helper, reservation):
+            self.assertEqual(reservation, {'reservation_id': 'pair'})
+            self.assertEqual(helper.docker_binding, binding)
+            self.assertIsNot(helper.docker_binding, binding)
+            self.assertIsNot(helper.ledger.connection, service.server_pool.ledger.connection)
+            connections.append(helper.ledger.connection)
+            return 'prepared'
+        with patch.object(ServerSlotPool, 'prepare_integration', autospec=True, side_effect=prepare):
+            self.assertEqual(service.pool.prepare_integration({'reservation_id': 'pair'}), 'prepared')
+        with self.assertRaises(sqlite3.ProgrammingError):
+            connections[0].execute('SELECT 1')
+        for ready, identity in ((False, binding), (True, None)):
+            service.server_pool.ready, service.server_pool.docker_binding = ready, identity
+            with patch.object(ServerSlotPool, 'prepare_integration') as prepare:
+                with self.assertRaisesRegex(ServerSlotError, 'prerequisites'):
+                    service.pool.prepare_integration({'reservation_id': 'pair'})
+                prepare.assert_not_called()
+
     def dependency_config(self):
         from test_go_dependencies import settings
         # macOS exposes its temp root through /var -> /private/var. Host tool

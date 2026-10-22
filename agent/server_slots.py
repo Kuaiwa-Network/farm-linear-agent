@@ -563,6 +563,8 @@ class ServerSlotPool:
         lease, reservation = self._lease(slot)
         if not self.quiescent(lease["item_id"]):
             raise ServerSlotError("server worker teardown is not verified")
+        if 'docker_binding' not in lease and reservation.get('integration'):
+            return self._recover_unbound_integration(slot, lease, reservation, reason)
         self.services.cleanup(lease)
         if reservation["state"] in ("active", "cancel_requested"):
             if reservation.get('integration'):
@@ -581,6 +583,74 @@ class ServerSlotPool:
         self.ledger.note(slot, "server_slot_recovered", reason[:200])
         return self.ledger.slot(slot)
 
+    def _recover_unbound_integration(self, slot, lease, reservation, reason):
+        """Retire a pre-start journal from the old helper, never adopt or delete Docker resources.
+
+        The operator holds ControllerGuard. Unity must already have settled the pair;
+        a prior settled journal anchors identity, and fresh absence checks fence recovery.
+        """
+        item = self.ledger.item(lease['item_id'])
+        if (lease.get('state') != 'starting' or reservation['state'] not in ('released', 'cancelled')
+                or item['generation'] != reservation['generation'] or item['worker_pid']
+                or item['state'] not in ('queued', 'failed', 'blocked', 'cancelled', 'awaiting_resource')
+                or self.ledger.active_reservation_on(slot)):
+            raise ServerSlotError('unbound integration recovery requires a settled pair and stopped current-generation worker')
+        journal = self._path(slot)
+        original = _read_worker_text(journal)
+        if json.loads(original) != lease:
+            raise ServerSlotError('unbound integration journal changed before verification')
+        evidence_path, evidence_text, binding = self._settled_identity(slot, reservation)
+        proof = {key: lease[key] for key in ('slot', 'owner', 'reservation_id', 'item_id', 'commit', 'project')}
+        proof.update(docker_binding=binding, state='absence_verified', generation=reservation['generation'],
+                     previous_journal=str(evidence_path),
+                     previous_journal_sha256=hashlib.sha256(evidence_text.encode('utf-8')).hexdigest(),
+                     original_journal_sha256=hashlib.sha256(original.encode('utf-8')).hexdigest(),
+                     reason=reason[:500], checked_at=self.clock())
+        self.services.verify_absent(proof)
+        receipt = self.folder(slot) / (reservation['reservation_id'] + '.unbound-integration-recovery.json')
+        archive = self.folder(slot) / (reservation['reservation_id'] + '.json')
+        if archive.exists():
+            raise ServerSlotError('unbound integration recovery archive already exists')
+        _write_worker_file(receipt, json.dumps(proof, indent=2) + '\n', sync=True)
+        with self.ledger._transaction():
+            current_lease, current_reservation = self._lease(slot)
+            if (current_lease != lease or current_reservation != reservation
+                    or self.ledger.item(item['id']) != item or self.ledger.slot(slot)['state'] != 'held'
+                    or self.ledger.active_reservation_on(slot) or _read_worker_text(journal) != original
+                    or not self.quiescent(item['id'])):
+                raise ServerSlotError('unbound integration recovery ownership changed during verification')
+            # Retain the original journal verbatim; the separate receipt records the proof.
+            journal.replace(archive)
+            self.ledger.connection.execute(
+                "UPDATE slots SET state='idle_closed',parked_commit=NULL,updated_at=? WHERE slot_id=?",
+                (self.clock(), slot))
+            self.ledger._audit(slot, 'server_slot_recovered', reason[:200],
+                               {'unbound_integration': True, 'receipt': str(receipt)})
+        return self.ledger.slot(slot)
+
+    def _settled_identity(self, slot, reservation):
+        """Read controller-owned historical evidence; never infer a missing pin from current Docker."""
+        previous = [r for r in self.ledger.reservations() if r['resource'] == slot
+                    and r['kind'] == 'server_slot' and r['host'] == self.host
+                    and r['state'] in ('released', 'cancelled') and r['sequence'] < reservation['sequence']]
+        if not previous:
+            raise ServerSlotError("missing-journal recovery has no settled Docker identity evidence")
+        prior = max(previous, key=lambda r: r['sequence'])
+        if not re.fullmatch(r'[0-9a-f-]{36}', prior['reservation_id']):
+            raise ServerSlotError("missing-journal recovery has invalid historical reservation identity")
+        evidence_path = self.folder(slot) / (prior['reservation_id'] + '.json')
+        evidence_text = _read_worker_text(evidence_path)
+        evidence = json.loads(evidence_text)
+        binding = evidence.get('docker_binding')
+        project = 'farmbot-server-' + self.owner[:12] + '-' + prior['reservation_id'].replace('-', '')
+        if (evidence.get('state') not in ('cleaned', 'recovered') or evidence.get('owner') != self.owner
+                or evidence.get('slot') != slot or evidence.get('reservation_id') != prior['reservation_id']
+                or evidence.get('item_id') != prior['item_id'] or evidence.get('commit') != prior['commit_sha']
+                or evidence.get('project') != project
+                or not isinstance(binding, dict) or not binding.get('daemon_id') or not binding.get('endpoint_sha256')):
+            raise ServerSlotError("missing-journal recovery has invalid Docker identity evidence")
+        return evidence_path, evidence_text, binding
+
     def _recover_missing_journal(self, slot, reason):
         """Recover an old pre-journal failure only with historical identity and fresh absence proof.
 
@@ -598,26 +668,9 @@ class ServerSlotPool:
             raise ServerSlotError("missing-journal recovery requires a stopped current-generation worker")
         if not self.quiescent(item['id']):
             raise ServerSlotError("server worker teardown is not verified")
-        previous = [r for r in self.ledger.reservations() if r['resource'] == slot
-                    and r['kind'] == 'server_slot' and r['host'] == self.host
-                    and r['state'] in ('released', 'cancelled') and r['sequence'] < reservation['sequence']]
-        if not previous:
-            raise ServerSlotError("missing-journal recovery has no settled Docker identity evidence")
-        prior = max(previous, key=lambda r: r['sequence'])
-        if not re.fullmatch(r'[0-9a-f-]{36}', prior['reservation_id']):
-            raise ServerSlotError("missing-journal recovery has invalid historical reservation identity")
-        evidence_path = self.folder(slot) / (prior['reservation_id'] + '.json')
-        evidence_text = _read_worker_text(evidence_path)
-        evidence = json.loads(evidence_text)
+        evidence_path, evidence_text, binding = self._settled_identity(slot, reservation)
         def project(identity):
             return 'farmbot-server-' + self.owner[:12] + '-' + identity.replace('-', '')
-        binding = evidence.get('docker_binding')
-        if (evidence.get('state') not in ('cleaned', 'recovered') or evidence.get('owner') != self.owner
-                or evidence.get('slot') != slot or evidence.get('reservation_id') != prior['reservation_id']
-                or evidence.get('item_id') != prior['item_id'] or evidence.get('commit') != prior['commit_sha']
-                or evidence.get('project') != project(prior['reservation_id'])
-                or not isinstance(binding, dict) or not binding.get('daemon_id') or not binding.get('endpoint_sha256')):
-            raise ServerSlotError("missing-journal recovery has invalid Docker identity evidence")
         proof = {'slot': slot, 'owner': self.owner, 'reservation_id': reservation['reservation_id'],
                  'item_id': item['id'], 'commit': reservation['commit_sha'],
                  'project': project(reservation['reservation_id']), 'docker_binding': binding,

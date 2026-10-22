@@ -32,6 +32,7 @@ class Services:
 
     def preflight(self, count):
         self.count = count
+        return {'daemon_id': 'fixture', 'endpoint_sha256': '1' * 64}
 
     def start(self, lease):
         self.started.append(dict(lease))
@@ -696,6 +697,16 @@ class AdmissionTests(ServerPoolFixture):
 
 
 class SettingsTests(unittest.TestCase):
+    def test_start_rechecks_inherited_identity_before_creating_resources(self):
+        services = DockerServices(SETTINGS)
+        binding = {'daemon_id': 'verified', 'endpoint_sha256': '1' * 64}
+        for current in ({**binding, 'daemon_id': 'changed'}, {**binding, 'endpoint_sha256': '2' * 64}):
+            with self.subTest(current=current), patch.object(services, 'binding', return_value=current), \
+                    patch.object(services, 'command') as command:
+                with self.assertRaisesRegex(ServerSlotError, 'changed before server setup'):
+                    services.start({'docker_binding': binding})
+                command.assert_not_called()
+
     def test_absence_proof_checks_names_and_labels_without_mutations(self):
         services = DockerServices(SETTINGS)
         lease = {'docker_binding': {'daemon_id': 'fixture'}, 'project': 'farmbot-server-test',
