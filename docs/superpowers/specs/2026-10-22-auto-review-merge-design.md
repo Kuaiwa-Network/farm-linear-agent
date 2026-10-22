@@ -1,7 +1,8 @@
 # Auto-review and merge: design
 
 **Status: accepted, 2026-10-22; nothing implemented.** The operator accepted the decisions of §7 as
-recommended. Current behaviour is in
+recommended, then the same day amended D2 and the gate for farm-hive's pin of common (§1.1, G5, G6). Current
+behaviour is in
 [`docs/operating-contract.md`](../../operating-contract.md): workers publish draft PRs and never merge, and people
 merge.
 
@@ -29,6 +30,15 @@ The text names no card, person, host or ID, so it can go into the public reposit
   after checks pass.
 - **Multi-repository issues.** 56 of 100 issues touched two or more repositories, so one issue usually means
   several PRs that must land together [L].
+- **Cross-repository pin.** farm-hive keeps no copy of the designers' config tables. Its
+  `config/pb/toolchain.env` pins one common commit and a digest of that commit's tables, and farm-hive's CI and
+  release pipeline build from that commit, read from common's Git history. farm-hive's separate check
+  `designer-pin-merged` stays red until the pinned commit is on common's default branch, and turns green when
+  rerun after common merges. The pin file says common uses true merge commits, so a PR's commits become
+  ancestors of its default branch [L]. In a traced bot delivery, farm-hive pinned the first commit of the
+  issue's common PR. The PR then merged newer default-branch work, so its head's tables differed from the pin,
+  but only by other people's changes; the PR's own one-line table change was in the pin. People merged common
+  with a merge commit, the pin check turned green two minutes later, and farm-hive merged after it [L].
 - **No enforcement from GitHub.** The organisation's plan offers no branch protection, required checks or merge
   queue for these private repositories [L], and the default branches are unprotected (AGENTS.md). Whatever gate
   FarmBot applies is the only one.
@@ -84,6 +94,11 @@ work delivered (generation g, draft PRs at heads S)
                                       -> any gate fails: wait (pending checks) or needs a person
 ```
 
+**Timing.** Repository CI already runs on draft PRs; only the triage labeler skips them [L]. From the delivery
+on, CI, the review and the controller's deterministic risk rules (§4.3) run at the same time; those rules need
+only each PR's changed-file list. Only the merge gate waits, for a clean routine verdict and green checks on the
+same heads.
+
 ## 4. Design
 
 ### 4.1 Review worker
@@ -104,6 +119,8 @@ work delivered (generation g, draft PRs at heads S)
      addresses the cause, not the symptom.
   2. *Hunt.* Several independent finders (native subagents) read each diff against its whole repository and
      against the issue's other PRs: contract, server and client agree, and generated outputs were regenerated.
+     When farm-hive changes its common pin, the pinned commit must contain every table change the common PR
+     makes on top of the default branch; the pin's digest proves only the pinned commit's own content.
   3. *Verify.* Each candidate goes to at least two verifiers that did not find it. It survives only with a
      majority and file and line evidence. Style, diagnostic and cleanup-only findings are dropped.
   4. *Tag* each surviving finding Important, Nit or Pre-existing.
@@ -195,10 +212,20 @@ The controller merges the issue's PRs only when every condition holds at the mom
   repository's required checks (D3) then completed successfully on that head. While checks are
   pending the gate waits, up to a configured deadline (default 2 h); then the issue needs a person. A
   repository configured with no required checks relies on the worker's verification evidence, and the config
-  must say so explicitly.
+  must say so explicitly. A check that only waits for another repository's merge, such as farm-hive's
+  `designer-pin-merged`, is not required; the controller verifies its condition itself (G6).
 - **G6** PRs merge in dependency order (default: Farm-Contract, common, farm-hive, farmgui, Farm-Client). Each
   merge call passes the expected head SHA, which GitHub's merge endpoint accepts so that a moved head refuses the
-  merge, and uses the repository's configured method (D2).
+  merge, and uses the repository's configured method (D2). When a farm-hive PR changes the common pin:
+  - before merging anything, the controller checks that the pinned commit is one of the commits of the issue's
+    common PR, or is already on common's default branch when the issue has no common PR. Otherwise the issue
+    needs a person. Whether the pin carries all of the PR's own table changes is the reviewer's check (§4.1),
+    because a plain comparison of tables fails once the PR has merged newer default-branch work (§1.1);
+  - after merging common and before merging farm-hive, it confirms through GitHub that the pinned commit is now
+    an ancestor of common's default branch.
+
+  It neither reruns nor waits for `designer-pin-merged`. That check's result on the PR stays red from before
+  common merged; its run on every push to farm-hive's default branch confirms the pin again after the merge [L].
 - **G7** If a merge fails after earlier ones succeeded, the controller stops. It retries transient errors within
   the publication retry bounds; otherwise it reports the merged and unmerged PRs to a person. Merges across
   repositories cannot be atomic on GitHub [I].
@@ -255,27 +282,31 @@ model is kept only if it catches more of them without adding findings on PRs tha
 
 - `skills/review/SKILL.md`, `skills/review/skill.json`; `agent/skills.py` (trigger `delivery`);
   `agent/worker_dispatch.py` (review authority text).
-- `agent/review.py` (new): verdict validation, risk rules, the gate and the merge executor.
+- `agent/review.py` (new): verdict validation, risk rules, the gate with its pin checks, and the merge executor.
 - `agent/publication.py`: mark ready, read check runs and mergeability, merge with the expected SHA.
 - `agent/ledger.py`: tables, queueing a review after a delivered `work` finish, requeueing with findings.
 - `agent/__main__.py` (`review-verdict`), `agent/scheduler.py` (launch reviews, poll pending checks),
-  `agent/config.py` (the `auto_merge` block).
+  `agent/config.py` (the `auto_merge` block, with each repository's merge method, required checks and pin).
 - `skills/work/SKILL.md`, `references/single-worker-cli.md`: answering review findings.
 - `docs/operating-contract.md`: the controller's merge authority and its limits.
 - Tests: verdict validation; each gate condition failing alone; a head that moves between check and merge; a
-  partial multi-repository merge; the round cap; a person's message during review; the circuit breaker; shadow
-  mode never merging.
+  partial multi-repository merge; a pin outside the common PR; a common PR that merged newer default-branch work
+  after the pinned commit; a common merge that leaves the pin off common's default branch; the round cap; a
+  person's message during review; the circuit breaker; shadow mode never merging.
 
 ## 7. Decisions
 
 - **D1 Tiers.** Routine changes merge; high-risk changes go to a person. Settled by the operator on 2026-10-22,
   who added the same day that every AOT change is high risk (§4.3).
-- **D2 Merge method.** Recommend squash, one commit per PR. The operator's merges of bot PRs are already squash
-  in six of seven sampled [L].
+- **D2 Merge method.** Per repository. Squash, one commit per PR, by default: the operator's merges of bot PRs
+  are squash in six of seven sampled [L]. common always uses a merge commit, as the seventh sample did: farm-hive
+  pins a commit of the common PR, which only a merge commit makes an ancestor of common's default branch (§1.1,
+  G6). Settled with the operator on 2026-10-22.
 - **D3 Required checks.** Proposed from today's check names [L]: Farm-Client `dotnet-unit-tests` and
   `generated-artifact-platform-tests`; farm-hive `build`, both `native-checks` and `windows-devctl`;
   Farm-Contract and common their CI jobs; the triage labeler's `triage` where it runs. farmgui has no CI, so it
-  would rely on worker evidence.
+  would rely on worker evidence. farm-hive's `designer-pin-merged` is not required; the gate checks the pin
+  itself (G6).
 - **D4 Reviewer runtime.** Recommend the host's configured runtime, with a different model from the author's
   where the runtime allows.
 - **D5 Size backstop.** Recommend 1,500 changed hand-written lines.
