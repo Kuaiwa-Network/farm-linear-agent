@@ -140,13 +140,16 @@ def build(config, runtime_override=None, *, replay_legacy=False):
                    if config.server_slots else None)
     if server_pool:
         def prepare_integration(reservation):
-            if not server_pool.ready:
+            if not server_pool.ready or not server_pool.docker_binding:
                 raise ServerSlotError('server pool prerequisites unavailable')
             # Never share the server loop's SQLite connection with Unity hand-over.
             helper = ServerSlotPool(lambda: Ledger(paths.ledger), config.server_slots,
                 host=config.host, root=paths.server_slots, state_dir=launcher.state_dir,
                 quiescent=scheduler.resource_quiescent, admission=admission)
             try:
+                # Keep the startup-verified identity across the thread-local helper.
+                # DockerServices.start still checks the current daemon against it.
+                helper.docker_binding = dict(server_pool.docker_binding)
                 return helper.prepare_integration(reservation)
             finally:
                 helper.close()
