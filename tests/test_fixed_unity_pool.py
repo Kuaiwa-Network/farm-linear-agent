@@ -450,6 +450,31 @@ class FixedEditorPoolTests(SlotFixture):
         self.assertEqual(self.ledger.active_reservation(item)['reservation_id'], lease['reservation_id'])
         self.assertFalse(any(c[0]=='terminate' for c in self.mcp.calls))
 
+    def test_unsettled_servers_do_not_close_or_prevent_warming_unity(self):
+        from unittest.mock import patch
+        admission = ResourceAdmission({'max_reserved_mib':32768},
+                                      observe=lambda:{'available_mib':100000, 'commit_mib':100000})
+        pool = self.fixed_pool(1, admission=admission)
+        pool.ensure()
+        for index in (1,2):
+            name = 'server_slot:' + str(index)
+            self.ledger.ensure_slot(name, kind='server_slot', host='test', folder=str(self.root/name.replace(':','-')))
+            self.ledger.set_slot_state(name,'switching')
+        admission.server_resources['test'] = ('server_slot:1','server_slot:2')
+        waiting = [{'reservation_id':'waiting-server', 'kind':'server_slot'}]
+        # An actual queued Unity request keeps close_idle_for_memory on its normal path.
+        item = self.waiting(ISSUE, self.trees.head(self.origin), 'interactive')
+        with patch('agent.integration.server_pending', return_value=waiting):
+            admission.last_reason = 'memory pressure'
+            pool.close_idle_for_memory()
+            self.assertEqual(self.ledger.slot('unity_slot:1')['state'],'idle_open')
+            pool.close_editor(self.ledger.slot('unity_slot:1'))
+            pool.park('unity_slot:1','batch')
+            self.assertEqual(self.ledger.slot('unity_slot:1')['state'],'idle_closed')
+            self.assertEqual(pool.warm_editors(),1)
+            self.assertEqual(pool.grant(),1)
+        self.assertEqual(self.ledger.active_reservation(item)['resource'],'unity_slot:1')
+
     def test_unverified_idle_editor_is_held_without_termination(self):
         from unittest.mock import patch
         pool = self.fixed_pool(1)
@@ -457,6 +482,8 @@ class FixedEditorPoolTests(SlotFixture):
         self.waiting(ISSUE, self.trees.head(self.origin), 'interactive')
         pool.admission = ResourceAdmission({'unity_mib':8192, 'server_mib':8192, 'max_reserved_mib':13824},
                                           observe=lambda:{'available_mib':100000, 'commit_mib':100000})
+        self.ledger.ensure_slot('server_slot:1',kind='server_slot',host='test',folder=str(self.root/'server'))
+        pool.admission.server_resources['test'] = ('server_slot:1',)
         waiting = [{'reservation_id':'unleased-server', 'kind':'server_slot'}]
         for failure in (False, RuntimeError('MCP disconnected')):
             self.ledger.set_slot_state('unity_slot:1', 'idle_open')

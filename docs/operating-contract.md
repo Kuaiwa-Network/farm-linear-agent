@@ -222,6 +222,14 @@ retries. `no_change` deliveries list no PR and are unaffected. Legacy staged
 jobs keep their own delivery checks. No schema migration is involved; older
 code simply finishes without this check.
 
+A successful single-worker delivery atomically registers its verified `prs` in
+the existing `published_prs` table. Workers need not repeat that list under a
+special checkpoint key. Preflight, refused delivery and changed-input requeue
+register nothing. Registered output attachments are excluded from the issue's
+input fingerprint and remain owned after a restart or continuation; other PRs
+still appear in the foreign-work report. Arbitrary checkpoint `prs` or historical
+delivery prose is not a substitute for current publication verification.
+
 ## Approval-review capacity recovery
 
 When automatic approval review returns the complete `Selected model is at capacity`
@@ -271,8 +279,8 @@ For server tests, request services only when needed, using an explicit scoped
 package/test/race plan. The worker runs the actual commands against isolated
 loopback services. Local tests that need no services need no server reservation.
 Docker administration remains host-owned. Server cleanup retains the existing
-process-quiescence requirement; containers can remain reserved for cleanup until
-the worker exits. This release does not claim immediate container reuse.
+process-quiescence requirement; containers remain reserved for cleanup until
+the checkpointed server-release handoff exits and teardown is verified.
 Released or cancelled reservations from an older worker generation can settle
 after a finish/requeue handoff, including after controller restart. Cleanup still
 verifies the lease's exact Docker identities and ownership and waits for all
@@ -450,6 +458,29 @@ profile ownership and controller locking still apply. Rollback stops the new
 sweep but cannot restore regenerable data already deleted; preserved source and
 evidence remain available for rebuild/recovery.
 
+## Server release handoff
+
+A single worker stays alive while waiting for and using resources. Releasing
+server services, including a combined Client/server lease, is a process handoff:
+the worker first saves a current checkpoint with results, candidate SHAs, report
+paths and the next action in `handoff`. The authenticated release atomically
+releases the reservation and retires the claim, returning `worker_handoff: true`.
+The worker exits; the same issue resumes only after all-attempt teardown and
+server cleanup are verified. Generation, candidates, checkpoint and retry budgets
+remain intact. Unity-only releases do not retire the worker.
+
+Released services block relaunch of their owner until the pool recycles them;
+this also fences maintenance/retry/restart paths. A cancelled or withdrawn job
+is never requeued by release. Uncertain cleanup remains held for host recovery.
+Idle Unity Editors yield memory only when a configured server slot is available
+to use it. Held or unsettled server slots cannot indefinitely suppress Unity
+warmup or close a healthy idle Editor. Normal memory admission still applies.
+
+This adds no schema migration. The durable handoff audit and existing queued
+state survive restart. Settle handoffs and services before rolling back: older
+controllers do not enforce the new released-service relaunch fence. Deploy the
+matching controller, worker CLI and instructions together.
+
 ## Cooperative maintenance pause
 
 Maintenance blocks new worker/resource admission. Existing workers finish or
@@ -465,6 +496,22 @@ automatically. Resuming reuses retained worktrees and reports. If cleanup
 removed a checkout, controller-owned recovery refs retain unpublished commits
 and dirty work snapshots; a successor follows the same issue's certified
 predecessor chain, never silently starts over at newer main.
+
+Preservation also records each worktree's exact branch in the controller's
+`job_cleanup.result.branches`. A single-worker continuation restores that branch
+at its recovery commit, including an original collision suffix, instead of
+allocating another suffix. The branch must belong to the same issue, be free of
+another checkout, and still match the saved commit; a missing local branch can
+be recreated, but a moved branch or missing recovery ref requires reconciliation.
+No fetch, reset, history rewrite or automatic main merge is part of restoration.
+Cleanup checks both HEAD and branch before removing the saved worktree.
+
+These records add no schema migration. Older releases ignore the optional branch
+map and do not register PRs at finish, so rolling back loses these guarantees.
+Historical cleanup without a branch map retains its prior recovery behavior;
+already-created suffix branches and unregistered historical PRs are not silently
+reassigned from names or checkpoint text. Recover those with explicit host
+reconciliation and publication checks, preserving every candidate and report.
 
 The host may repeat `maintenance-resume --only-issue` for 1 to 32 distinct known
 issues. Selection is atomic and refuses live workers or acquired resources outside
@@ -500,8 +547,8 @@ both pins; uncertain setup holds resources and journals. The controller creates 
 read-only server snapshot during preparation; worker commands only validate it. A
 release never lifts a held server half, which waits for verified `recover-server-slot`,
 and Unity settlement continues meanwhile. Server cleanup still
-requires verified teardown of all worker attempts, including after release while
-the continuing worker lives. Settle pairs and preserve journals before rollback:
+requires verified teardown of all worker attempts; the checkpointed release
+handoff retires the continuing worker before reuse. Settle pairs and preserve journals before rollback:
 older code cannot interpret companion ownership. See [the reference](../references/client-server-integration.md).
 
 ### Existing execution contracts

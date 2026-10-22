@@ -94,6 +94,13 @@ tests and race selection. Use the returned loopback environment in your own
 subprocesses; stop them before release. Do not touch live services or administer
 Docker. Server containers remain owned by the host and are recycled only after
 it can establish process quiescence.
+Before releasing server services (including a combined lease), checkpoint the
+actual results, candidate SHAs, report paths and a `handoff` describing the next
+action. Successful release returns `worker_handoff: true` and retires the claim.
+Exit immediately, including during maintenance. The controller verifies all
+attempts exited, cleans the services and automatically resumes the same issue
+and saved progress. Do not renew, finish or request another resource after that
+response. Ordinary Unity-only releases keep the worker alive.
 
 If acceptance requires Client and Server candidates online together, follow
 [single Client/game-server verification](../../references/client-server-integration.md).
@@ -153,6 +160,8 @@ Review the final diff and required verification yourself. Use `verify-publicatio
 before pushing each exact issue branch or creating/updating its draft PR. Push the
 final commit and run `finish --check-ready` before posting the delivery. Publish
 a clear delivery with the PRs, behavior tested and limitations; then `finish`.
+Successful `finish` registers its verified PR list as this issue's own output for
+continuations. A checkpoint `prs` list alone is not publication ownership.
 FarmBot verifies ownership, destination, live claim, resource release, that each
 listed PR is this issue's open or merged PR at your worktree's current HEAD, and
 the confirmed delivery comment, not a second semantic acceptance matrix. Do not

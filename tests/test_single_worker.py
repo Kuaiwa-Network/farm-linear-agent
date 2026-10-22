@@ -381,7 +381,7 @@ class SingleWorkerTests(LedgerBase):
         action = self.ledger.prepare_comment(self.key, self.token, 'delivery', 'Delivered ' + PR)
         self.ledger.confirm_comment(action['action_id'], 'remote-comment')
         report['comment_action_id'] = action['action_id']
-        result = self.ledger.finish(self.key, self.token, 'delivered', report)
+        result = self.ledger.finish(self.key, self.token, 'delivered', report, verified_prs=[PR])
         self.assertEqual(result['state'], 'delivered')
         self.assertEqual(result['evidence']['verification'], report['verification'])
 
@@ -393,7 +393,7 @@ class SingleWorkerTests(LedgerBase):
             self.ledger.finish(self.key, self.token, 'delivered', report)
         self.ledger.release(grant['reservation_id'], grant['token'], 'worker reported quiescent')
         with self.assertRaisesRegex(LedgerError, 'confirmed comment'):
-            self.ledger.finish(self.key, self.token, 'delivered', report)
+            self.ledger.finish(self.key, self.token, 'delivered', report, verified_prs=[PR])
 
     def finish_command(self, report, *options):
         from agent.__main__ import parser, run
@@ -428,11 +428,61 @@ class SingleWorkerTests(LedgerBase):
             self.assertEqual((args.item, token, item['id'], urls), (self.key, self.token, self.key, [PR]))
         self.assertEqual(self.ledger.item(self.key)['state'], 'running')
         self.assertFalse(self.in_review_requested())
+        self.assertEqual(self.ledger.issue_context(self.key)['published_prs'], [])
         with patch('agent.__main__.verify_delivered_prs') as verify:
             self.assertTrue(self.finish_command(report, '--check-ready')['local_completion_checked'])
+            self.assertEqual(self.ledger.issue_context(self.key)['published_prs'], [])
             self.assertEqual(self.finish_command(report)['state'], 'delivered')
         self.assertEqual(verify.call_count, 2)
         self.assertTrue(self.in_review_requested())
+        self.assertEqual(self.ledger.issue_context(self.key)['published_prs'], [PR])
+
+    def test_delivery_registration_is_atomic_and_requires_verified_prs(self):
+        self.claim_owner()
+        action = self.ledger.prepare_comment(self.key, self.token, 'delivery', 'Delivered ' + PR)
+        report = {'summary': 'Done', 'verification': 'Passed', 'prs': [PR], 'comment_action_id': action['action_id']}
+        with self.assertRaisesRegex(LedgerError, 'publication verification'):
+            self.ledger.finish(self.key, self.token, 'delivered', report)
+        with self.assertRaisesRegex(LedgerError, 'confirmed comment'):
+            self.ledger.finish(self.key, self.token, 'delivered', report, verified_prs=[PR])
+        self.assertEqual(self.ledger.issue_context(self.key)['published_prs'], [])
+        self.ledger.confirm_comment(action['action_id'], 'remote-comment')
+        self.ledger.observe_issue(issue(description='new human requirements'))
+        result = self.ledger.finish(self.key, self.token, 'delivered', report, verified_prs=[PR])
+        self.assertEqual(result['state'], 'queued')
+        self.assertEqual(self.ledger.issue_context(self.key)['published_prs'], [])
+
+    def test_recovery_branch_record_cannot_select_another_issue_or_default_branch(self):
+        self.owner()
+        scheduler = self.scheduler()
+        for branch in ('main', 'farmbot/farm-2'):
+            self.ledger.connection.execute(
+                'INSERT OR REPLACE INTO job_cleanup(item_id,result,updated_at) VALUES(?,?,?)',
+                (self.key, json.dumps({'branches': {'Farm-Contract': branch}}), self.now))
+            with self.subTest(branch=branch), self.assertRaisesRegex(LedgerError, 'different issue'):
+                scheduler._worktrees_for(skill_for(self.item, SKILLS['work']), self.item, self.ledger.issue(ISSUE))
+        self.assertEqual(self.trees.added, [])
+
+    def test_delivery_registers_attached_output_without_hiding_other_foreign_work(self):
+        from agent.foreign_work import foreign_work
+        other = 'https://github.com/example-org/Farm-Client/pull/999'
+        self.claim_owner(attachments=[PR, other])
+        self.ledger.checkpoint(self.key, self.token, {'summary': 'Completed', 'prs': [PR], 'handoff': 'Deliver'})
+        action = self.ledger.prepare_comment(self.key, self.token, 'delivery', 'Delivered ' + PR)
+        self.ledger.confirm_comment(action['action_id'], 'remote-comment')
+        report = {'summary': 'Done', 'verification': 'Passed', 'prs': [PR], 'comment_action_id': action['action_id']}
+        with patch('agent.__main__.verify_delivered_prs'):
+            self.finish_command(report)
+        before = self.ledger.issue_context(self.key)['fingerprint']
+        self.ledger.observe_issue(issue(attachments=[PR, other]))
+        self.assertEqual(self.ledger.issue_context(self.key)['fingerprint'], before)
+        self.ledger.retry(self.key, 'repair conflicts')
+        with patch('agent.foreign_work.search_prs', return_value=[]), \
+                patch('agent.foreign_work.remote_branches', return_value=[]):
+            result = foreign_work(self.ledger, self.key, {'Farm-Client': 'https://github.com/example-org/Farm-Client.git'},
+                                  Path(self.tmp.name))
+        self.assertEqual(result['own']['prs'], [PR])
+        self.assertEqual([pr['url'] for pr in result['foreign']['prs']], [other])
 
     def test_no_change_delivery_has_no_pr_to_verify(self):
         self.claim_owner()
@@ -497,7 +547,7 @@ class SingleWorkerTests(LedgerBase):
         with self.assertRaisesRegex(LedgerError, 'actual human question'):
             self.ledger.finish(self.key, self.token, 'delivered', report)
         self.ledger.resolve_question(self.key, self.token, question['id'], [mid])
-        self.assertEqual(self.ledger.finish(self.key, self.token, 'delivered', report)['state'], 'delivered')
+        self.assertEqual(self.ledger.finish(self.key, self.token, 'delivered', report, verified_prs=[PR])['state'], 'delivered')
 
     def test_stop_during_preparation_revokes_readiness_and_preserves_evidence(self):
         self.claim_owner()

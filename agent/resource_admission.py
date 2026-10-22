@@ -121,6 +121,13 @@ class ResourceAdmission:
         tier = profile(reservation["server_test_plan"]) if reservation.get("server_test_plan") else "full"
         return self.settings[{"focused": "server_focused_mib", "targeted": "server_targeted_mib", "full": "server_mib"}[tier]]
 
+    def server_capacity_available(self, ledger, host):
+        """Reclaiming an Editor cannot help a disabled, held or unsettled server pool."""
+        configured = self.server_resources.get(host, ())
+        return any(slot['slot_id'] in configured and slot['state'] == 'idle_closed'
+                   and ledger.active_reservation_on(slot['slot_id']) is None
+                   for slot in ledger.slots(kind='server_slot', host=host))
+
     def assess(self, ledger, host, extra, *, kind=None):
         """Same numbers for admission and display; existing leases retain their actual tier cost."""
         active = {r["resource"]: r for r in ledger.reservations(states=("active", "cancel_requested")) if r["host"] == host}

@@ -40,7 +40,7 @@ parking or finish, and checkpoints their work. No FarmBot child task is created.
 | `unity-tool` | `--name NAME --input FILE`: JSON object arguments, bound to the reserved instance; raw MCP result. |
 | `unity-test-result` | `--job-id ID`: read a retained test report in the owned instance, including failed jobs whose normal response has `result=null`. Save stdout privately. No test launch or release. |
 | `unity-read` | `--uri URI`: read a resource from the reserved Unity instance. |
-| `release-resource` | **Use the reservation token file returned by resource-status**, not the claim token. `--outcome quiescent\|unclean`. |
+| `release-resource` | **Use the reservation token file returned by resource-status**, not the claim token. `--outcome quiescent\|unclean`. Before server/combined release, save a current checkpoint with results and `handoff`; exit immediately on `worker_handoff: true`. The controller cleans services after verified teardown and resumes the same issue. |
 | `publish-ui` | `--packages FILE`: JSON package name/ID map; native export into private staging, no Client installation. |
 | `prepare-go-dependencies` | `--repo REPO --module MODULE --commit SHA`; inspect `go-dependencies --request-id ID`. |
 | `verify-publication` | `--repo REPO`: fresh exact destination/branch/private-repository check before publishing. |
@@ -97,6 +97,9 @@ Each listed PR is checked on GitHub: this issue's branch in its owned worktree,
 head at that worktree's current HEAD, and open (draft or marked ready) or merged.
 Push the final commit, then run `finish --check-ready` before posting the
 delivery comment, so a wrong number or stale head is fixed before anyone reads it.
+Successful delivery registers these verified PRs as the issue's own output for
+later continuations and foreign-work checks. `--check-ready` does not register
+ownership. A checkpoint `prs` list alone does not register or authorize a PR.
 
 Use `no_change` with a concrete reason instead of PRs when no code change is
 needed. A finish is FarmBot delivery, not a merge, deployment or Linear Done.

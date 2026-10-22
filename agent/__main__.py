@@ -1343,8 +1343,8 @@ def run(args, ledger, api_factory):
                         "next_action": "checkpoint and park or fail, then exit; verified server slot recovery is required"}
             return {"state": "recovery_queued", "reservation": held, "item": ledger.item(args.item),
                     "next_action": "exit; the controller will recover Unity and resume the saved job"}
-        ledger.release(reservation["reservation_id"], token, "worker reported quiescent")
-        return ledger.reservation(reservation["reservation_id"])
+        from .resource_handoff import release
+        return release(ledger, reservation["reservation_id"], token)
     if c == "withdraw":
         # A worker ends its own withdrawn work (withdrawn-work design P2, A10): its checkpoint is saved, and the job
         # ends cancelled, so a later delegation continues it from the plan. It needs a flag, or a fresh read that
@@ -1400,8 +1400,10 @@ def run(args, ledger, api_factory):
             return {'input_valid': True, 'completion_checked': False,
                     'maintenance_requested': item['maintenance_requested'],
                     'next': 'Complete live gates and confirmed delivery, then run finish without --check-input.'}
+        verified_prs = ()
         if single(item) and item['skill'] in WRITE_SKILLS and args.outcome == 'delivered' and evidence.get('prs'):
             verify_delivered_prs(ledger, args, token, item, evidence['prs'])
+            verified_prs = tuple(evidence['prs'])
         if item['skill'] == 'work' and args.outcome == 'delivered' and not single(item):
             from .presentation_artifacts import verify_parent_head
             from .workflow import task_views
@@ -1411,7 +1413,7 @@ def run(args, ledger, api_factory):
                     raise LedgerError('parent integration delivery must use the configured host ledger')
                 verify_parent_head(ledger, item, config)
         if args.check_ready:
-            return {**ledger.finish(args.item, token, args.outcome, evidence, check_only=True),
+            return {**ledger.finish(args.item, token, args.outcome, evidence, check_only=True, verified_prs=verified_prs),
                     'maintenance_requested': item['maintenance_requested']}
         if item["skill"] == "fgui" and args.outcome == "delivered" and not evidence.get("no_change"):
             from .fgui_workflow import UiWorkflow
@@ -1443,7 +1445,7 @@ def run(args, ledger, api_factory):
                 raise LedgerError("UI no-change delivery must use the configured host ledger")
             evidence["ui_no_change_id"] = verify_no_change(ledger, args.item, token, config, api_factory,
                                                           evidence["no_change"])["delivery_id"]
-        view = ledger.finish(args.item, token, args.outcome, evidence)
+        view = ledger.finish(args.item, token, args.outcome, evidence, verified_prs=verified_prs)
         if item.get("parent_id") and view["state"] in ("delivered", "blocked"):
             task_progress(ledger, api_factory, view,
                           f"[{item['task_key']}] {evidence['summary']}；本 issue 的整体验证和交付由主任务继续。")

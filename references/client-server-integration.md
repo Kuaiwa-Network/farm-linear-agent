@@ -59,8 +59,11 @@ Stop, claim revocation, startup failure, Client failure and deadlines stop both
 command trees. Shared Unity stays outside worker containment. Uncertain cleanup
 requires preserved evidence and an unclean release. Never reuse a numeric PID to
 kill an unknown process. Settle Unity, checkpoint, release the single reservation
-before delivery or human waits; Docker cleanup waits for all worker attempts'
-verified teardown.
+before delivery or human waits. Include results, both SHAs, report paths and the
+next action in the checkpoint's `handoff`. On `worker_handoff: true`, exit
+immediately: the claim is retired. Docker cleanup waits for all worker attempts'
+verified teardown, then the controller automatically resumes this issue and its
+checkpoint. Do not attempt delivery or another resource request with the retired claim.
 
 ## Upgrade and recovery
 
