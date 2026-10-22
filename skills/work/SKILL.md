@@ -153,6 +153,8 @@ Review the final diff and required verification yourself. Use `verify-publicatio
 before pushing each exact issue branch or creating/updating its draft PR. Push the
 final commit and run `finish --check-ready` before posting the delivery. Publish
 a clear delivery with the PRs, behavior tested and limitations; then `finish`.
+Successful `finish` registers its verified PR list as this issue's own output for
+continuations. A checkpoint `prs` list alone is not publication ownership.
 FarmBot verifies ownership, destination, live claim, resource release, that each
 listed PR is this issue's open or merged PR at your worktree's current HEAD, and
 the confirmed delivery comment, not a second semantic acceptance matrix. Do not

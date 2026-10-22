@@ -401,6 +401,77 @@ class WorktreeTests(unittest.TestCase):
                     branch = git("branch", "--show-current", cwd=path)
                     self.assertEqual(bool(branch), not readonly)
 
+    def test_recorded_recovery_keeps_exact_branch_and_commit_across_repeated_cleanup(self):
+        self.trees.worktrees_root = Path(self.tmp.name) / '恢复 工作目录'
+        branch = 'farmbot/farm-1-荣誉墙'
+        path = self.trees.add('Farm-Client', 'writer', branch)
+        for attempt in range(2):
+            (path / 'fix.txt').write_text(f'candidate {attempt}', encoding='utf-8')
+            saved = self.trees.preserve('writer')
+            self.assertEqual(saved['branches'], {'Farm-Client': branch})
+            self.trees.remove_preserved('writer', saved)
+            # Changing the suggested branch/title or advancing main must not change the retained destination.
+            git('commit', '--allow-empty', '-qm', 'main advances', cwd=self.origin)
+            with patch.object(self.trees, 'fetch', side_effect=AssertionError('recovery must not fetch')):
+                path = self.trees.add('Farm-Client', 'writer', 'farmbot/farm-1-renamed',
+                                     recovery_branches={'writer': saved['branches']['Farm-Client']})
+            self.assertEqual(git('branch', '--show-current', cwd=path), branch)
+            self.assertEqual(self.trees.head(path), saved['committed']['Farm-Client'])
+            self.assertEqual((path / 'fix.txt').read_text(encoding='utf-8'), f'candidate {attempt}')
+
+    def test_recorded_recovery_keeps_an_original_collision_suffix_and_predecessor_owner(self):
+        other = self.trees.add('Farm-Client', 'other', 'farmbot/farm-1')
+        path = self.trees.add('Farm-Client', 'writer', 'farmbot/farm-1')
+        branch = git('branch', '--show-current', cwd=path)
+        self.assertEqual(branch, 'farmbot/farm-1-writer')
+        saved = self.trees.preserve('writer')
+        self.trees.remove_preserved('writer', saved)
+        path = self.trees.add('Farm-Client', 'successor', 'farmbot/farm-1', recovery_from=['writer'],
+                             recovery_branches={'writer': branch})
+        self.assertEqual(git('branch', '--show-current', cwd=path), branch)
+        self.assertEqual(git('branch', '--show-current', cwd=other), 'farmbot/farm-1')
+
+    def test_recorded_recovery_recreates_a_missing_local_branch_at_saved_commit(self):
+        branch = 'farmbot/farm-1'
+        self.trees.add('Farm-Client', 'writer', branch)
+        saved = self.trees.preserve('writer')
+        self.trees.remove_preserved('writer', saved)
+        git('branch', '-D', branch, cwd=self.trees.clone_path('Farm-Client'))
+        path = self.trees.add('Farm-Client', 'writer', branch, recovery_branches={'writer': branch})
+        self.assertEqual(git('branch', '--show-current', cwd=path), branch)
+        self.assertEqual(self.trees.head(path), saved['committed']['Farm-Client'])
+
+    def test_recorded_recovery_refuses_occupied_or_moved_branch_and_missing_recovery(self):
+        branch = 'farmbot/farm-1'
+        self.trees.add('Farm-Client', 'writer', branch)
+        saved = self.trees.preserve('writer')
+        self.trees.remove_preserved('writer', saved)
+        clone = self.trees.clone_path('Farm-Client')
+        held = self.trees.add('Farm-Client', 'other', branch, attach=True)
+        with self.assertRaisesRegex(WorktreeError, 'checked out'):
+            self.trees.add('Farm-Client', 'writer', branch, recovery_branches={'writer': branch})
+        self.assertTrue(held.exists())
+        self.trees.remove('other')
+        git('commit', '--allow-empty', '-qm', 'main advances', cwd=self.origin)
+        self.trees.fetch('Farm-Client')
+        moved = self.trees.head(self.origin)
+        git('update-ref', 'refs/heads/' + branch, moved, cwd=clone)
+        with self.assertRaisesRegex(WorktreeError, 'moved away'):
+            self.trees.add('Farm-Client', 'writer', branch, recovery_branches={'writer': branch})
+        self.assertEqual(git('rev-parse', 'refs/heads/' + branch, cwd=clone), moved)
+        self.assertEqual(git('rev-parse', saved['refs']['Farm-Client'], cwd=clone), saved['committed']['Farm-Client'])
+        git('update-ref', '-d', saved['refs']['Farm-Client'], cwd=clone)
+        with self.assertRaisesRegex(WorktreeError, 'no recovery commit'):
+            self.trees.add('Farm-Client', 'writer', branch, recovery_branches={'writer': branch})
+
+    def test_removal_refuses_branch_rename_after_preservation(self):
+        path = self.trees.add('Farm-Client', 'writer', 'farmbot/farm-1')
+        saved = self.trees.preserve('writer')
+        git('branch', '-m', 'farmbot/farm-1-renamed', cwd=path)
+        with self.assertRaisesRegex(WorktreeError, 'branch changed'):
+            self.trees.remove_preserved('writer', saved)
+        self.assertTrue(path.exists())
+
     def test_recovery_does_not_replace_an_existing_worktree(self):
         for readonly in (False, True):
             item = "readonly" if readonly else "writer"

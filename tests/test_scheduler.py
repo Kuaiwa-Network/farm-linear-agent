@@ -166,7 +166,7 @@ class FakeWorktrees:
         clone = self.clone_path(repo)
         return [clone / "objects", clone / "refs", clone / "logs", clone / "lfs", clone / "worktrees" / Path(path).name]
 
-    def add(self, repo, item_id, branch, attach=False, *, refresh=True, recovery_from=()):
+    def add(self, repo, item_id, branch, attach=False, *, refresh=True, recovery_from=(), recovery_branches=None):
         if self.fail_on == (repo, item_id):
             raise RuntimeError("boom")
         path = self.root / item_id / repo

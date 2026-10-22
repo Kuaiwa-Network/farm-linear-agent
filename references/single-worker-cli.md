@@ -97,6 +97,9 @@ Each listed PR is checked on GitHub: this issue's branch in its owned worktree,
 head at that worktree's current HEAD, and open (draft or marked ready) or merged.
 Push the final commit, then run `finish --check-ready` before posting the
 delivery comment, so a wrong number or stale head is fixed before anyone reads it.
+Successful delivery registers these verified PRs as the issue's own output for
+later continuations and foreign-work checks. `--check-ready` does not register
+ownership. A checkpoint `prs` list alone does not register or authorize a PR.
 
 Use `no_change` with a concrete reason instead of PRs when no code change is
 needed. A finish is FarmBot delivery, not a merge, deployment or Linear Done.

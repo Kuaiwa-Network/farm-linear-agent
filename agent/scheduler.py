@@ -17,7 +17,7 @@ from .startup_recovery import StartupRecovery
 from .kw_ops import SERVER as KW_OPS_SERVER, resolve as resolve_kw_ops
 from .lark_cli import tools as lark_tools
 from .memory import publish_snapshot
-from .publication import SUFFIXES, issue_branch, suffix_of
+from .publication import SUFFIXES, is_issue_branch, issue_branch, suffix_of
 from .stages import COORDINATION_ROOT, current_root, runtime_can_launch, write_repositories
 from .withdrawal import NOTICE_REASONS, notice as withdrawal_notice
 from .worktrees import VerificationMismatch
@@ -106,9 +106,16 @@ class Scheduler:
                 recovery.append(previous)
                 previous = prior.get('predecessor_id')
             for repo in skill.writes:
+                recovery_branches = {}
+                for owner in (item['id'], *recovery):
+                    saved = (self.ledger.cleanup_record(owner) or {}).get('result', {}).get('branches', {})
+                    if repo in saved:
+                        if not is_issue_branch(saved[repo], issue['identifier'], self.issue_prefix):
+                            raise LedgerError('preserved branch belongs to a different issue')
+                        recovery_branches[owner] = saved[repo]
                 paths[repo] = self.worktrees.add(repo, item['id'], branch,
                                                 refresh=not bool(item['publication_retries'] or item['capacity_retries'] or item['startup_retries']),
-                                                recovery_from=recovery)
+                                                recovery_from=recovery, recovery_branches=recovery_branches)
             return paths
         if item.get('root_repo') == COORDINATION_ROOT and skill.name == 'work':
             return paths  # Message routing must not fetch or alter retained candidates.
@@ -860,8 +867,8 @@ class Scheduler:
                     raise RuntimeError("presentation task teardown is not yet certified")
             saved = self.worktrees.preserve(item_id)
             # A prior removal may have succeeded for only some repositories. Keep their manifest.
-            for key in ("committed", "refs"):
-                result[key] = {**result.get(key, {}), **saved[key]}
+            for key in ("committed", "refs", "branches"):
+                result[key] = {**result.get(key, {}), **saved.get(key, {})}
             snapshots = result.setdefault("snapshots", {})
             for repo, refs in saved.get("snapshots", {}).items():
                 snapshots[repo] = {**snapshots.get(repo, {}), **refs}

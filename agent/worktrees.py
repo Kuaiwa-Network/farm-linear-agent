@@ -516,7 +516,7 @@ class Worktrees:
             _git("branch", "--quiet", f"--set-upstream-to=origin/{branch}", branch, cwd=clone)
         return path
 
-    def add(self, repo, item_id, branch, *, refresh=True, attach=False, recovery_from=()):
+    def add(self, repo, item_id, branch, *, refresh=True, attach=False, recovery_from=(), recovery_branches=None):
         """The item's write worktree of `repo` on `branch`; an existing one is returned as it is.
 
         By default a new worktree restarts at the item's recovery commit when cleanup preserved one, else tracks
@@ -525,6 +525,9 @@ class Worktrees:
 
         `attach` is for the issue branch a job's plan records (spec §5.7 "Re-attachment"): the worktree checks out
         that branch itself, never a copy under another name, after a fetch. See `_attach`.
+
+        `recovery_branches` contains controller preservation records, keyed by recovery owner. Restore that
+        owner's exact branch and commit together; a name collision without that evidence still gets a suffix.
         """
         if not branch or not SAFE_BRANCH.match(branch) or branch.startswith("-"):
             raise WorktreeError("unsafe branch name")
@@ -536,15 +539,20 @@ class Worktrees:
         clone = self.ensure_clone(repo)
         if attach:
             return self._attach(repo, clone, path, branch)
-        recovery = self._recovery_commit(clone, self._recovery_ref(item_id)) if not path.exists() else None
-        if not path.exists() and not recovery:
+        recovery = None
+        if not path.exists():
             # Only the controller supplies predecessor IDs from the retained
             # ledger chain. Read fixed recovery refs, never worker-provided SHAs.
-            for previous in recovery_from:
-                recovery = self._recovery_commit(clone, self._recovery_ref(previous))
+            for recovery_owner in (item_id, *recovery_from):
+                recovery = self._recovery_commit(clone, self._recovery_ref(recovery_owner))
                 if recovery:
                     break
+                if recovery_owner in (recovery_branches or {}):
+                    raise WorktreeError('preserved branch has no recovery commit')
         if recovery:
+            recorded = (recovery_branches or {}).get(recovery_owner)
+            if recorded is not None:
+                return self._restore_branch(clone, path, recorded, recovery)
             path.parent.mkdir(parents=True, exist_ok=True)
             local_branches = set(_git("for-each-ref", "--format=%(refname:short)", "refs/heads", cwd=clone).splitlines())
             name = branch if branch not in local_branches else f"{branch}-{item_id}"
@@ -561,6 +569,24 @@ class Worktrees:
         else:
             name = branch if branch not in local_branches else f"{branch}-{item_id}"
             _git("worktree", "add", "--quiet", "-b", name, str(path), f"origin/{self.default_branch(repo)}", cwd=clone)
+        return path
+
+    def _restore_branch(self, clone, path, branch, recovery):
+        """Reattach only a controller-recorded branch at its preserved commit. Never reset an occupied or moved ref."""
+        if not isinstance(branch, str) or not SAFE_BRANCH.fullmatch(branch) or branch.startswith('-'):
+            raise WorktreeError('invalid preserved branch')
+        _git('check-ref-format', '--branch', branch, cwd=clone)
+        ref = 'refs/heads/' + branch
+        local = self._ref_commit(clone, ref)
+        if self._checked_out(clone, ref):
+            raise WorktreeError('preserved branch is checked out in another worktree')
+        if local is not None and local != recovery:
+            raise WorktreeError('preserved branch moved away from its recovery commit; retain both for reconciliation')
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if local is None:
+            _git('worktree', 'add', '--quiet', '-b', branch, str(path), recovery, cwd=clone)
+        else:
+            _git('worktree', 'add', '--quiet', str(path), branch, cwd=clone)
         return path
 
     def _attach(self, repo, clone, path, branch):
@@ -848,6 +874,7 @@ class Worktrees:
         report = self.commit_wip(item_id, f"wip({item_id[:8]}): preserve ended work")
         report["refs"] = {}
         report["snapshots"] = {}
+        report["branches"] = {}
         for path in paths:
             try:
                 sha = self.head(path)
@@ -867,6 +894,9 @@ class Worktrees:
                 _git("update-ref", ref, sha, previous or "0" * 40, cwd=clone)
                 report["committed"][path.name] = sha
                 report["refs"][path.name] = ref
+                branch = self.git_in(path, 'branch', '--show-current')
+                if branch:
+                    report['branches'][path.name] = branch
                 report["snapshots"][path.name] = dict(line.split(" ", 1) for line in
                     _git("for-each-ref", "--format=%(objectname) %(refname)", history, cwd=clone).splitlines())
             except (WorktreeError, subprocess.SubprocessError, OSError) as exc:
@@ -887,6 +917,9 @@ class Worktrees:
                 raise WorktreeError("recovery ref no longer matches")
             if self.git_in(path, "status", "--porcelain=v1"):
                 raise WorktreeError("worktree changed after preservation")
+            branch = evidence.get('branches', {}).get(path.name)
+            if branch is not None and self.git_in(path, 'branch', '--show-current') != branch:
+                raise WorktreeError('worktree branch changed after preservation')
         for path in paths:
             # No --force: Git performs its own final dirty-worktree check.
             _git("worktree", "remove", str(path), cwd=self._clone(path.name))

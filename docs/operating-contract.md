@@ -222,6 +222,14 @@ retries. `no_change` deliveries list no PR and are unaffected. Legacy staged
 jobs keep their own delivery checks. No schema migration is involved; older
 code simply finishes without this check.
 
+A successful single-worker delivery atomically registers its verified `prs` in
+the existing `published_prs` table. Workers need not repeat that list under a
+special checkpoint key. Preflight, refused delivery and changed-input requeue
+register nothing. Registered output attachments are excluded from the issue's
+input fingerprint and remain owned after a restart or continuation; other PRs
+still appear in the foreign-work report. Arbitrary checkpoint `prs` or historical
+delivery prose is not a substitute for current publication verification.
+
 ## Approval-review capacity recovery
 
 When automatic approval review returns the complete `Selected model is at capacity`
@@ -465,6 +473,22 @@ automatically. Resuming reuses retained worktrees and reports. If cleanup
 removed a checkout, controller-owned recovery refs retain unpublished commits
 and dirty work snapshots; a successor follows the same issue's certified
 predecessor chain, never silently starts over at newer main.
+
+Preservation also records each worktree's exact branch in the controller's
+`job_cleanup.result.branches`. A single-worker continuation restores that branch
+at its recovery commit, including an original collision suffix, instead of
+allocating another suffix. The branch must belong to the same issue, be free of
+another checkout, and still match the saved commit; a missing local branch can
+be recreated, but a moved branch or missing recovery ref requires reconciliation.
+No fetch, reset, history rewrite or automatic main merge is part of restoration.
+Cleanup checks both HEAD and branch before removing the saved worktree.
+
+These records add no schema migration. Older releases ignore the optional branch
+map and do not register PRs at finish, so rolling back loses these guarantees.
+Historical cleanup without a branch map retains its prior recovery behavior;
+already-created suffix branches and unregistered historical PRs are not silently
+reassigned from names or checkpoint text. Recover those with explicit host
+reconciliation and publication checks, preserving every candidate and report.
 
 The host may repeat `maintenance-resume --only-issue` for 1 to 32 distinct known
 issues. Selection is atomic and refuses live workers or acquired resources outside

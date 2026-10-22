@@ -3590,7 +3590,7 @@ class Ledger:
         if evidence.get('comment_action_id') is not None:
             _text(evidence['comment_action_id'], 'comment_action_id')
 
-    def finish(self, item_id, token, outcome, evidence, *, check_only=False):
+    def finish(self, item_id, token, outcome, evidence, *, check_only=False, verified_prs=()):
         if outcome not in ("blocked", "delivered"):
             raise LedgerError("outcome must be blocked or delivered")
         if not isinstance(evidence, dict):
@@ -3610,6 +3610,9 @@ class Ledger:
                 self.require_no_reservation(item_id)
                 if outcome == 'delivered' and self.human_question(item_id):
                     raise LedgerError('resolve the actual human question before delivery')
+                self.validate_finish_input(item_id, token, outcome, evidence)
+                if outcome == 'delivered' and set(evidence.get('prs') or []) - set(verified_prs):
+                    raise LedgerError('delivery PRs require current publication verification')
             if not single(row) and row['skill'] in ('work', 'feature') and outcome == 'delivered':
                 from .closing import validate_deferred_archive
                 try:
@@ -3760,6 +3763,20 @@ class Ledger:
             self._set_state(row["id"], state, evidence["summary"], token=None, lease_expires_at=None, worker_pid=None,
                             evidence=_json(evidence), generation=row["generation"] + int(state == "queued"))
             if state == 'delivered':
+                if single(row) and evidence.get('prs'):
+                    # The CLI verified all of these destinations and heads. Commit ownership with the delivery,
+                    # never on a preflight, refused finish or changed-input requeue. Checkpoint prose is not proof.
+                    known = {r['url'] for r in self.connection.execute(
+                        'SELECT url FROM published_prs WHERE issue_id=?', (row['issue_id'],))}
+                    for url in sorted(set(evidence['prs']) - known):
+                        self.connection.execute('INSERT INTO published_prs(issue_id,url,generation,created_at) VALUES(?,?,?,?)',
+                                                (row['issue_id'], url, row['generation'], self.clock()))
+                        self._audit(row['id'], 'published_pr', 'verified delivery', {'url': url})
+                    # Output attachments no longer count as new issue input. Recompute only after the existing
+                    # input fence passed; real human changes must still requeue rather than disappear here.
+                    issue = json.loads(self._issue_row(row['issue_id'])['metadata'])
+                    fingerprint = _fingerprint(issue, self._own_bodies(row['issue_id']), known | set(evidence['prs']))
+                    self.connection.execute('UPDATE issues SET fingerprint=? WHERE id=?', (fingerprint, row['issue_id']))
                 request_workflow_update(self, self._row(row['id']), 'In Review')
             return self._view(self._row(row["id"]))
 
