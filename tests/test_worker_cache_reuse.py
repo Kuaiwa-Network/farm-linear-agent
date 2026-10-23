@@ -15,7 +15,7 @@ class CacheReuseTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix='cache 空间 ')
         self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        self.root = Path(temp.name).resolve()
         code = 'import json,os; print(json.dumps(dict((k,os.environ[k]) for k in ("GOCACHE","GOTMPDIR","FARMBOT_BUILD_ROOT"))))'
         self.launcher = Launcher(self.root/'runs', RUNTIMES['fake']._replace(command=[sys.executable,'-c',code]), 'test')
 

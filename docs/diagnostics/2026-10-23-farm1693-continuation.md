@@ -198,3 +198,17 @@ After these corrections, a native Windows run of cache reuse, cache retention,
 Windows worker containment and the combined-resource CLI journey passed all
 41 cases with no failures, errors or skips. Private results are retained as
 `.local/validation/review-fix.log` and `.json`.
+
+The corrected-head macOS run `39971639156` completed 3,399 cases with two failures,
+four errors and 105 skips. Startup recovered; the remaining failures exposed test
+fixtures that reaped children before the launcher could prove POSIX teardown,
+expected the old PID-only launch record, or passed an unresolved `/var` temporary
+path to strict retention. Those fixtures now observe completion through the
+launcher, verify the added timing fields and use the canonical temporary root.
+The runtime teardown and retention guards remain unchanged. A focused native
+Windows rerun discovered 60 cases: 59 passed and the POSIX FIFO case was skipped.
+Its commands use the same module discovery above for `test_config_propagation.py`,
+`test_worker_models.py`, `test_worker_cache_reuse.py`, `test_worker_retention.py`
+and `test_windows_workers.py`, plus the specific FIFO launch-record case in
+`test_launcher.py`. Results are in `.local/validation/macos-fixture-fix.log` and
+`.json`; this does not replace the pending macOS CI verification.

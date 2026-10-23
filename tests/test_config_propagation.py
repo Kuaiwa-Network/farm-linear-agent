@@ -8,6 +8,7 @@ import plistlib
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -69,8 +70,11 @@ class ConfigPropagationTests(unittest.TestCase):
     def launch_probe(self, components, item):
         handle = components.scheduler.launch(item)
         self.assertIsNotNone(handle)
-        handle.process.wait(timeout=15)
-        finished = components.launcher.poll()
+        # Let the launcher prove POSIX session teardown before it reaps the child.
+        deadline = time.monotonic() + 15
+        while not (finished := components.launcher.poll()):
+            self.assertLess(time.monotonic(), deadline, 'owned worker did not settle')
+            time.sleep(.02)
         self.assertEqual(len(finished), 1)
         self.assertEqual(finished[0].returncode, 0,
                          (handle.run_dir / 'stderr.log').read_text(encoding='utf-8'))
