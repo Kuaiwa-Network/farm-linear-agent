@@ -430,6 +430,19 @@ publisher mutex and owned process containment. The main worker installs the
 necessary outputs in its Client and checks GUIDs, bindings and behavior itself.
 There is no parallel controller-managed UI task in this rollout.
 
+Source Git normalization uses batches of at most 128 non-LFS files and 8 MiB
+(an individually bounded larger file runs alone). LFS pointer identity and
+materialized-byte checks still cover every LFS file. Each hash batch has a
+60-second limit and one automatic retry after a timeout, within a five-minute
+normalization budget. Other Git failures and source mismatches are not retried.
+Every attempt rechecks clone/worktree trust, and final commit, index, file stamps
+and untracked-file checks still reject source changes across batches or retries.
+On Windows each Git hash process starts suspended in an owned Job Object;
+timeout cleanup drains its launcher and descendants before retry. Uncertain
+cleanup refuses continuation. This retries read-only validation, never a native
+export. No schema migration or new worker authority is required; deployment is
+still an explicit host operation, and existing parked issues need continuation.
+
 Monitor distinguishes a live worker waiting for resources, project preparation,
 resource readiness and ordinary work. Readiness, stage names and released slots
 are never test success. Capacity details remain allowlisted public data.
