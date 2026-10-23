@@ -817,7 +817,7 @@ class Ledger:
                 previous = json.loads(previous["metadata"])
                 if previous.get("updated_at") and (not issue.get("updated_at") or
                         self._version(issue["updated_at"]) <= self._version(previous["updated_at"])):
-                    for key in ("status", "status_type", "archived", "delegate_id", "updated_at"):
+                    for key in ("status", "status_type", "archived", "delegate_id", "updated_at", "priority"):
                         issue[key] = previous.get(key)
             own_bodies = self._own_bodies(issue["id"])
             own_prs = {r["url"] for r in self.connection.execute("SELECT url FROM published_prs WHERE issue_id=?", (issue["id"],))}
@@ -826,8 +826,16 @@ class Ledger:
                 ON CONFLICT(id) DO UPDATE SET metadata=excluded.metadata,fingerprint=excluded.fingerprint,observed_at=excluded.observed_at""",
                                     (issue["id"], _json(issue), fingerprint, self.clock()))
             self.connection.execute("INSERT OR IGNORE INTO issue_checks(issue_id) VALUES(?)", (issue["id"],))
+            self._sync_queued_priority(issue)
         return {"id": issue["id"], "identifier": issue["identifier"], "fingerprint": fingerprint,
                 "in_scope": _in_scope(issue)}
+
+    def _sync_queued_priority(self, issue):
+        """Caller holds the transaction. Only unlaunched work changes its queue rank."""
+        priority = issue["priority"] or 5
+        self.connection.execute("""UPDATE work_items SET priority=?,updated_at=?
+            WHERE issue_id=? AND state='queued' AND worker_pid IS NULL AND priority<>?""",
+            (priority, self.clock(), issue["id"], priority))
 
     def issue(self, issue_id):
         return json.loads(self._issue_row(issue_id)["metadata"])
@@ -845,14 +853,19 @@ class Ledger:
             raise LedgerError("archived must be boolean")
         if raw.get("delegate_id") is not None:
             _uuid(raw["delegate_id"], "delegate_id")
+        if "priority" in raw and (type(raw["priority"]) is not int or not 0 <= raw["priority"] <= 4):
+            raise LedgerError("priority must be an integer from 0 to 4")
         with self._transaction():
             current = self.issue(issue_id)
             if current.get("updated_at") and version < self._version(current["updated_at"]):
                 return current
             for key in ("status", "status_type", "archived", "delegate_id", "updated_at"):
                 current[key] = raw.get(key)
+            if "priority" in raw:
+                current["priority"] = raw["priority"]
             self.connection.execute("UPDATE issues SET metadata=?,observed_at=? WHERE id=?",
                                     (_json(current), self.clock(), issue_id))
+            self._sync_queued_priority(current)
         return current
 
     def request_status_check(self, issue_id):

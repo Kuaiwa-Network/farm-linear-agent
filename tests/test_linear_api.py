@@ -226,21 +226,23 @@ class LinearAPITests(unittest.TestCase):
                         "FarmBotIssue": [issue_page(None, False, comments, **fields)]})
         return api.fetch_issue("FARM-1")
 
-    def test_lightweight_status_has_version_archive_and_delegate(self):
+    def test_lightweight_status_has_version_priority_archive_and_delegate(self):
         api = self.api({"FarmBotIssueStatus": [{"data": {"issue": {
-            "id": "issue", "updatedAt": "2026-09-21T00:00:00Z", "archivedAt": None,
+            "id": "issue", "updatedAt": "2026-09-21T00:00:00Z", "priority": 1, "archivedAt": None,
             "state": {"name": "Done", "type": "completed"}, "delegate": {"id": APP}}}}]})
         value = api.issue_status("issue")
         self.assertEqual((value["updated_at"], value["status_type"], value["delegate_id"], value["archived"]),
                          ("2026-09-21T00:00:00Z", "completed", APP, False))
         self.assertNotIn("comments", self.http.calls[-1][2]["query"])
+        self.assertEqual(value["priority"], 1)
+        self.assertIn("priority", self.http.calls[-1][2]["query"])
         self.assertIn("trashed", self.http.calls[-1][2]["query"])  # a deleted issue reads as archived (design E3)
 
     def test_e3_trashed_issue_reads_as_archived(self):
         """Withdrawn-work design E3, U7: a deleted issue is trashed before it goes, which closes it like an archive;
         an issue Linear no longer returns at all is `not_found`, the only kind that counts toward unreachable."""
         from agent.linear_api import LinearError
-        status = {"id": "issue", "updatedAt": "2026-09-21T00:00:00Z", "archivedAt": None,
+        status = {"id": "issue", "updatedAt": "2026-09-21T00:00:00Z", "priority": 0, "archivedAt": None,
                   "state": {"name": "Todo", "type": "unstarted"}, "delegate": {"id": APP}}
         api = self.api({"FarmBotIssueStatus": [{"data": {"issue": {**status, "trashed": True}}},
                                                {"data": {"issue": {**status, "trashed": None}}},
@@ -293,7 +295,7 @@ class LinearAPITests(unittest.TestCase):
     def test_only_a_successful_call_records_when_linear_last_answered(self):
         """R8 counts not-found reads only while the host's other calls succeed: `last_success_at` says when one did."""
         from agent.linear_api import LinearError
-        status = {"id": "issue", "updatedAt": "2026-09-21T00:00:00Z", "archivedAt": None, "trashed": False,
+        status = {"id": "issue", "updatedAt": "2026-09-21T00:00:00Z", "priority": 0, "archivedAt": None, "trashed": False,
                   "state": {"name": "Todo", "type": "unstarted"}, "delegate": None}
         api = self.api({"FarmBotIssueStatus": [{"errors": [{"message": "Entity not found"}], "data": None},
                                                {"data": {"issue": status}}]})

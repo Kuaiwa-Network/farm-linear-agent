@@ -34,6 +34,20 @@ out older code neither reverses Linear status changes nor removes saved requests
 
 ## One issue, one main worker
 
+Unlaunched jobs start by the latest observed Linear priority: urgent, high,
+normal, low, then no priority. Ties use the original job creation time and ID.
+Issue update webhooks request a fresh read; the regular lifecycle status read
+and full issue reads also refresh queued priorities. Older versioned responses
+cannot undo a newer priority. Changes take effect after a successful read and
+the next admission pass, subject to maintenance, retry delays and worker capacity.
+A priority change during launch preflight defers admission to a new ordered pass.
+Already launched workers are not preempted, and Unity/server reservation order
+is unchanged. Priority alone does not restart work or invalidate its inputs.
+
+This uses existing issue metadata and work-item columns, with no schema migration.
+Existing queued jobs refresh on their next successful issue read. Rollback retains
+the last saved queue priorities but stops synchronizing later Linear changes.
+
 Delegated write work uses `work`, with execution contract `single-worker-v1`.
 Bug fixes, features and UI changes have the same owner. `chat` remains read-only
 investigation and conversation. New service intake supports these two profiles;
