@@ -873,8 +873,18 @@ class Scheduler:
                     raise RuntimeError("presentation task teardown is not yet certified")
             saved = self.worktrees.preserve(item_id)
             # A prior removal may have succeeded for only some repositories. Keep their manifest.
-            for key in ("committed", "refs", "branches"):
+            for key in ("committed", "refs"):
                 result[key] = {**result.get(key, {}), **saved.get(key, {})}
+            branches = result.setdefault("branches", {})
+            if "branches" in saved:
+                for repo in saved.get("refs", {}):
+                    if repo in saved["errors"]:
+                        continue
+                    # A successfully preserved detached HEAD replaces any old branch.
+                    # Missing/failed repositories keep their earlier recovery evidence.
+                    branches.pop(repo, None)
+                    if repo in saved["branches"]:
+                        branches[repo] = saved["branches"][repo]
             snapshots = result.setdefault("snapshots", {})
             for repo, refs in saved.get("snapshots", {}).items():
                 snapshots[repo] = {**snapshots.get(repo, {}), **refs}

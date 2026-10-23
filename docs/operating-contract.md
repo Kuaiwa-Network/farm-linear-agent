@@ -662,6 +662,14 @@ be recreated, but a moved branch or missing recovery ref requires reconciliation
 No fetch, reset, history rewrite or automatic main merge is part of restoration.
 Cleanup checks both HEAD and branch before removing the saved worktree.
 
+Each cleanup retry refreshes branch records for repositories successfully preserved
+on that pass. A detached HEAD clears that repository's stale branch name; failed
+preservation and repositories already removed by an earlier partial cleanup retain
+their prior branch evidence. Commits, recovery refs and historical snapshots remain
+recorded across retries. Existing pending cleanup can recover on its normal sweep
+after an authorized release, without editing the ledger or resetting a checkout.
+This changes no schema or record format; rollback loses this stale-branch repair.
+
 These records add no schema migration. Older releases ignore the optional branch
 map and do not register PRs at finish, so rolling back loses these guarantees.
 Historical cleanup without a branch map retains its prior recovery behavior;
