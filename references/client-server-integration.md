@@ -61,9 +61,10 @@ requires preserved evidence and an unclean release. Never reuse a numeric PID to
 kill an unknown process. Settle Unity, checkpoint, release the single reservation
 before delivery or human waits. Include results, both SHAs, report paths and the
 next action in the checkpoint's `handoff`. On `worker_handoff: true`, exit
-immediately: the claim is retired. Docker cleanup waits for all worker attempts'
-verified teardown, then the controller automatically resumes this issue and its
-checkpoint. Do not attempt delivery or another resource request with the retired claim.
+immediately: the POSIX or historical lease retired the claim. Managed Windows leases return
+`keep_worker: true`; retain the claim. Both commands are registered in a sealed
+reservation process scope. The host independently checks native emptiness before
+Docker cleanup. Incomplete proof retains all-worker recovery and its evidence.
 
 ## Upgrade and recovery
 

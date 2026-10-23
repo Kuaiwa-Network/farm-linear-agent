@@ -100,7 +100,7 @@ class LatestSolSelectionTests(unittest.TestCase):
             with self.subTest(slug=slug):
                 self.catalog(self.model(slug, "xhigh"))
                 handle = launcher.spawn("job", "hello", {}, 60, self.root, model_settings=self.settings)
-                handle.process.wait(timeout=10)
+                # Cache reuse requires teardown evidence recorded before reaping.
                 deadline = time.monotonic() + 10
                 while not launcher.poll():
                     self.assertLess(time.monotonic(), deadline, "owned worker did not settle")

@@ -556,7 +556,7 @@ class SkillAuthorityTests(unittest.TestCase):
     def test_storage_policy_preserves_durable_reports_and_supported_test_layouts(self):
         for skill in dispatch.SKILL_AUTHORITY:
             text = self.message({'id': 'i', 'skill': skill}).split('\n\n', 1)[0]
-            for phrase in ('GOCACHE and GOTMPDIR', 'FARMBOT_BUILD_ROOT', 'verified teardown',
+            for phrase in ('content-addressed GOCACHE', 'attempt-local GOTMPDIR', 'FARMBOT_BUILD_ROOT', 'verified teardown',
                            'recovery under state_dir outside these disposable paths', 'Keep required in-tree bin/obj'):
                 self.assertIn(phrase, text)
 

@@ -277,6 +277,9 @@ class Launcher:
             self._cancelled_runs.discard(item_id)
         if item_id in self._handles:
             raise RuntimeError(f"worker already running for {item_id}")
+        preparation_started_at = self.clock()
+        from .worker_cache import compiler_cache
+        go_cache = compiler_cache(self, item_id)
         run_dir = self.state_dir(item_id) / (time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(self.clock())) + "-" + uuid4().hex[:12])
         home = run_dir / "home"
         home.mkdir(parents=True, exist_ok=True)
@@ -339,12 +342,12 @@ class Launcher:
         env[self.runtime.home_env] = str(home)
         env["FARMBOT_ITEM_ID"] = item_id
         env.update(extra_env or {})
-        # Attempt-local regenerable outputs. Never point these at a global/shared
-        # cache or use TEMP for durable reports, source or checkpoint handoffs.
+        # The compiler cache belongs to this item; scratch and arbitrary build
+        # outputs belong to this attempt. Neither may hold durable evidence.
         disposable = run_dir.absolute() / 'disposable'
-        for child in ('go-cache', 'go-tmp', 'build'):
+        for child in ('go-tmp', 'build'):
             (disposable / child).mkdir(parents=True)
-        env.update(GOCACHE=str(disposable / 'go-cache'), GOTMPDIR=str(disposable / 'go-tmp'),
+        env.update(GOCACHE=str(go_cache), GOTMPDIR=str(disposable / 'go-tmp'),
                    FARMBOT_BUILD_ROOT=str(disposable / 'build'))
         if self.runtime.name == "claude":
             env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
@@ -396,7 +399,8 @@ class Launcher:
                         raise
                 handle = Handle(item_id, process.pid, self.clock(), self.clock() + budget_seconds, run_dir, process, last_message)
                 self._handles[item_id] = handle
-                record = {"pid": process.pid}
+                record = {"pid": process.pid, "preparation_started_at": preparation_started_at,
+                          "process_started_at": handle.started_at}
                 if job is not None:
                     self._jobs[item_id] = job
                     record["windows_job"] = job.name

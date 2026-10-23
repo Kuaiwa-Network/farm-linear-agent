@@ -261,7 +261,7 @@ class SlotPool:
     def warm_editors(self):
         """Open each owned project once; a failed start uses the existing bounded recovery lane."""
         from .maintenance import Maintenance
-        if Maintenance(self.ledger).requested():
+        if Maintenance(self.ledger).blocks_admission():
             return 0
         if not self.keep_open or not self._fixed_prepared:
             return 0
@@ -366,14 +366,14 @@ class SlotPool:
             return {"settled": 0, "granted": 0, "parked": 0}
         completed = self._finish_batches()
         from .maintenance import Maintenance
-        maintaining = Maintenance(self.ledger).requested()
+        maintaining = Maintenance(self.ledger).blocks_admission()
         if self.keep_open and not maintaining:
             self.ledger.interactive_unity_requests(self.host)
             self.warm_editors()
         if not maintaining:
             self.close_idle_for_memory()
         result = {"settled": self.settle(), "granted": completed + self.grant(), "parked": self.park_idle()}
-        if maintaining:
+        if Maintenance(self.ledger).requested():
             self._observe_maintenance()
         return result
 
@@ -509,7 +509,7 @@ class SlotPool:
         """
         granted = 0
         from .maintenance import Maintenance
-        if Maintenance(self.ledger).requested():
+        if Maintenance(self.ledger).blocks_admission():
             return granted
         if self._draining_batches:
             return granted
@@ -978,10 +978,10 @@ class SlotPool:
             # invocation is still pending. Validate this reservation at the spawn
             # boundary, on the pool thread and its own SQLite connection.
             current = self.ledger.reservation(reservation["reservation_id"])
-            maintenance_deferred = Maintenance(self.ledger).requested()
+            maintenance_deferred = Maintenance(self.ledger).requested(reservation['item_id'])
             return maintenance_deferred or current is None or current["state"] != "active"
 
-        if Maintenance(self.ledger).requested():
+        if Maintenance(self.ledger).requested(reservation['item_id']):
             return deferred_summary()
         run = self.run_unsandboxed(argv, cwd=slot["folder"], timeout=entry["batch_timeout"], log=None,
                                    owner=reservation["item_id"], cancelled=cancelled)

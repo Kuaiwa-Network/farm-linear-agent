@@ -324,7 +324,8 @@ class RetentionTests(_RetentionFixture, unittest.TestCase):
             time.sleep(.02)
         self.assertEqual(launcher.running(), {})
         environment = json.loads((handle.run_dir / 'stdout.log').read_text())
-        for name in ('GOCACHE', 'GOTMPDIR', 'FARMBOT_BUILD_ROOT'):
+        self.assertEqual(Path(environment['GOCACHE']), launcher.state_dir('environment') / 'compiler-cache-v1' / 'go-cache')
+        for name in ('GOTMPDIR', 'FARMBOT_BUILD_ROOT'):
             self.assertTrue(Path(environment[name]).is_relative_to(handle.run_dir / 'disposable'))
         target = Path(environment['FARMBOT_BUILD_ROOT']) / 'artifact.dll'
         self.assertTrue(target.exists())

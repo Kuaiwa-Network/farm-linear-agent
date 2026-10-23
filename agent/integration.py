@@ -63,6 +63,8 @@ def server_pending(ledger, *, single_only=False):
     selected = read(ledger.connection)
     if selected:
         requests = [r for r in requests if ledger.item(r['item_id'])['issue_id'] in issue_ids(selected)]
+    from .maintenance import Maintenance
+    requests = [r for r in requests if not Maintenance(ledger).requested(r['item_id'])]
     return requests
 
 
@@ -75,7 +77,7 @@ def copy_plan(ledger, source, replacement):
 
 
 def settle_companion(ledger, reservation, reason):
-    """Controller-only, after journal ownership and *all* worker attempts' teardown.
+    """Controller-only, after journal ownership and verified command/worker teardown.
 
     Unity recovery can rotate the old worker token. The server's verified journal
     must still be cleanable after that fencing, without reviving the old token.

@@ -952,7 +952,7 @@ class Scheduler:
         Batch runs execute in the pool without a worker and keep their own capacity.
         """
         with self.lock:
-            if Maintenance(ledger).requested():
+            if Maintenance(ledger).blocks_admission():
                 return None
             options['single_only'] = not self.replay_legacy
             request = next(iter(ledger.reservation_queue(kind, single_only=not self.replay_legacy)), None)

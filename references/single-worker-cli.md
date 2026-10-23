@@ -34,14 +34,15 @@ parking or finish, and checkpoints their work. No FarmBot child task is created.
 | `await-input` | `--question TEXT --reason question\|waiting`: save a checkpoint and release resources first; then exit. Work questions are posted as issue comments; partial answers reuse the same comment and round. |
 | `resolve-question` | `--question-id ID --message-id ID` (repeatable), actual attributed replies only. |
 | `await-resource` | `--resource unity_slot --mode interactive --commit SHA`, or `server_slot --mode batch --commit SHA --server-test-plan FILE`. Stay in this worker. |
+| `run-server-tests` | `--module MODULE`: run the reserved exact Go plan in the owned farm-hive module; retain JSON output and native command teardown proof. |
 | `run-integration` | `--client-command FILE`: JSON argv exercising reserved Unity against one isolated game server. Request an atomic pair with `await-resource --resource unity_slot --mode interactive --commit CLIENT_SHA --integration-plan FILE`; see [combined verification](client-server-integration.md). |
-| `resource-status` | Same claim. Returns queued/preparing/ready/held/settled state, precise capacity reason, commit and reservation token-file path. |
+| `resource-status` | Same claim. Renews and returns maintenance/withdrawal/inbox flags in every state, plus capacity, commit and reservation token-file path. Managed services are accessed only by the scoped run commands. |
 | `cancel-resource` | `--reservation ID`: cancels only this claim's still-queued request. An acquired resource must settle normally. |
 | `unity-tools` | List actual MCP tool schemas after Unity is ready. |
 | `unity-tool` | `--name NAME --input FILE`: JSON object arguments, bound to the reserved instance; raw MCP result. |
 | `unity-test-result` | `--job-id ID`: read a retained test report in the owned instance, including failed jobs whose normal response has `result=null`. Save stdout privately. No test launch or release. |
 | `unity-read` | `--uri URI`: read a resource from the reserved Unity instance. |
-| `release-resource` | **Use the reservation token file returned by resource-status**, not the claim token. `--outcome quiescent\|unclean`. Before server/combined release, save a current checkpoint with results and `handoff`; exit immediately on `worker_handoff: true`. The controller cleans services after verified teardown and resumes the same issue. |
+| `release-resource` | **Use the reservation token file returned by resource-status**, not the claim token. `--outcome quiescent\|unclean`. Before server/combined release, save a current checkpoint with results and `handoff`; exit immediately on `worker_handoff: true`. Managed Windows leases return `keep_worker: true`; retain the claim. POSIX and historical leases require exit and automatic resume after teardown. |
 | `publish-ui` | `--packages FILE`: JSON package name/ID map; native export into private staging, no Client installation. |
 | `prepare-go-dependencies` | `--repo REPO --module MODULE --commit SHA`; inspect `go-dependencies --request-id ID`. |
 | `verify-publication` | `--repo REPO`: fresh exact destination/branch/private-repository check before publishing. |
@@ -106,6 +107,12 @@ the action. It shares the model-capacity limit of three retries at 60, 180 and 6
 seconds. Stop using the old token and exit for either result. On resume recheck
 requests/authority and run normal approval again; publication also needs a fresh
 `verify-publication`. Other denials or ambiguous execution outcomes do not qualify.
+
+A new attributed request requires a `request_scope` checkpoint before new resource
+tests or delivered finish. Read `current_request` in `issue-context`, then save
+`{"request_scope":{"through_message_id":123,"summary":"Resolve only actual PR conflicts; validate affected inputs; report unrelated failures"}}`.
+Use the actual latest message ID, interpret status questions in context, and keep
+historical reports. This records scope in the existing checkpoint, not an approval.
 
 A typical checkpoint is ordinary JSON:
 

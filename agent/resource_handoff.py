@@ -28,7 +28,7 @@ def pending_cleanup(ledger, item_id):
 
 
 def release(ledger, reservation_id, token):
-    """Atomically release and retire the live claim; the pool alone recycles services.
+    """Seal managed native scopes or retire legacy claims; only the pool recycles services.
 
     A current checkpoint must exist before the reservation token can retire a
     continuing worker. Cancellation/withdrawal/expired claims keep their existing
@@ -57,9 +57,13 @@ def release(ledger, reservation_id, token):
                     or meta.get('worker_id') != checkpoint.get('worker_id')
                     or meta.get('recorded_at', 0) < reservation['acquired_at']):
                 raise LedgerError('save a current checkpoint with results and handoff after acquisition before releasing server services')
+        from .resource_processes import seal
+        managed = seal(ledger, reservation, item) if handoff else False
         ledger._release_in_transaction(reservation_id, token, 'worker reported quiescent')
         result = ledger.reservation(reservation_id)
-        if handoff:
+        if managed:
+            result.update(keep_worker=True, worker_handoff=False, next_action='Continue this claim; host verifies service command teardown before recycling.')
+        elif handoff:
             ledger._audit(item['id'], 'server_resource_handoff', 'checkpointed server release; worker must exit',
                           {'generation': item['generation'], 'worker_pid': item['worker_pid'],
                            'reservation_id': reservation_id})

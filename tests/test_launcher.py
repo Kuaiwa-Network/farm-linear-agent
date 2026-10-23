@@ -796,7 +796,10 @@ class LauncherTests(unittest.TestCase):
             handle = unblocked(self, lambda: self.launcher.spawn(
                 "item-1", self.message, {}, budget_seconds=60, cwd=self.tmp.name,
                 extra_env={"FAKE_CLI_MODE": "crash"}), lambda: records[0])
-        self.assertEqual(json.loads(records[0].read_text(encoding="utf-8")), {"pid": handle.pid})
+        record = json.loads(records[0].read_text(encoding="utf-8"))
+        self.assertEqual(set(record), {"pid", "preparation_started_at", "process_started_at"})
+        self.assertEqual(record["pid"], handle.pid)
+        self.assertLessEqual(record["preparation_started_at"], record["process_started_at"])
         self.assertEqual([f.returncode for f in self.wait_finished()], [3])
 
     @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs in a directory are POSIX")
