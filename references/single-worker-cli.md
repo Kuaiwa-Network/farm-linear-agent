@@ -30,6 +30,7 @@ parking or finish, and checkpoints their work. No FarmBot child task is created.
 | `checkpoint` | `--input FILE`: bounded JSON progress, candidate SHAs, report paths and next action. |
 | `pop-inbox` | Read attributed requests. Reuse actual existing answers. |
 | `revalidate` | `--fingerprint VALUE`, only after reviewing changed inputs. |
+| `activity` | `--type thought --body-file FILE`: non-blocking progress or already-decided/high-confidence contract decision summary. Questions use `await-input`. |
 | `await-input` | `--question TEXT --reason question\|waiting`: save a checkpoint and release resources first; then exit. |
 | `resolve-question` | `--question-id ID --message-id ID` (repeatable), actual attributed replies only. |
 | `await-resource` | `--resource unity_slot --mode interactive --commit SHA`, or `server_slot --mode batch --commit SHA --server-test-plan FILE`. Stay in this worker. |
@@ -55,6 +56,19 @@ Use `COMMAND --help` for exact syntax. The large parser retains historical
 commands for old state inspection and offline replay; repository handoff,
 presentation subtasks, mandatory baseline comparison, UI receipts and semantic
 closing checks are refused for this contract.
+
+Before contract behavior or protocol semantics change, follow the
+[decision review in the work skill](../skills/work/SKILL.md). Publish decisions,
+classifications, evidence and reasons through `activity --type thought` when
+all are already decided/high confidence and no explicit approval is required;
+continue without a reply. For a mixed batch, publish and complete the independent
+decided/high subset, then checkpoint, settle helpers, release resources and use
+`await-input --reason question` for medium/low decisions or required approvals.
+Never start dependent edits before the actual answer. `await-input` parks the
+whole worker; it cannot keep doing independent work after that command.
+Use `resolve-question` with actual attributed replies on resume. Silence and
+elapsed time do not resolve a question. Retain summary references in checkpoints
+so unchanged decisions do not need another post or acknowledgment.
 
 Keep downloads in `STATE_DIR/uploads`. ZIPs and unchanged extracted files expire
 after every worker attempt for the item has fully exited and the retention grace

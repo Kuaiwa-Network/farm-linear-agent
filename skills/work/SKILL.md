@@ -47,6 +47,49 @@ extraction, and records sources. Without `--url` both sources are included; use
 unsigned URLs to select files. Reuse intact local files and inspect actual resources
 before reporting missing assets. Do not replace this helper with a custom downloader.
 
+Before changing contract behavior or protocol semantics, review each decision
+against approved requirements, existing decisions, affected implementations and
+repository rules. Include newly discovered edge cases, compatibility and failure
+behavior. A feature's approved requirements settle only what they actually cover;
+they do not make every subsequent choice high confidence. Code is evidence of
+current behavior, not approval of a new business rule. Ordinary field naming and
+editorial corrections with no semantic change need no new decision round.
+
+| Classification | Evidence and action |
+| --- | --- |
+| Already decided | Cite the exact approved requirement or attributed answer and its scope; proceed without asking again. |
+| High confidence | State the decision, cite evidence and explain why it follows directly with no unresolved tradeoff; publish and proceed without a reply. |
+| Medium confidence | Describe the real tradeoff and a reasonable alternative, give a recommendation and costs; require an attributed answer before dependent edits. |
+| Low confidence | Explain missing/conflicting evidence or unresolved intent, values or experience; give concrete options and costs, a recommendation and room for another answer; require an attributed answer before dependent edits. |
+
+Publish a concise Linear decision summary before its dependent contract or
+implementation edits. When every decision is already decided or high confidence
+and no explicit approval is required, use `activity --type thought --body-file FILE`
+and continue automatically. Say that no reply is required; do not call `await-input`
+for acknowledgment. Keep each decision's evidence and reasoning beside its rating.
+Your high-confidence assessment is not a person's approval: do not invent an
+approver, answer or `[DECIDED]` attribution for it.
+
+If medium/low decisions or required approvals remain, complete independent clear
+work first, publishing its decided/high subset before editing. Do not begin
+dependent contract or implementation changes. Then checkpoint, settle helpers,
+release resources, and use `await-input --reason question` for the unresolved
+items. Group questions by responsible role, low before medium, with evidence,
+recommendations, alternatives and costs; reference already-posted decisions.
+Do not leave an unanswered question only in `activity` or a PR. The worker exits
+after parking and resumes on a reply. Silence, elapsed time (including three
+working days) and a general instruction to develop do not settle these questions.
+On resume resolve only the items actually answered by attributed replies.
+Explicit repository approval requirements apply at every confidence level;
+reuse an existing approval only within its actual scope.
+
+List missing assets, formal configuration values and access separately from
+decision confidence. A high-confidence plan to defer an input does not provide
+or approve it, authorize invented values, or establish complete delivery.
+Keep decisions, evidence, posted summary references, unanswered items and actual
+answers in the checkpoint. Reuse unchanged decisions on resume; publish only
+new or changed entries, and assess new gaps before dependent work.
+
 Test the candidate and its affected behavior first. Follow real repository test
 requirements. Decide whether a failure is related using the actual diff, failure
 details and retained evidence. Run a baseline only if a concrete unanswered
@@ -137,10 +180,11 @@ a new visual design.
 
 Keep source commits, candidate SHAs, report paths, failures and next action in a
 concise checkpoint. Reports belong in `state_dir`, never source commits. A human
-question parks only when a real decision/input is missing. Draft or update a
-contract yourself when requirements are clear. Ask about unresolved business
-semantics, explicitly required approval, or missing essential assets/access after
-checking available inputs. Explain the blocker, options and recommendation via
+question parks only when a real decision/input is missing. Follow the contract
+decision review above: publish already-decided/high decisions and continue;
+ask about medium/low decisions, explicitly required approval, or missing
+essential assets/access after checking available inputs. Explain the blocker,
+options and recommendation via
 `await-input --reason question` after saving progress and releasing resources.
 Normal resource queueing is not a human question. Read and acknowledge the actual
 attributed replies; routine technical repair needs no new permission.

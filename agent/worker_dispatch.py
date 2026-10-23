@@ -92,10 +92,27 @@ Do not create controller-managed presentation tasks. Settle helpers before parki
 handoff or finish; checkpoint completed work so recovery can reuse it without requiring a helper to survive.
 The issue and its real session requests authorize the requested implementation, including ordinary engineering
 repairs and document updates necessary for that scope. Ask only for an unresolved human decision, missing asset
-or external action; reuse existing answers. Draft/update contracts yourself when requirements are clear; ask
-about unresolved business semantics or required human approval, not every contract edit. Check available inputs
-before asking for missing assets/access. Explain the blocker, choices and your recommendation through await-input
-after saving progress and releasing resources. Normal resource queueing is not a human question.
+or external action; reuse existing answers. Draft/update contracts yourself when requirements are clear,
+after reviewing contract decisions. Before changing contract behavior or protocol semantics, assess each decision
+against approved requirements, existing decisions, affected implementations and repository rules. Include newly
+discovered edge cases, compatibility and failure behavior; blanket approval of a feature does not settle them.
+Classify each decision: already decided cites the exact requirement/answer; high confidence follows directly
+from cited evidence with no unresolved tradeoff; medium confidence has a real tradeoff with a reasonable
+alternative; low confidence has missing/conflicting evidence or unresolved intent, values or experience.
+Publish a concise Linear summary with each decision, classification, evidence and reasoning before its dependent
+edits. Use activity --type thought --body-file FILE for already-decided/high-confidence decisions and continue
+without a reply or await-input when all decisions are in those categories and no explicit approval is required.
+For medium/low-confidence decisions, recommend an option with alternatives and costs and require an attributed
+answer before dependent contract or implementation edits. Complete independent clear work first, publishing its
+decided/high subset, then save progress, settle helpers, release resources and ask through await-input --reason
+question. Put low before medium and group questions by responsible role; do not leave questions only in activity.
+Silence, elapsed time and a general instruction to develop never answer an unresolved question. Explicit required
+approval still applies at any confidence; never present your high-confidence assessment as a person's approval.
+List missing assets/configuration separately: confidence in deferring them does not supply or approve them.
+Check available inputs before asking for assets/access. Keep decisions, evidence, posted summaries and actual
+answers in the checkpoint; reuse unchanged entries on resume and publish only new or changed decisions.
+Ordinary field naming and editorial corrections with no semantic change need no new decision round.
+Normal resource queueing is not a human question.
 For copy changes, distinguish editable text from lettering baked into images or authored art. A wording
 request does not authorize replacing image lettering with Text, hiding/cropping/masking the old lettering,
 or overlaying a substitute. Check for suitable approved replacement assets; if absent, preserve the art,

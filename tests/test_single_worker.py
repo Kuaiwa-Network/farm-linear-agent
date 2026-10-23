@@ -347,6 +347,72 @@ class SingleWorkerTests(LedgerBase):
         self.assertNotIn('Do not create subagents', prompt)
         self.assertEqual(self.launcher.spawned[0][4], str(self.launcher.state_dir(self.key)))
 
+    def test_launched_owner_receives_contract_decision_policy_and_active_skill(self):
+        self.owner()
+        self.scheduler().launch(self.item)
+        authority, payload = self.launcher.spawned[0][1].split('\n\n', 1)
+        payload = json.loads(payload)
+        authority = ' '.join(authority.split())
+        skill = ' '.join(Path(payload['skill']).read_text(encoding='utf-8').split())
+        # These are model instructions, not a controller confidence classifier. Pin the
+        # decision boundaries in the actual launch and skill the worker receives.
+        for requirement in (
+            'Before changing contract behavior or protocol semantics, assess each decision',
+            'blanket approval of a feature does not settle them',
+            'already decided cites the exact requirement/answer',
+            'high confidence follows directly from cited evidence with no unresolved tradeoff',
+            'medium confidence has a real tradeoff with a reasonable alternative',
+            'low confidence has missing/conflicting evidence',
+            'without a reply or await-input when all decisions are in those categories',
+            'require an attributed answer before dependent contract or implementation edits',
+            'Complete independent clear work first',
+            'Silence, elapsed time and a general instruction to develop never answer',
+            'Explicit required approval still applies at any confidence',
+            'confidence in deferring them does not supply or approve them',
+            'reuse unchanged entries on resume',
+        ):
+            with self.subTest(authority=requirement):
+                self.assertIn(requirement, authority)
+        for requirement in (
+            '| Already decided |', '| High confidence |', '| Medium confidence |', '| Low confidence |',
+            'activity --type thought --body-file FILE',
+            'do not call `await-input` for acknowledgment',
+            'low before medium',
+            'including three working days',
+            'Your high-confidence assessment is not a person\'s approval',
+            'Explicit repository approval requirements apply at every confidence level',
+            'publish only new or changed entries',
+        ):
+            with self.subTest(skill=requirement):
+                self.assertIn(requirement, skill)
+        from agent.worker_dispatch import CHAT_AUTHORITY
+        self.assertNotIn('after reviewing contract decisions', CHAT_AUTHORITY)
+
+    def test_high_confidence_summary_posts_and_delivers_without_human_input(self):
+        from agent.__main__ import parser, run
+        self.claim_owner()
+        summary = Path(self.tmp.name) / 'contract decisions 决策.md'
+        body = ('Already decided: count purchased units (approved requirement R01).\n'
+                'High confidence: retain existing field numbers and append quantity; '
+                'the repository compatibility rule forbids renumbering. No reply required.')
+        summary.write_text(body, encoding='utf-8')
+        args = parser().parse_args(['--db', str(self.path), 'activity', '--item', self.key,
+            '--token', self.token, '--type', 'thought', '--body-file', str(summary)])
+        api = Mock(app_user_id='test-app')
+        api.create_activity.return_value = {'id': 'decision-summary'}
+        self.assertEqual(run(args, self.ledger, lambda: api), {'id': 'decision-summary'})
+        api.create_activity.assert_called_once_with(SESSION, {'type': 'thought', 'body': body})
+        api.awaiting_reply.assert_not_called()
+        self.assertEqual(self.ledger.item(self.key)['state'], 'running')
+        self.assertIsNone(self.ledger.human_question(self.key))
+        self.ledger.checkpoint(self.key, self.token, {'summary': 'Published contract decisions',
+            'decision_summary': 'decision-summary', 'decisions': body})
+        action = self.ledger.prepare_comment(self.key, self.token, 'delivery', 'Delivered ' + PR)
+        self.ledger.confirm_comment(action['action_id'], 'remote-comment')
+        report = {'summary': 'Purchased units implemented', 'verification': 'Affected tests pass',
+                  'prs': [PR], 'comment_action_id': action['action_id']}
+        self.assertEqual(self.ledger.finish(self.key, self.token, 'delivered', report)['state'], 'delivered')
+
     def test_candidate_resource_keeps_claim_pid_and_needs_no_baseline_or_resume(self):
         self.claim_owner()
         before = self.ledger.item(self.key)
@@ -522,7 +588,8 @@ class SingleWorkerTests(LedgerBase):
         from agent.__main__ import parser, run
         from test_ledger import OWNER
         self.claim_owner()
-        body = 'The contract does not specify the reset period. Daily or weekly? I recommend daily.'
+        body = ('Low confidence: the contract does not specify the reset period. Daily gives frequent '
+                'access; weekly limits availability. I recommend daily. Daily, weekly, or another period?')
         args = parser().parse_args(['--db', str(self.path), 'await-input', '--item', self.key,
             '--token', self.token, '--question', body, '--reason', 'question'])
         api = Mock(app_user_id='test-app')
@@ -537,15 +604,19 @@ class SingleWorkerTests(LedgerBase):
         self.assertEqual((session, content['type']), (SESSION, 'elicitation'))
         self.assertIn(body, content['body'])
         question = self.ledger.human_question(self.key)
-        self.ledger.push_inbox(self.key, 'Daily.', author=OWNER, resume_waiting=True)
+        self.now += 7 * 24 * 60 * 60
+        self.assertEqual(self.ledger.item(self.key)['state'], 'awaiting_input')
+        self.assertEqual(self.ledger.human_question(self.key)['id'], question['id'])
+        self.ledger.push_inbox(self.key, 'Continue development.', author=OWNER, resume_waiting=True)
         self.token = self.ledger.claim(self.key, worker_id='resumed-owner')['token']
-        mid = self.ledger.issue_context(self.key)['session_messages'][-1]['id']
         action = self.ledger.prepare_comment(self.key, self.token, 'delivery', 'Delivered ' + PR)
         self.ledger.confirm_comment(action['action_id'], 'remote-comment')
         report = {'summary': 'Daily reset implemented', 'verification': 'Affected tests pass',
                   'prs': [PR], 'comment_action_id': action['action_id']}
         with self.assertRaisesRegex(LedgerError, 'actual human question'):
             self.ledger.finish(self.key, self.token, 'delivered', report)
+        self.ledger.push_inbox(self.key, 'Daily.', author=OWNER)
+        mid = self.ledger.issue_context(self.key)['session_messages'][-1]['id']
         self.ledger.resolve_question(self.key, self.token, question['id'], [mid])
         self.assertEqual(self.ledger.finish(self.key, self.token, 'delivered', report, verified_prs=[PR])['state'], 'delivered')
 

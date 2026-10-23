@@ -184,12 +184,44 @@ text stores. These are worker instruction and diff-review requirements, not an
 automated visual acceptance gate. Passing tests or retaining original image files
 does not prove the presentation was preserved. This requires deployment of the
 updated worker instructions; it changes no schema or existing delivered assets.
-Clear requirements authorize routine contract drafting and updates. Unresolved
-business semantics, explicitly required approval or missing essential assets/access
-require a concrete question after checking available inputs. The main worker saves
-progress, releases resources and uses `await-input --reason question` to post to
-Linear and park. An attributed reply resumes the owner; it must acknowledge the
-answer before delivery. Ordinary resource queueing is not a human-input blocker.
+Before changing contract behavior or protocol semantics, the worker reviews each
+decision against approved requirements, existing decisions, affected implementations
+and repository instructions. New edge cases, compatibility and failure behavior
+need their own assessment; approval of a feature settles only the covered choices.
+Already-decided entries cite an exact approved requirement or attributed answer.
+High confidence means a direct consequence of cited evidence without an unresolved
+tradeoff; medium means a real tradeoff with a reasonable alternative; low means
+missing/conflicting evidence or unresolved intent, values or experience.
+
+The worker publishes each decision, classification, evidence and reason in a concise
+Linear summary before dependent edits. If all entries are already decided/high
+confidence and no explicit approval is required, `activity --type thought` publishes
+the summary and work continues without a reply or an input wait. The worker's
+assessment is never recorded as a person's approval. Ordinary naming and editorial
+corrections without semantic changes need no new round.
+
+Medium/low decisions and explicit approval requirements need attributed answers
+before dependent contract or implementation changes. The worker first publishes
+and completes independent decided/high work, then checkpoints, settles helpers,
+releases resources and uses `await-input --reason question` to ask and park. Questions
+are grouped by responsible role, low before medium, with recommendations, alternatives,
+costs and evidence. An attributed reply resumes the owner; it must acknowledge only
+the actual answers before delivery. Silence, elapsed time and general development
+authorization do not resolve these questions. Required repository approvals apply
+at every confidence level; existing approvals remain usable within their scope.
+
+Missing assets, formal configuration values and access are listed separately:
+confidence in deferring an input does not supply it or establish complete delivery.
+Check available inputs before asking. Checkpoints retain decisions, evidence,
+posted summary references and actual answers; unchanged entries are reused on
+resume and only new or changed decisions need publication. Ordinary resource
+queueing is not a human-input blocker.
+
+This review is a worker instruction and reporting requirement, not an automated
+semantic confidence judge. Existing question/claim/delivery fences remain in force;
+there is no new CLI, schema or migration. It takes effect for workers launched with
+the updated instructions after an authorized release. Rollback removes this guidance
+but does not answer or discard existing human questions.
 
 Workers run under the configured native sandbox and owned process containment.
 This change does not introduce MXC, turn off automatic review or grant host
