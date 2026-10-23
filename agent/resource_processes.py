@@ -80,6 +80,7 @@ class Commands:
         self.ledger, self.item_id, self.token, self.reservation_id = ledger, item_id, token, reservation_id
 
     def command(self, argv, **options):
+        from .integration import validate_argv
         from .integration_runtime import Command
         from .ledger import LedgerError
         from .maintenance import Maintenance
@@ -103,6 +104,9 @@ class Commands:
                 raise LedgerError('service command has no current open process scope')
         with self.ledger._transaction():
             check()
+            # A deterministic input rejection cannot have spawned a process.
+            # Validate before recording an uncertain creation attempt.
+            argv = validate_argv(argv)
             # Persist before spawning: a crash between creation and identification
             # retains an incomplete entry, which can only use whole-worker recovery.
             db.execute('INSERT INTO resource_commands VALUES(?,?,?,NULL,?,NULL)',

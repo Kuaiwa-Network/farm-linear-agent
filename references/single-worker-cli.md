@@ -139,7 +139,12 @@ needed. A finish is FarmBot delivery, not a merge, deployment or Linear Done.
 
 Server plans contain exactly `packages` (module-local paths), `tests` (exact
 Test names, or an empty list for all selected package tests) and `race` (boolean),
-for example `{"packages":["./breeding"],"tests":[],"race":false}`. Request services
+for example `{"packages":["./breeding"],"tests":[],"race":false}`. The generated
+command must fit the 30,000 UTF-16-unit total command-line bound; long individual
+test filters are supported. An oversized plan is rejected before service admission.
+Split an oversized selection into separate verified runs while preserving required
+coverage, or select all tests in the same affected packages when appropriate.
+Request services
 only when needed. Test commands still run in the worker. Resource
 readiness never certifies a test result. A lost Unity mutation response must be
 reconciled by observing the Editor/test job, not automatically retried.

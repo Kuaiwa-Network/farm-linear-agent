@@ -1,6 +1,8 @@
 """A bounded Go test selection, classified by the host rather than a worker's cost label."""
 import re
 
+from .integration import validate_argv
+
 FULL_PLAN = {"packages": ["./..."], "tests": [], "race": True}
 PROFILES = ("focused", "targeted", "full")
 _PACKAGE = re.compile(r"\.(?:/[A-Za-z0-9_.-]+)*(?:/\.\.\.)?")
@@ -20,7 +22,11 @@ def validate_plan(raw):
             or any(not isinstance(t, str) or not _TEST.fullmatch(t) for t in tests)
             or type(raw["race"]) is not bool):
         raise ValueError("server tests must be exact Test names and race must be boolean")
-    return {"packages": sorted(set(packages)), "tests": sorted(set(tests)), "race": raw["race"]}
+    plan = {"packages": sorted(set(packages)), "tests": sorted(set(tests)), "race": raw["race"]}
+    # Reject an unlaunchable selection before allocating services. The runner
+    # checks again with the configured executable path before recording a spawn.
+    validate_argv(_test_argv(plan))
+    return plan
 
 
 def profile(plan):
@@ -36,7 +42,10 @@ def profile(plan):
 
 
 def test_argv(plan):
-    plan = validate_plan(plan)
+    return _test_argv(validate_plan(plan))
+
+
+def _test_argv(plan):
     args = ["go", "test", "-p=1", "-count=1", "-timeout=600s", "-json"]
     if plan["race"]:
         args.append("-race")

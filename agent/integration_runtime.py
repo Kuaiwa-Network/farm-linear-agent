@@ -20,6 +20,7 @@ class Command:
     group inside the worker's session, so outer worker containment still covers them.
     """
     def __init__(self, argv, *, cwd, env, log, identified=lambda child: None):
+        argv = validate_argv(argv)
         self.job = None
         self.job_name = None
         self.observed = set()
@@ -34,7 +35,7 @@ class Command:
         self.process = None
         try:
             with open(log, 'wb') as stream:
-                self.process = subprocess.Popen(validate_argv(argv), cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                self.process = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                                                 stdout=stream, stderr=subprocess.STDOUT, **options)
             if self.job:
                 self.job.assign(self.process)
