@@ -2,11 +2,13 @@ import json
 import os
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import time
 import unittest
 from agent.launcher import Launcher, RUNTIMES
 from agent.worker_retention import retire_attempt
+from agent.worker_cache import compiler_cache
 
 
 class CacheReuseTests(unittest.TestCase):
@@ -48,6 +50,41 @@ class CacheReuseTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,'incomplete launch'):
             self.launcher.spawn('one','prompt',{},20,self.root)
         self.assertTrue((attempt/'process.json').exists())
+
+    def directory_link(self, link, target):
+        if os.name == 'nt':
+            subprocess.run(['cmd', '/c', 'mklink', '/J', str(link), str(target)],
+                           check=True, capture_output=True)
+        else:
+            link.symlink_to(target, target_is_directory=True)
+
+    def test_host_path_alias_allows_cache_creation(self):
+        actual, alias = self.root/'host real', self.root/'host alias'
+        actual.mkdir()
+        self.directory_link(alias, actual)
+        launcher = Launcher(alias/'runs', RUNTIMES['fake'], 'test')
+        cache = compiler_cache(launcher, 'one')
+        self.assertEqual(cache.resolve(), (actual/'runs/one/compiler-cache-v1/go-cache').resolve())
+        self.assertTrue(cache.is_dir())
+
+    def test_links_within_item_are_rejected_before_reuse_or_creation(self):
+        for relative in ('one', 'two/compiler-cache-v1', 'three/compiler-cache-v1/go-cache'):
+            with self.subTest(relative=relative):
+                target = self.root/relative.split('/')[0]
+                target.mkdir()
+                marker = target/'retained.txt'
+                marker.write_text('preserve', encoding='utf-8')
+                link = self.launcher.runs_root/relative
+                link.parent.mkdir(parents=True, exist_ok=True)
+                self.directory_link(link, target)
+                with self.assertRaisesRegex(RuntimeError, 'path contains a link'):
+                    compiler_cache(self.launcher, relative.split('/')[0])
+                self.assertEqual(list(target.iterdir()), [marker])
+
+    def test_cache_refuses_non_item_paths(self):
+        for key in ('..', '.', 'one/two'):
+            with self.subTest(key=key), self.assertRaisesRegex(RuntimeError, 'direct item directory'):
+                compiler_cache(self.launcher, key)
 
 
     @unittest.skipUnless(os.name == 'nt', 'Windows nested worker Job')

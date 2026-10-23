@@ -176,3 +176,25 @@ with the same `python -X utf8 -m unittest discover -s tests -p MODULE.py -v` com
 The grouped runner used the same environment filtering as the full-suite runner;
 results remain in ignored `.local/validation/pr-base-regressions.log` and `.json`.
 The full suite was not repeated on this newer base.
+
+## Release review corrections
+
+CI run `39963478845` on PR #343's initial head completed all 3,396 cases on
+both platforms. The four Windows shards passed with 69 platform/capability skips,
+including all ten native Windows worker tests. macOS reported 32 failures,
+108 errors and 105 skips. Most failures followed worker startup errors: the new
+cache check rejected the system `/var` alias above the host-selected runs root.
+The cache now checks links/junctions inside the item and cache directories before
+creation or reuse, while accepting host-controlled ancestors. Direct item paths
+are enforced, and regression tests cover host aliases and each owned link boundary.
+
+The combined-resource CLI fixture also incorrectly expected immediate POSIX
+service settlement while its all-worker quiescence callback still returned false.
+It now verifies that settlement remains blocked until that proof is supplied;
+the runtime's POSIX whole-worker requirement is unchanged. These findings blocked
+deployment of the initial head. Subsequent checks belong to the corrected PR head;
+the earlier green Windows run does not certify that newer revision.
+After these corrections, a native Windows run of cache reuse, cache retention,
+Windows worker containment and the combined-resource CLI journey passed all
+41 cases with no failures, errors or skips. Private results are retained as
+`.local/validation/review-fix.log` and `.json`.

@@ -545,6 +545,9 @@ class CliTests(unittest.TestCase):
         self.assertEqual(released.get('keep_worker', False), os.name == 'nt')
         self.assertEqual(released['worker_handoff'], os.name != 'nt')
         self.run_cli('renew', '--item',item, '--token',token, success=os.name == 'nt')
+        if os.name != 'nt':
+            self.assertEqual(pool.tick()['settled'], 0)
+            pool.quiescent = lambda key: True  # The host now proves all worker attempts exited.
         self.assertEqual(pool.tick()['settled'], 1)
         with closing(Ledger(self.db)) as ledger:
             self.assertEqual(ledger.item(item)['state'], 'running' if os.name == 'nt' else 'queued')

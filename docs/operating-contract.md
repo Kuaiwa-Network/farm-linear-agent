@@ -508,6 +508,9 @@ Native/cgo external libraries still require the toolchain's documented invalidat
 Historical per-attempt caches stay on their existing retention path; the first
 launch adopting the item cache can still compile cold. No old build tree is
 automatically promoted into the new cache.
+Host-controlled path aliases above an item (such as macOS `/var`) remain valid;
+links or junctions in the item directory or either cache directory are refused
+before cache reuse or creation.
 Workers keep these paths instead of creating additional caches. An external build-output layout is used
 only where the repository supports it; Client tests requiring in-tree `bin/obj`
 keep that layout, whose existing worktree retirement remains unchanged. Logs,
