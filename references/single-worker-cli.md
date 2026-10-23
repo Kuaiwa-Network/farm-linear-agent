@@ -58,10 +58,11 @@ presentation subtasks, mandatory baseline comparison, UI receipts and semantic
 closing checks are refused for this contract.
 
 For work questions, teammates reply directly under the question comment with
-question numbers; each reply retains its author and is imported on the normal
-lifecycle pass (normally about a minute). No @mention or combined session reply
-is needed. Other comment threads do not wake a waiting task unless they @mention
-the bot; session replies keep working. The session points to the issue comments.
+question numbers. After everyone is finished, any teammate @mentions the bot to
+request review and continuation. That mention imports all accumulated thread
+answers with their authors; there is no periodic question-thread polling and
+ordinary replies do not wake work. A session reply can also trigger that check.
+No combined session answer is needed. The session points to the issue comments.
 On partial answers keep the original round and all answer message IDs in the
 checkpoint, then `await-input` again for the remainder. `resolve-question` still
 requires the actual attributed replies for the complete round. A retry reconciles

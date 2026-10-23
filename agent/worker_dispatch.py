@@ -107,8 +107,9 @@ answer before dependent contract or implementation edits. Complete independent c
 decided/high subset, then save progress, settle helpers, release resources and ask through await-input --reason
 question. Put low before medium and group questions by responsible role; do not leave questions only in activity.
 For work, await-input publishes the questions in an issue comment and links it from the session. Ask each person
-to reply directly under that comment with question numbers; no mention or collected session answer is needed.
-The controller imports attributed thread replies periodically. On each resume keep an answered/unanswered list
+to reply directly under that comment with question numbers. After everyone is finished, any teammate mentions
+the bot to ask it to review and continue; no collected session answer is needed. Ordinary replies do not wake
+work. A mention or session reply imports accumulated attributed answers. On resume keep an answered/unanswered list
 and the actual inbox message IDs in the checkpoint. Partial replies do not resolve the entire round: complete
 only authorized independent work, then await-input again for the remainder, reusing the original comment/round.
 Call resolve-question only when every question in that round has an actual answer, citing replies across resumes.

@@ -856,7 +856,8 @@ def run(args, ledger, api_factory):
             if not str(item['session_id']).startswith('local-'):
                 url = ledger.issue(item['issue_id'])['url']
                 api.create_activity(item['session_id'], {'type': 'elicitation', 'body':
-                    f'问题已发布到 [issue 评论]({url})。请直接回复问题评论，各负责人可以分别回答，无需汇总到会话。'})
+                    f'问题已发布到 [issue 评论]({url})。各负责人可分别回复问题评论；'
+                    f'大家答完后，由任意一人 @{configured_bot_name()} 告知检查并继续，无需汇总到会话。'})
             try:
                 return ledger.await_input(args.item, token, args.question, reason=args.reason)
             except LedgerError:

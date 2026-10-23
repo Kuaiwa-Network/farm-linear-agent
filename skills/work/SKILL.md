@@ -83,9 +83,12 @@ On resume resolve only the items actually answered by attributed replies.
 `await-input --reason question` posts the questions in the issue's comment area;
 the session contains a pointer to that comment. Give questions stable numbers and
 invite each responsible person to reply directly under the question comment.
-No @mention or consolidated session answer is required. FarmBot checks outstanding
-question threads on the normal lifecycle pass, so replies may take about a minute
-to appear. Session replies and @mentions in other comments still work.
+After everyone is finished, any teammate @mentions FarmBot to ask it to review
+and continue. No consolidated session answer is required. Ordinary replies do not
+wake the task, and there is no periodic question-thread polling. The mention
+collects all accumulated answers with their authors before resuming; a session
+reply can also request that check. A request to continue does not itself answer
+any outstanding question or establish approval of every reply.
 
 Maintain an answered/unanswered list with actual inbox message IDs and authors
 in the checkpoint. A reply can answer just one question; retain earlier answers

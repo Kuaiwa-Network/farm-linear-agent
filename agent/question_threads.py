@@ -44,15 +44,16 @@ def _in_thread(comment, root_id, comments):
     return False
 
 
-def reconcile(ledger, api, issue_id):
-    """Poll only outstanding question threads; ordinary unrelated comments grant no resume."""
+def collect_replies(ledger, api, issue_id, *, item_id=None, issue=None):
+    """Collect answers on explicit human contact; the receiver alone decides whether to resume."""
     from .ledger import ACTIVE_STATES, TERMINAL_STATUS_TYPES, _in_scope
-    targets = [q for q in questions(ledger, issue_id) if q.get('comment_request_id')]
+    targets = [q for q in questions(ledger, issue_id) if q.get('comment_request_id')
+               and (item_id is None or q['item_id'] == item_id)]
     targets = [(q, ledger.notice(q['item_id'], q['comment_request_id'])) for q in targets]
     targets = [(q, notice) for q, notice in targets if notice and notice['remote_id']]
     if not targets:
         return
-    raw = api.fetch_issue(issue_id)
+    raw = api.fetch_issue(issue_id) if issue is None else issue
     if raw['id'] != issue_id:
         raise ValueError('question reply response identifies a different issue')
     ledger.observe_issue(raw)  # Validate every comment and its author before using it as input.
@@ -99,7 +100,3 @@ def reconcile(ledger, api, issue_id):
                 checkpoint[QUESTION_KEY] = question
                 ledger.connection.execute('UPDATE work_items SET checkpoint=?,updated_at=? WHERE id=?',
                     (json.dumps(checkpoint, ensure_ascii=False), ledger.clock(), row['id']))
-                if row['state'] == 'awaiting_input':
-                    ledger._set_state(row['id'], 'queued', 'human replied in question comment', token=None,
-                        lease_expires_at=None, worker_pid=None, resume_authorized=1,
-                        **ledger._new_stage_allowances(row))

@@ -1,12 +1,16 @@
 """Question comments survive retries and collect independently attributed answers."""
 import copy
+import hashlib
+import hmac
+import json
 from unittest.mock import Mock, patch
 
 from agent.__main__ import parser, run
 from agent.ledger import LedgerError
-from agent.question_threads import prepare, reconcile
+from agent.question_threads import prepare, collect_replies
+from agent.receiver import Receiver
 from test_ledger import LedgerBase, ISSUE, SESSION, OWNER, DESIGNER, issue
-from test_receiver import APP
+from test_receiver import APP, IDENTITY
 
 
 class QuestionThreadTests(LedgerBase):
@@ -24,6 +28,11 @@ class QuestionThreadTests(LedgerBase):
         self.api.fetch_issue.side_effect = lambda _: copy.deepcopy(self.card)
         self.api.awaiting_reply.return_value = True
         self.api.create_comment.side_effect = self.post
+        self.api.session_has_artificial_root.return_value = False
+        self.receiver = Receiver(self.path, 'secret', IDENTITY, self.api, self.open_ledger,
+                                 skills={'chat', 'work'}, scheduler=Mock(), clock=lambda: self.now)
+        self.addCleanup(self.receiver.close)
+        self.trigger_count = 0
 
     def checkpoint(self):
         self.ledger.checkpoint(self.item, self.token, {'summary': 'Saved work', 'handoff': 'Continue retained work'})
@@ -47,12 +56,30 @@ class QuestionThreadTests(LedgerBase):
             return run(args, self.ledger, lambda: self.api)
 
     def resume(self):
+        self.ledger.push_inbox(self.item, 'Please review and continue', author=OWNER, resume_waiting=True)
         self.token = self.ledger.claim(self.item, worker_id='resumed')['token']
         self.ledger.pop_inbox(self.item, self.token)
         self.checkpoint()
 
     def messages(self):
-        return self.ledger.issue_context(self.item)['session_messages']
+        return [m for m in self.ledger.issue_context(self.item)['session_messages']
+                if m['body'].startswith('Reply to question ')]
+
+    def trigger(self, *, session_reply=False, author=OWNER, body='@TestBot everyone has answered; review and continue'):
+        self.trigger_count += 1
+        session = SESSION if session_reply else f'mention-{self.trigger_count}'
+        event = {'type': 'AgentSessionEvent', 'action': 'prompted' if session_reply else 'created',
+                 'webhookTimestamp': 100_000, **IDENTITY,
+                 'agentSession': {'id': session, 'issue': {'id': ISSUE}, 'creator': author}}
+        if session_reply:
+            event['agentActivity'] = {'id': f'prompt-{self.trigger_count}', 'agentSessionId': session,
+                                     'content': {'type': 'prompt', 'body': body}, 'user': author}
+        else:
+            event['agentSession']['sourceComment'] = {'id': f'trigger-{self.trigger_count}', 'body': body}
+        payload = json.dumps(event).encode()
+        signature = hmac.new(b'secret', payload, hashlib.sha256).hexdigest()
+        self.assertEqual(self.receiver.receive(payload, signature, now_ms=100_000), (200, 'accepted'))
+        self.assertTrue(self.receiver.process_one())
 
     def test_question_is_a_comment_and_session_points_to_it(self):
         parked = self.ask()
@@ -60,7 +87,8 @@ class QuestionThreadTests(LedgerBase):
         self.api.create_comment.assert_called_once()
         body = self.api.create_comment.call_args.args[1]
         self.assertIn('Q1: reset period?', body)
-        self.assertIn('无需 @提及', body)
+        self.assertIn('@TestBot', body)
+        self.assertIn('等大家回答完毕后', body)
         self.assertIn('[farmbot:', body)
         self.assertIn('issue 评论', self.api.create_activity.call_args.args[1]['body'])
         self.assertNotIn('Q1: reset period?', self.api.create_activity.call_args.args[1]['body'])
@@ -69,10 +97,10 @@ class QuestionThreadTests(LedgerBase):
         self.ask()
         question = self.ledger.human_question(self.item)
         self.card['comments'].append(self.comment('answer-1'))
-        reconcile(self.ledger, self.api, ISSUE)
+        collect_replies(self.ledger, self.api, ISSUE)
         first = self.messages()[-1]
         self.assertEqual(first['author'], OWNER)
-        self.assertEqual(self.ledger.item(self.item)['state'], 'queued')
+        self.assertEqual(self.ledger.item(self.item)['state'], 'awaiting_input')
         self.resume()
         self.ask('Only Q2 remains: which asset?')
         self.assertEqual(self.ledger.item(self.item)['state'], 'awaiting_input')
@@ -80,7 +108,7 @@ class QuestionThreadTests(LedgerBase):
         self.assertEqual(self.ledger.human_question(self.item)['after_message_id'], question['after_message_id'])
         self.api.create_comment.assert_called_once()
         self.card['comments'].append(self.comment('answer-2', 'Q2: approved asset A', author=DESIGNER))
-        reconcile(self.ledger, self.api, ISSUE)
+        collect_replies(self.ledger, self.api, ISSUE)
         second = self.messages()[-1]
         self.assertEqual(second['author'], DESIGNER)
         self.resume()
@@ -90,38 +118,38 @@ class QuestionThreadTests(LedgerBase):
         self.ask('New question round')
         self.assertNotEqual(self.ledger.human_question(self.item)['id'], question['id'])
         self.assertEqual(self.api.create_comment.call_count, 2)
-        reconcile(self.ledger, self.api, ISSUE)
+        collect_replies(self.ledger, self.api, ISSUE)
         self.assertEqual(self.ledger.item(self.item)['state'], 'awaiting_input')
         self.assertEqual(len(self.messages()), 2)  # Old-thread replies cannot answer this new round.
 
-    def test_poll_is_idempotent_and_delivers_an_edit_once(self):
+    def test_repeated_collection_is_idempotent_and_delivers_an_edit_once(self):
         self.ask()
         reply = self.comment('answer')
         self.card['comments'].append(reply)
-        reconcile(self.ledger, self.api, ISSUE)
-        reconcile(self.ledger, self.api, ISSUE)
+        collect_replies(self.ledger, self.api, ISSUE)
+        collect_replies(self.ledger, self.api, ISSUE)
         self.assertEqual(len(self.messages()), 1)
         stale = copy.deepcopy(reply)
         reply.update(body='Correction: weekly', updated_at='2026-10-23T00:02:00Z')
-        reconcile(self.ledger, self.api, ISSUE)
-        reconcile(self.ledger, self.api, ISSUE)
+        collect_replies(self.ledger, self.api, ISSUE)
+        collect_replies(self.ledger, self.api, ISSUE)
         self.assertEqual(len(self.messages()), 2)
         self.card['comments'][-1] = stale
-        reconcile(self.ledger, self.api, ISSUE)
-        reconcile(self.open_ledger(), self.api, ISSUE)
+        collect_replies(self.ledger, self.api, ISSUE)
+        collect_replies(self.open_ledger(), self.api, ISSUE)
         self.assertEqual(len(self.messages()), 2)
 
-    def test_only_attributed_humans_in_the_question_thread_wake_it(self):
+    def test_only_attributed_humans_in_the_question_thread_are_collected(self):
         self.ask()
         self.card['comments'] += [self.comment('unrelated', parent=None),
             self.comment('other-thread', parent='another-question'),
             self.comment('bot', kind='bot', author=None), self.comment('unknown', kind='unknown', author=None),
             self.comment('unattributed', author=None), self.comment('empty', '  ')]
-        reconcile(self.ledger, self.api, ISSUE)
+        collect_replies(self.ledger, self.api, ISSUE)
         self.assertEqual(self.messages(), [])
         self.assertEqual(self.ledger.item(self.item)['state'], 'awaiting_input')
         self.card['comments'].append(self.comment('nested', parent='bot'))
-        reconcile(self.ledger, self.api, ISSUE)
+        collect_replies(self.ledger, self.api, ISSUE)
         self.assertEqual(len(self.messages()), 1)
 
     def test_lost_post_response_reconciles_marker_on_retry(self):
@@ -139,24 +167,25 @@ class QuestionThreadTests(LedgerBase):
     def test_reply_between_comment_and_park_is_not_stranded(self):
         def reply_during_pointer(*_):
             self.card['comments'].append(self.comment('fast-answer'))
-            reconcile(self.ledger, self.api, ISSUE)
+            self.api.create_activity.side_effect = None
+            self.trigger()
         self.api.create_activity.side_effect = reply_during_pointer
         self.assertEqual(self.ask()['state'], 'queued')
         self.assertEqual(len(self.messages()), 1)
 
-    def test_no_poll_before_confirmed_comment_or_after_resolution(self):
-        reconcile(self.ledger, self.api, ISSUE)
+    def test_no_fetch_before_confirmed_comment_or_after_resolution(self):
+        collect_replies(self.ledger, self.api, ISSUE)
         prepare(self.ledger, self.item, self.token, 'Question?', 'TestBot')
-        reconcile(self.ledger, self.api, ISSUE)
+        collect_replies(self.ledger, self.api, ISSUE)
         self.api.fetch_issue.assert_not_called()
         self.ask()
         self.card['comments'].append(self.comment('answer'))
-        reconcile(self.ledger, self.api, ISSUE)
+        collect_replies(self.ledger, self.api, ISSUE)
         self.resume()
         self.ledger.resolve_question(self.item, self.token, self.ledger.human_question(self.item)['id'],
                                      [self.messages()[-1]['id']])
         self.api.fetch_issue.reset_mock()
-        reconcile(self.ledger, self.api, ISSUE)
+        collect_replies(self.ledger, self.api, ISSUE)
         self.api.fetch_issue.assert_not_called()
 
     def test_closed_withdrawn_and_stopped_jobs_cannot_resume_from_comments(self):
@@ -168,48 +197,50 @@ class QuestionThreadTests(LedgerBase):
                 self.card.update(changes)
                 # Give the restored snapshot a fresh version too.
                 self.card['updated_at'] = '2026-10-23T01:00:00Z'
-                reconcile(self.ledger, self.api, ISSUE)
+                collect_replies(self.ledger, self.api, ISSUE)
                 self.assertEqual(self.messages(), [])
                 self.card = before
                 self.card['updated_at'] = '2026-10-23T02:00:00Z'
                 self.ledger.observe_issue(self.card)
         self.ledger.cancel(self.item, 'Stopped')
-        reconcile(self.ledger, self.api, ISSUE)
+        collect_replies(self.ledger, self.api, ISSUE)
         self.assertEqual(self.ledger.item(self.item)['state'], 'cancelled')
         self.assertEqual(self.messages(), [])
 
     def test_concurrent_resolution_during_fetch_cannot_route_to_a_new_round(self):
         self.ask()
         self.card['comments'].append(self.comment('answer'))
-        reconcile(self.ledger, self.api, ISSUE)
+        collect_replies(self.ledger, self.api, ISSUE)
         self.resume()
         question = self.ledger.human_question(self.item)
         def resolved(_):
             self.ledger.resolve_question(self.item, self.token, question['id'], [self.messages()[-1]['id']])
             return copy.deepcopy(self.card)
         self.api.fetch_issue.side_effect = resolved
-        reconcile(self.ledger, self.api, ISSUE)
+        collect_replies(self.ledger, self.api, ISSUE)
         self.assertIsNone(self.ledger.human_question(self.item))
         self.assertEqual(len(self.messages()), 1)
 
-    def test_lifecycle_polls_thread_and_keeps_attention_until_explicit_resolution(self):
+    def test_lifecycle_does_not_collect_or_wake_on_ordinary_replies(self):
         from agent.lifecycle import Lifecycle
         self.ask()
         self.card['comments'].append(self.comment('answer'))
+        self.api.fetch_issue.reset_mock()
         lifecycle = Lifecycle(self.ledger, self.api, Mock(), clock=lambda: self.now)
         self.assertIsNotNone(lifecycle.refresh(ISSUE))
-        self.assertEqual(self.ledger.item(self.item)['state'], 'queued')
+        self.assertEqual(self.ledger.item(self.item)['state'], 'awaiting_input')
+        self.api.fetch_issue.assert_not_called()
+        self.assertEqual(self.messages(), [])
         self.assertIsNotNone(self.ledger.human_question(self.item))
         self.api.awaiting_reply.assert_called_with(ISSUE, True)
 
-    def test_comment_read_failure_preserves_question_and_records_retryable_status(self):
-        from agent.lifecycle import Lifecycle
+    def test_failed_trigger_read_preserves_question_without_resuming(self):
         self.ask()
         question = self.ledger.human_question(self.item)
         self.api.fetch_issue.side_effect = TimeoutError('offline')
-        lifecycle = Lifecycle(self.ledger, self.api, Mock(), clock=lambda: self.now)
-        self.assertIsNone(lifecycle.refresh(ISSUE))
-        self.assertIn('TimeoutError', self.ledger.status_check(ISSUE)['error'])
+        self.trigger()
+        event = self.receiver.db.execute('SELECT status,error FROM webhook_events').fetchone()
+        self.assertEqual((event['status'], event['error']), ('uncertain', 'TimeoutError'))
         self.assertEqual(self.ledger.human_question(self.item), question)
         self.assertEqual(self.ledger.item(self.item)['state'], 'awaiting_input')
 
@@ -225,7 +256,7 @@ class QuestionThreadTests(LedgerBase):
         self.ask()
         self.api.fetch_issue.side_effect = lambda _: {**copy.deepcopy(self.card), 'id': OTHER}
         with self.assertRaisesRegex(ValueError, 'different issue'):
-            reconcile(self.ledger, self.api, ISSUE)
+            collect_replies(self.ledger, self.api, ISSUE)
         self.assertEqual(self.messages(), [])
 
     def test_changed_issue_response_cannot_post_question(self):
@@ -242,6 +273,66 @@ class QuestionThreadTests(LedgerBase):
             self.ledger.cancel(self.item, 'Stopped during read')
             return copy.deepcopy(self.card)
         self.api.fetch_issue.side_effect = stopped
-        reconcile(self.ledger, self.api, ISSUE)
+        collect_replies(self.ledger, self.api, ISSUE)
         self.assertEqual(self.messages(), [])
         self.assertEqual(self.ledger.item(self.item)['state'], 'cancelled')
+
+    def test_final_mention_collects_everyones_answers_once_before_resuming(self):
+        self.ask()
+        self.card['comments'] += [self.comment('answer-1'),
+                                  self.comment('answer-2', 'Q2: asset A', author=DESIGNER)]
+        self.assertEqual(self.messages(), [])
+        self.api.fetch_issue.reset_mock()
+        self.trigger()
+        self.assertEqual([m['author'] for m in self.messages()], [OWNER, DESIGNER])
+        self.assertEqual(self.ledger.item(self.item)['state'], 'queued')
+        self.assertIsNotNone(self.ledger.human_question(self.item))
+        self.api.fetch_issue.assert_called_once_with(ISSUE)
+        self.trigger()
+        self.assertEqual(len(self.messages()), 2)
+
+    def test_session_reply_can_trigger_the_same_collection(self):
+        self.ask()
+        self.card['comments'].append(self.comment('answer'))
+        self.trigger(session_reply=True)
+        self.assertEqual(len(self.messages()), 1)
+        self.assertEqual(self.ledger.item(self.item)['state'], 'queued')
+
+    def test_early_mention_preserves_round_and_later_answers_wait_for_next_mention(self):
+        self.ask()
+        question = self.ledger.human_question(self.item)
+        self.card['comments'].append(self.comment('answer-1'))
+        self.trigger()
+        first = self.messages()[0]
+        self.resume()
+        self.ask('Only Q2 remains')
+        self.card['comments'].append(self.comment('answer-2', 'Q2: asset A', author=DESIGNER))
+        self.assertEqual(len(self.messages()), 1)
+        self.assertEqual(self.ledger.item(self.item)['state'], 'awaiting_input')
+        self.trigger()
+        self.resume()
+        self.ledger.resolve_question(self.item, self.token, question['id'], [first['id'], self.messages()[-1]['id']])
+        self.assertIsNone(self.ledger.human_question(self.item))
+        self.api.create_comment.assert_called_once()
+
+    def test_mention_without_an_answer_does_not_resolve_the_question(self):
+        self.ask()
+        question = self.ledger.human_question(self.item)
+        self.trigger()
+        self.assertEqual(self.messages(), [])
+        self.assertEqual(self.ledger.human_question(self.item)['id'], question['id'])
+
+    def test_trigger_without_a_human_author_does_not_collect_answers(self):
+        self.ask()
+        self.card['comments'].append(self.comment('answer'))
+        self.trigger(author=None)
+        self.assertEqual(self.messages(), [])
+
+    def test_lost_delegation_at_mention_does_not_import_or_resume(self):
+        self.ask()
+        self.card['comments'].append(self.comment('answer'))
+        self.card['delegate_id'] = None
+        self.card['updated_at'] = '2026-10-23T01:00:00Z'
+        self.trigger()
+        self.assertEqual(self.messages(), [])
+        self.assertEqual(self.ledger.item(self.item)['state'], 'awaiting_input')
