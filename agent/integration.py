@@ -4,6 +4,7 @@ The game code runs only in the issue worker, never in a controller command.
 """
 import json
 import re
+import subprocess
 
 FULL_SERVER_PLAN = {'packages':['./...'], 'tests':[], 'race':True}
 
@@ -29,9 +30,16 @@ def validate_plan(raw):
 
 
 def validate_argv(raw):
-    if (not isinstance(raw, list) or not 1 <= len(raw) <= 128
-            or any(not isinstance(arg, str) or not arg or len(arg) > 4096 or '\0' in arg for arg in raw)):
-        raise ValueError('command must be a nonempty argv list, without shell expansion')
+    if not isinstance(raw, list) or not 1 <= len(raw) <= 256:
+        raise ValueError('command must contain 1-256 literal argv entries')
+    if any(not isinstance(arg, str) or not arg or '\0' in arg for arg in raw):
+        raise ValueError('command arguments must be nonempty strings without NUL')
+    # Bound the entire command, including Windows quoting and UTF-16 surrogate
+    # pairs. Leave headroom below CreateProcess's 32,767-unit limit on every host.
+    # A generated Go -run filter can legitimately exceed 4 KiB by itself.
+    if (sum(len(arg) for arg in raw) > 30000
+            or len(subprocess.list2cmdline(raw).encode('utf-16-le', errors='surrogatepass')) // 2 + 1 > 30000):
+        raise ValueError('command exceeds the 30000 UTF-16-unit command-line limit; reduce the selection')
     return list(raw)
 
 

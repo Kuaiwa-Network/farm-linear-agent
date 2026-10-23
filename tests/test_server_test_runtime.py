@@ -16,16 +16,16 @@ import test_server_slots as fixtures
 class ServerRunnerTests(fixtures.ServerPoolFixture):
     start, save = controls.ProcessScopeTests.start, controls.ProcessScopeTests.save
 
-    def execute(self, code, *, pause=False, changed=False, hold=False):
+    def execute(self, code, *, pause=False, changed=False, hold=False, arguments=()):
         key, token, grant = self.start(managed=True)
         paths = SimpleNamespace(ledger=self.db, repos=self.root/'repos', worktrees=self.root/'worktrees',
                                 runs=self.root/'runs', server_slots=self.root)
         module = paths.worktrees/key/'farm-hive'/'game'
         module.mkdir(parents=True)
         (module/'go.mod').write_text('module fixture',encoding='utf-8')
-        script = module/'fake-go.py'
+        script = module/'fake go 测试.py'
         script.write_text(code,encoding='utf-8')
-        resource = {'test_argv':[sys.executable,str(script)], 'environment':{'TEST_ENDPOINT':'isolated'},
+        resource = {'test_argv':[sys.executable,str(script), *arguments], 'environment':{'TEST_ENDPOINT':'isolated'},
                     'test_plan':grant['server_test_plan'], 'expires_at':time.time()+15}
         trees=Mock()
         if changed:
@@ -67,6 +67,39 @@ class ServerRunnerTests(fixtures.ServerPoolFixture):
         self.assertEqual(self.ledger.slot(grant['resource'])['state'], 'held')
         self.assertIsNotNone(self.ledger.active_reservation(key))
         self.assertEqual(self.services.cleaned, [])
+
+    def test_long_exact_test_filter_reaches_native_child_unchanged_and_settles(self):
+        from agent.server_test_plan import test_argv
+        plan = {'packages': ['./modules/guild'], 'race': True,
+                'tests': ['TestGuildTitle' + str(i).zfill(3) + 'x' * 40 for i in range(120)]}
+        arguments = test_argv(plan)[1:]
+        self.assertGreater(len(arguments[arguments.index('-run') + 1]), 4096)
+        key, token, grant, result, _ = self.execute(
+            'import json,sys; print(json.dumps(sys.argv[1:]))', arguments=arguments)
+        self.assertEqual(result['status'], 'completed', result)
+        self.assertEqual(json.loads(Path(result['output']).read_text(encoding='utf-8')), arguments)
+        self.assertTrue(result['teardown'], result)
+        self.assertTrue(quiescent(self.ledger, grant['reservation_id'], sealed=False))
+        self.ledger.renew(key, token)
+
+    def test_rejected_arguments_do_not_create_an_uncertain_command(self):
+        key, token, grant, result, _ = self.execute('raise AssertionError("must not run")',
+                                                  arguments=['x' * 30000])
+        self.assertEqual(result['status'], 'failed', result)
+        self.assertIsNone(result['exit_code'])
+        self.assertTrue(result['teardown'], result)
+        self.assertEqual(self.ledger.connection.execute('SELECT count(*) FROM resource_commands').fetchone()[0], 0)
+        self.assertFalse(Path(result['output']).exists())
+        self.assertTrue(quiescent(self.ledger, grant['reservation_id'], sealed=False))
+        self.ledger.renew(key, token)
+
+    def test_interrupted_creation_still_requires_recovery(self):
+        with patch('agent.integration_runtime.Command', side_effect=RuntimeError('unknown creation outcome')):
+            _, _, grant, result, _ = self.execute('pass')
+        self.assertEqual(result['status'], 'failed', result)
+        self.assertFalse(result['teardown'], result)
+        self.assertFalse(quiescent(self.ledger, grant['reservation_id'], sealed=False))
+        self.assertEqual(self.ledger.connection.execute('SELECT state FROM resource_commands').fetchone()[0], 'starting')
 
     def test_failure_source_change_and_maintenance_are_not_passes_and_drain_commands(self):
         for code,pause,changed in [('raise SystemExit(3)',False,False),('pass',False,True),

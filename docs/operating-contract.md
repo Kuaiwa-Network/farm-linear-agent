@@ -602,7 +602,22 @@ and automatic review. Controllers never execute worker-supplied commands. Manage
 status responses omit usable service environments/ports; only scoped commands get
 them. Do not start ad hoc service clients or reuse old endpoints.
 
-Every command records `starting` before creation, then its native identity. Windows
+Commands accept at most 256 nonempty literal arguments without NUL, with a total
+limit of 30,000 UTF-16 units including Windows quoting and the terminating NUL.
+Long exact Go test filters are allowed within that bound. Server plans validate
+their generated command before admission; execution checks again with the actual
+configured executable path. Oversized selections are refused with a specific
+command-limit error, without silently broadening or dropping tests.
+
+Argument validation precedes the `starting` record and process creation. A rejected
+command therefore creates no uncertain process entry. The server runner may report
+teardown complete only when the reservation's existing command proofs are also
+quiescent; the run still fails and supplies no test verdict. Once creation is
+attempted, incomplete identity or teardown evidence continues to require recovery.
+This command-validation change adds no schema migration and does not clear existing
+held resources or restart failed jobs. Older code reinstates its per-argument limit.
+
+Every accepted command records `starting` before creation, then its native identity. Windows
 uses a nested, non-breakaway Job assigned while the child is suspended. POSIX uses
 an owned group within the worker session and pins its leader through cleanup.
 Because that group cannot contain children moving to another group, POSIX retains

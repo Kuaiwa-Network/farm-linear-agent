@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from .launcher import _write_worker_file
 from .ledger import LedgerError
-from .resource_processes import Commands, scope
+from .resource_processes import Commands, quiescent, scope
 
 
 def run_owned(ledger, args, token):
@@ -76,6 +76,10 @@ def run_owned(ledger, args, token):
                 report['teardown'] = True
             except Exception as exc:
                 report.update(status='failed', teardown_error=type(exc).__name__)
+        else:
+            # Pre-spawn validation creates no command row. An interrupted spawn
+            # retains its starting/uncertain row, so the same proof stays false.
+            report['teardown'] = quiescent(ledger, reservation['reservation_id'], sealed=False)
         report['finished_at'] = time.time()
         try:
             trees.verification_commit('farm-hive', args.item, reservation['commit_sha'])

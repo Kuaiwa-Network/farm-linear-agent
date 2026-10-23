@@ -13,6 +13,14 @@ TARGETED = {**FOCUSED, "tests": []}
 
 
 class PlanTests(unittest.TestCase):
+    def test_maximum_named_selection_fits_but_oversized_combined_plan_is_refused(self):
+        from agent.integration import validate_argv
+        tests = ['Test' + str(i).zfill(3) + 'x' * 147 for i in range(128)]
+        plan = {'packages': ['./guild'], 'tests': tests, 'race': True}
+        self.assertEqual(validate_argv(test_argv(plan)), test_argv(plan))
+        with self.assertRaisesRegex(ValueError, 'command'):
+            validate_plan({**plan, 'packages': ['./' + str(i).zfill(3) + 'x' * 235 for i in range(128)]})
+
     def test_host_derives_tier_and_exact_argv_without_accepting_cost_labels(self):
         self.assertEqual(profile(FOCUSED), "focused")
         self.assertEqual(profile(TARGETED), "targeted")
