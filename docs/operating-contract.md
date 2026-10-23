@@ -337,6 +337,32 @@ loopback services. Local tests that need no services need no server reservation.
 Docker administration remains host-owned. Server cleanup retains the existing
 process-quiescence requirement; containers remain reserved for cleanup until
 the checkpointed server-release handoff exits and teardown is verified.
+
+An unavailable read-only Docker identity probe at server startup is retried for
+up to three minutes, allowing the host watchdog to restart Docker. No Docker
+mutation is replayed. Standalone reservations retain their original claim, ports,
+identity and startup deadline in `waiting_for_docker` and retry on later pool
+ticks while the same owner remains eligible and maintenance is off. Cancellation,
+withdrawal, changed generation and expiry fence readiness. Cleanup waits for both
+worker quiescence and the original daemon to return; a failed identity probe no
+longer permanently holds the slot. Cold-start pool prerequisites are retried by
+the service loop. Changed identities, ownership conflicts, corrupt journals and
+ambiguous resource mutations still require guarded investigation. Combined
+preparation gets the bounded identity-probe retry; exhausted combined preparation
+retains its existing recovery path.
+
+The optional Windows Docker watchdog is installed separately from the controller.
+Its Windows task checks once a minute and at user logon. It starts only a pinned
+host task when the Docker backend is absent, with bounded restart backoff, and
+verifies the original data location and daemon identity. It never kills a live
+backend, cleans resources or changes issue state. An unhealthy live backend is
+reported for investigation. Desktop Docker remains a logged-in-user service.
+Private status, restart events and the host launcher's exit records are retained.
+See [Docker watchdog operations](docker-watchdog.md) for installation and pause.
+
+No database migration is involved. Settle pending `waiting_for_docker` journals
+before rolling back: older releases do not retry that pre-start journal state.
+
 Released or cancelled reservations from an older worker generation can settle
 after a finish/requeue handoff, including after controller restart. Cleanup still
 verifies the lease's exact Docker identities and ownership and waits for all

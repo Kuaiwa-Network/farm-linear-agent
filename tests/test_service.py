@@ -625,6 +625,37 @@ class ServeTests(unittest.TestCase):
             time.sleep(0.05)
         self.fail(f"no matching heartbeat at {path}")
 
+    def test_server_pool_recovers_when_docker_returns_after_service_start(self):
+        from agent.server_slots import DockerUnavailable
+        ticks = threading.Event()
+        calls = []
+        server = SimpleNamespace(ready=False, tick=ticks.set, close=lambda: None)
+        def ensure():
+            calls.append(True)
+            if len(calls) == 1:
+                raise DockerUnavailable('daemon starting')
+            server.ready = True
+        server.ensure = ensure
+        components = self.c._replace(server_pool=server)
+        problems = []
+        def run():
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    serve(components=components)
+            except BaseException as exc:
+                problems.append(exc)
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 20)
+        self.addCleanup(self.c.server.shutdown)
+        self.assertTrue(self.wait_for_health(), problems)
+        self.assertTrue(ticks.wait(20), problems)
+        self.c.server.shutdown()
+        thread.join(20)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(problems, [])
+        self.assertEqual(len(calls), 2)
+
     def test_serve_reports_starting_serving_and_stopped_in_its_heartbeat(self):
         release = threading.Event()
         pool = SimpleNamespace(ensure=lambda: release.wait(20), tick=lambda: None, close=lambda: None)

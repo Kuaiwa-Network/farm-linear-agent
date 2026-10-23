@@ -13,7 +13,7 @@ from agent.config import Config
 from agent.ledger import Ledger, LedgerError
 from agent.resource_admission import ResourceAdmission, validate_settings as validate_admission
 from agent.resource_recovery import RecoveryStore
-from agent.server_slots import DockerServices, ServerSlotPool, ServerSlotError, read_resource, validate_settings
+from agent.server_slots import DockerServices, DockerUnavailable, ServerSlotPool, ServerSlotError, read_resource, validate_settings
 from agent.server_slots import relay_source_digest
 from agent.skills import load_skills
 from agent.slots import SlotPool
@@ -96,6 +96,62 @@ class ServerPoolFixture(unittest.TestCase):
         return item["id"]
 
 class PoolTests(ServerPoolFixture):
+    def test_daemon_outage_retries_same_reservation_without_reclaiming_worker(self):
+        item = self.request()
+        self.services.error = DockerUnavailable('info unavailable')
+        self.pool.tick()
+        reservation = self.ledger.active_reservation(item)
+        before = self.ledger.item(item)
+        path = self.pool._path(reservation['resource'])
+        lease = json.loads(path.read_text())
+        self.assertEqual(lease['state'], 'waiting_for_docker')
+        self.assertNotEqual(self.ledger.slot(reservation['resource'])['state'], 'held')
+        self.services.error = None
+        self.assertEqual(self.pool.tick()['granted'], 1)
+        self.assertEqual(self.ledger.active_reservation(item)['reservation_id'], reservation['reservation_id'])
+        self.assertEqual(self.ledger.item(item)['generation'], before['generation'])
+        self.assertEqual(json.loads(path.read_text())['state'], 'ready')
+        self.assertEqual(self.services.started[0]['ports'], self.services.started[1]['ports'])
+
+    def test_outage_cancel_waits_for_quiescence_and_never_restarts_services(self):
+        item = self.request()
+        self.services.error = DockerUnavailable('info unavailable')
+        self.pool.tick()
+        reservation = self.ledger.active_reservation(item)
+        self.ledger.cancel(item, 'Stop')
+        self.exited = False
+        self.services.error = None
+        self.pool.tick()
+        self.assertEqual(len(self.services.started), 1)
+        self.assertFalse(self.services.cleaned)
+        self.exited = True
+        self.assertEqual(self.pool.tick()['settled'], 1)
+        self.assertEqual(self.ledger.slot(reservation['resource'])['state'], 'idle_closed')
+
+    def test_daemon_outage_during_cleanup_retries_after_return(self):
+        item = self.request()
+        self.pool.tick()
+        reservation = self.ledger.active_reservation(item)
+        self.ledger.cancel(item, 'Stop')
+        self.services.error = DockerUnavailable('info unavailable')
+        self.pool.tick()
+        self.assertNotEqual(self.ledger.slot(reservation['resource'])['state'], 'held')
+        self.assertFalse(self.services.cleaned)
+        self.services.error = None
+        self.assertEqual(self.pool.tick()['settled'], 1)
+
+    def test_outage_never_extends_startup_deadline_or_publishes_late_readiness(self):
+        item = self.request()
+        self.services.error = DockerUnavailable('info unavailable')
+        self.pool.tick()
+        reservation = self.ledger.active_reservation(item)
+        lease = json.loads(self.pool._path(reservation['resource']).read_text())
+        self.services.error = None
+        self.services.after_start = lambda _: setattr(self, 'now', lease['expires_at'] + 1)
+        self.assertEqual(self.pool.tick()['granted'], 0)
+        self.assertEqual(self.ledger.item(item)['state'], 'blocked')
+        self.assertFalse((self.root.parent / 'runs' / item / 'server-resource.json').exists())
+
     def missing_journal(self):
         previous = self.request()
         self.pool.tick()
@@ -697,6 +753,35 @@ class AdmissionTests(ServerPoolFixture):
 
 
 class SettingsTests(unittest.TestCase):
+    def test_start_retries_only_read_only_probe_then_rechecks_original_identity(self):
+        now = [0]
+        services = DockerServices(SETTINGS, clock=lambda: now[0], sleep=lambda seconds: now.__setitem__(0, now[0]+seconds))
+        lease = {'docker_binding': {'daemon_id': 'original'}}
+        with patch.object(services, 'binding', side_effect=[DockerUnavailable('offline'), {'daemon_id':'other'}]) as binding, \
+                patch.object(services, 'command') as command:
+            with self.assertRaisesRegex(ServerSlotError, 'daemon/context changed'):
+                services.start(lease)
+            self.assertEqual(binding.call_count, 2)
+            command.assert_not_called()
+        now[0] = 0
+        with patch.object(services, 'binding', side_effect=DockerUnavailable('offline')), \
+                patch.object(services, 'command') as command:
+            with self.assertRaises(DockerUnavailable):
+                services.start(lease)
+            self.assertEqual(now[0], 180)
+            command.assert_not_called()
+
+    def test_failed_mutation_is_never_replayed(self):
+        services = DockerServices(SETTINGS)
+        lease = dict(docker_binding={'daemon_id':'original'}, project='fixture', owner='owner',
+                     reservation_id='reservation', slot='server_slot:1')
+        with patch.object(services, 'binding', return_value=lease['docker_binding']), \
+                patch.object(services, 'inspect', return_value=None), \
+                patch.object(services, 'command', side_effect=ServerSlotError('network response lost')) as command:
+            with self.assertRaisesRegex(ServerSlotError, 'response lost'):
+                services.start(lease)
+            command.assert_called_once()
+
     def test_start_rechecks_inherited_identity_before_creating_resources(self):
         services = DockerServices(SETTINGS)
         binding = {'daemon_id': 'verified', 'endpoint_sha256': '1' * 64}
