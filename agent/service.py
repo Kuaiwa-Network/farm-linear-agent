@@ -382,7 +382,7 @@ def _serve(components):
     if components.server_pool is not None:
         def server_pool_once():
             if not components.server_pool.ready:
-                raise ServerSlotError("server pool prerequisites unavailable")
+                components.server_pool.ensure()
             components.server_pool.tick()
             return 2.0
         threads.append(threading.Thread(target=guarded('server_pool', server_pool_once), daemon=True))

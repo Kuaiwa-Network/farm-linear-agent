@@ -32,6 +32,10 @@ class ServerSlotError(RuntimeError):
     pass
 
 
+class DockerUnavailable(ServerSlotError):
+    """A read-only daemon probe failed; this is not proof that resources are absent."""
+
+
 def validate_settings(raw):
     if raw == {}:
         return {}
@@ -131,7 +135,11 @@ class DockerServices:
         if not (endpoint.startswith("unix:///") or endpoint.startswith("npipe:////./pipe/")):
             raise ServerSlotError("server slots require a local Docker socket context")
         self.endpoint = endpoint  # every subsequent command pins the socket, never a mutable context alias
-        info = json.loads(self.command("info", "--format", "{{json .}}"))
+        try:
+            raw = self.command("info", "--format", "{{json .}}")
+        except ServerSlotError as exc:
+            raise DockerUnavailable(str(exc)) from exc
+        info = json.loads(raw)
         if info.get("OSType") != "linux" or not isinstance(info.get("ID"), str) or not info["ID"]:
             raise ServerSlotError("server slots require a verified local Linux daemon identity")
         return {"daemon_id": info["ID"], "endpoint_sha256": hashlib.sha256(endpoint.encode()).hexdigest()}
@@ -194,7 +202,18 @@ class DockerServices:
         return value
 
     def start(self, lease):
-        if lease.get("docker_binding") != self.binding():
+        # Only the read-only identity probe is retried. Never replay a container,
+        # network or volume mutation whose completion may be ambiguous.
+        deadline = self.clock() + 180
+        while True:
+            try:
+                binding = self.binding()
+                break
+            except DockerUnavailable:
+                if self.clock() >= deadline:
+                    raise
+                self.sleep(min(5, deadline - self.clock()))
+        if lease.get("docker_binding") != binding:
             raise ServerSlotError("Docker daemon/context changed before server setup")
         label_args = [word for key, value in self.labels(lease).items() for word in ("--label", key + "=" + value)]
         name = lease["project"]
@@ -355,6 +374,43 @@ class ServerSlotPool:
         self.ledger.set_slot_state(slot, "held")
         self.ledger.note(slot, "server_slot_held", reason[:200])
 
+    def _start(self, lease, reservation):
+        """Publish one exact reservation, or retain a pre-mutation outage for retry."""
+        from .execution import single, resource_ready
+        slot, item_id = lease['slot'], lease['item_id']
+        try:
+            lease['state'] = 'starting'
+            self._save(lease)
+            self.services.start(lease)
+        except DockerUnavailable:
+            # DockerUnavailable is raised only by start's first, read-only identity
+            # probe. No creation was attempted and no endpoints were published.
+            lease['state'] = 'waiting_for_docker'
+            self._save(lease)
+            self.ledger.note(item_id, 'server_waiting_for_docker', 'daemon unavailable before resource creation')
+            return False
+        if self.clock() >= lease['expires_at']:
+            self.ledger.server_verification_timeout(reservation['reservation_id'], lease['expires_at'])
+            return False  # retain any created services for quiescent cleanup
+        lease.update(state='ready', ready_at=self.clock(), verification_scope=scope(reservation['server_test_plan']),
+                     timeout_seconds=timeout_seconds(reservation['server_test_plan'], self.settings['timeout_seconds']))
+        lease['expires_at'] = lease['ready_at'] + lease['timeout_seconds']
+        self._save(lease)
+        current = self.ledger.reservation(reservation['reservation_id'])
+        if current['state'] != 'active':
+            return False  # cancellation during startup; ordinary quiescent settlement owns cleanup
+        directory = Path(self.state_dir(item_id))
+        directory.mkdir(parents=True, exist_ok=True)
+        public = {key: lease[key] for key in ('slot', 'reservation_id', 'commit', 'ports', 'expires_at')}
+        _write_worker_file(directory / 'server-resource.json', json.dumps(public), sync=True)
+        _write_worker_file(directory / 'reservation.token', lease['token'], mode=0o600, sync=True)
+        self.ledger.set_slot_state(slot, 'batch_busy', parked_commit=lease['commit'])
+        if single(self.ledger.item(item_id)):
+            resource_ready(self.ledger, reservation)
+        else:
+            self.ledger.resume(item_id, 'isolated server services ready')
+        return True
+
     def tick(self):
         if not self.ready:
             for request in self.ledger.reservations(states=("queued",)):
@@ -364,6 +420,8 @@ class ServerSlotPool:
             return {"settled": 0, "granted": 0, "unavailable": True}
         settled, granted = 0, 0
         from .integration import companion
+        from .maintenance import Maintenance
+        from .execution import single
         for slot in self.ledger.slots(kind="server_slot", host=self.host):
             if slot["state"] in ("idle_closed", "held"):
                 continue
@@ -389,6 +447,13 @@ class ServerSlotPool:
                 if expired and reservation["state"] == "active":
                     self.ledger.server_verification_timeout(reservation['reservation_id'], lease['expires_at'])
                     continue  # scheduler owns stopping the contained worker, not this loop
+                if lease['state'] == 'waiting_for_docker' and reservation['state'] == 'active':
+                    live = (single(item) and item['state'] == 'running' and item['worker_pid']
+                            and item['lease_expires_at'] > self.clock() and item['withdraw_deadline'] is None)
+                    legacy = not single(item) and item['state'] == 'awaiting_resource' and self.quiescent(item['id'])
+                    if not reservation.get('integration') and (live or legacy) and not Maintenance(self.ledger).requested():
+                        granted += int(self._start(lease, reservation))
+                        continue
                 if reservation["state"] == "active" and item["state"] in ("queued", "running"):
                     continue
                 if (item['state']=='awaiting_resource' and reservation['state']=='active'
@@ -412,9 +477,12 @@ class ServerSlotPool:
                                                     (lease["reservation_id"] + ".json"))
                 self.ledger.set_slot_state(slot["slot_id"], "idle_closed")
                 settled += 1
+            except DockerUnavailable:
+                # The worker is already quiescent. A failed read-only identity
+                # check does not authorize cleanup, but also must not disable it forever.
+                continue
             except Exception as exc:
                 self._hold(slot["slot_id"], "server settlement failed: " + type(exc).__name__)
-        from .maintenance import Maintenance
         if Maintenance(self.ledger).requested():
             return {"settled": settled, "granted": 0}
         for _ in range(self.settings["count"]):
@@ -479,28 +547,7 @@ class ServerSlotPool:
                     lease["docker_binding"] = self.docker_binding
                 # Persist the startup identity before another Docker call. start() rechecks it
                 # before creating anything, so a failed probe still leaves a recoverable journal.
-                self._save(lease)
-                self.services.start(lease)
-                lease["state"] = "ready"
-                lease['ready_at'] = self.clock()
-                lease['verification_scope'] = scope(reservation['server_test_plan'])
-                lease['timeout_seconds'] = timeout_seconds(reservation['server_test_plan'], self.settings['timeout_seconds'])
-                lease['expires_at'] = lease['ready_at'] + lease['timeout_seconds']
-                self._save(lease)
-                current = self.ledger.reservation(reservation["reservation_id"])
-                if current["state"] != "active":
-                    continue  # cancelled during startup; next tick settles after worker exit
-                directory = Path(self.state_dir(item_id))
-                directory.mkdir(parents=True, exist_ok=True)
-                public = {key: lease[key] for key in ("slot", "reservation_id", "commit", "ports", "expires_at")}
-                _write_worker_file(directory / "server-resource.json", json.dumps(public), sync=True)
-                _write_worker_file(directory / "reservation.token", reservation["token"], mode=0o600, sync=True)
-                self.ledger.set_slot_state(slot, "batch_busy", parked_commit=lease["commit"])
-                if single(self.ledger.item(item_id)):
-                    resource_ready(self.ledger, reservation)
-                else:
-                    self.ledger.resume(item_id, "isolated server services ready")
-                granted += 1
+                granted += int(self._start(lease, reservation))
             except Exception as exc:
                 detail = str(exc) if isinstance(exc, ServerSlotError) else type(exc).__name__
                 self._hold(slot, "server preparation failed: " + detail)

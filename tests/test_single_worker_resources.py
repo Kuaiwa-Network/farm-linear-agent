@@ -115,6 +115,41 @@ class UnityBridgeTests(unittest.TestCase):
 
 
 class ServerOwnerTests(unittest.TestCase):
+    def test_docker_restart_preserves_live_claim_and_reservation(self):
+        from agent.server_slots import DockerUnavailable
+        f = self.f
+        key, token, queued = self.request()
+        f.exited = False
+        before = f.ledger.item(key)
+        f.services.error = DockerUnavailable('daemon offline')
+        f.pool.tick()
+        reservation = f.ledger.active_reservation(key)
+        self.assertEqual(f.ledger.item(key)['state'], 'running')
+        self.assertNotEqual(f.ledger.slot(reservation['resource'])['state'], 'held')
+        f.services.error = None
+        self.assertEqual(f.pool.tick()['granted'], 1)
+        after = f.ledger.item(key)
+        self.assertEqual((after['generation'], after['worker_pid'], after['checkpoint']),
+                         (before['generation'], before['worker_pid'], before['checkpoint']))
+        self.assertEqual(after['stage'], 'resource-ready')
+        self.assertEqual(f.ledger.active_reservation(key)['reservation_id'], reservation['reservation_id'])
+
+    def test_waiting_docker_cannot_start_during_maintenance_or_after_generation_change(self):
+        from agent.server_slots import DockerUnavailable
+        from agent.maintenance import Maintenance
+        f = self.f
+        key, token, queued = self.request()
+        f.services.error = DockerUnavailable('daemon offline')
+        f.pool.tick()
+        f.services.error = None
+        with patch.object(Maintenance, 'requested', return_value=True):
+            self.assertEqual(f.pool.tick()['granted'], 0)
+        self.assertEqual(len(f.services.started), 1)
+        f.ledger.connection.execute('UPDATE work_items SET generation=generation+1 WHERE id=?', (key,))
+        self.assertEqual(f.pool.tick()['granted'], 0)
+        self.assertEqual(len(f.services.started), 1)
+        self.assertEqual(f.ledger.slot(f.ledger.active_reservation(key)['resource'])['state'], 'held')
+
     def setUp(self):
         self.f = server_fixture.ServerPoolFixture()
         self.f.setUp()
