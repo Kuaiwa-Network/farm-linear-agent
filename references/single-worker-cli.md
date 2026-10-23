@@ -31,7 +31,7 @@ parking or finish, and checkpoints their work. No FarmBot child task is created.
 | `pop-inbox` | Read attributed requests. Reuse actual existing answers. |
 | `revalidate` | `--fingerprint VALUE`, only after reviewing changed inputs. |
 | `activity` | `--type thought --body-file FILE`: non-blocking progress or already-decided/high-confidence contract decision summary. Questions use `await-input`. |
-| `await-input` | `--question TEXT --reason question\|waiting`: save a checkpoint and release resources first; then exit. |
+| `await-input` | `--question TEXT --reason question\|waiting`: save a checkpoint and release resources first; then exit. Work questions are posted as issue comments; partial answers reuse the same comment and round. |
 | `resolve-question` | `--question-id ID --message-id ID` (repeatable), actual attributed replies only. |
 | `await-resource` | `--resource unity_slot --mode interactive --commit SHA`, or `server_slot --mode batch --commit SHA --server-test-plan FILE`. Stay in this worker. |
 | `run-integration` | `--client-command FILE`: JSON argv exercising reserved Unity against one isolated game server. Request an atomic pair with `await-resource --resource unity_slot --mode interactive --commit CLIENT_SHA --integration-plan FILE`; see [combined verification](client-server-integration.md). |
@@ -56,6 +56,17 @@ Use `COMMAND --help` for exact syntax. The large parser retains historical
 commands for old state inspection and offline replay; repository handoff,
 presentation subtasks, mandatory baseline comparison, UI receipts and semantic
 closing checks are refused for this contract.
+
+For work questions, teammates reply directly under the question comment with
+question numbers; each reply retains its author and is imported on the normal
+lifecycle pass (normally about a minute). No @mention or combined session reply
+is needed. Other comment threads do not wake a waiting task unless they @mention
+the bot; session replies keep working. The session points to the issue comments.
+On partial answers keep the original round and all answer message IDs in the
+checkpoint, then `await-input` again for the remainder. `resolve-question` still
+requires the actual attributed replies for the complete round. A retry reconciles
+the question comment's marker before posting, preventing a duplicate after a lost
+response. Plain chat and historical staged jobs retain their existing question path.
 
 Before contract behavior or protocol semantics change, follow the
 [decision review in the work skill](../skills/work/SKILL.md). Publish decisions,

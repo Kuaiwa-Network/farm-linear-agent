@@ -533,11 +533,18 @@ def post_notice(ledger, api, notice):
     if notice["remote_id"]:
         return notice
     issue = api.fetch_issue(notice["issue_id"])
+    if issue['id'] != notice['issue_id']:
+        raise LedgerError('notice response identifies a different issue')
     observed = ledger.observe_issue(issue)
     remote_id = next((c["id"] for c in issue["comments"] if notice["marker"] in c["body"]), None)
     if remote_id is None:
         if not observed["in_scope"]:
             raise LedgerError("issue left scope; the notice was not posted")
+        item = ledger.item(notice['item_id'])
+        if notice['kind'] == 'question' and single(item):
+            refuse_withdrawn(item)
+            if item['authority'] == 'delegation' and (not api.app_user_id or issue.get('delegate_id') != api.app_user_id):
+                raise LedgerError(Ledger.WITHDRAWN)
         remote_id = api.create_comment(notice["issue_id"], notice["body"])
     return ledger.confirm_notice(notice["item_id"], notice["request_id"], remote_id)
 
@@ -842,6 +849,19 @@ def run(args, ledger, api_factory):
         if args.reason == "question":
             if api.awaiting_reply(item["issue_id"]) is not False:
                 mark_reply_label(ledger, item["id"])
+        if args.reason == "question" and single(item) and item['skill'] == 'work':
+            from .question_threads import prepare
+            notice = prepare(ledger, args.item, token, args.question, configured_bot_name())
+            post_notice(ledger, api, notice)
+            if not str(item['session_id']).startswith('local-'):
+                url = ledger.issue(item['issue_id'])['url']
+                api.create_activity(item['session_id'], {'type': 'elicitation', 'body':
+                    f'问题已发布到 [issue 评论]({url})。请直接回复问题评论，各负责人可以分别回答，无需汇总到会话。'})
+            try:
+                return ledger.await_input(args.item, token, args.question, reason=args.reason)
+            except LedgerError:
+                withdraw_question(ledger, api, args.item)
+                raise
         body = (question_notice(ledger, item, args.question, configured_bot_name())
                 if args.reason == "question" else args.question)
         content = ({"type": "thought", "body": f"[{item['task_key']}] {args.question}"}

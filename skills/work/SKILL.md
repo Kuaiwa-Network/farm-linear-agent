@@ -80,6 +80,21 @@ Do not leave an unanswered question only in `activity` or a PR. The worker exits
 after parking and resumes on a reply. Silence, elapsed time (including three
 working days) and a general instruction to develop do not settle these questions.
 On resume resolve only the items actually answered by attributed replies.
+`await-input --reason question` posts the questions in the issue's comment area;
+the session contains a pointer to that comment. Give questions stable numbers and
+invite each responsible person to reply directly under the question comment.
+No @mention or consolidated session answer is required. FarmBot checks outstanding
+question threads on the normal lifecycle pass, so replies may take about a minute
+to appear. Session replies and @mentions in other comments still work.
+
+Maintain an answered/unanswered list with actual inbox message IDs and authors
+in the checkpoint. A reply can answer just one question; retain earlier answers
+across resumes and never ask someone to collect everyone else's answers. Complete
+only work supported by the answers so far, then checkpoint and use `await-input`
+again for the remaining questions. This reuses the existing question comment and
+round. Call `resolve-question` only after all questions in that round are answered,
+citing the relevant message IDs from all respondents. Resolve that round before
+opening a new one; do not silently replace its questions with different decisions.
 Explicit repository approval requirements apply at every confidence level;
 reuse an existing approval only within its actual scope.
 

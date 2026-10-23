@@ -593,8 +593,11 @@ class SingleWorkerTests(LedgerBase):
                 'access; weekly limits availability. I recommend daily. Daily, weekly, or another period?')
         args = parser().parse_args(['--db', str(self.path), 'await-input', '--item', self.key,
             '--token', self.token, '--question', body, '--reason', 'question'])
-        api = Mock(app_user_id='test-app')
-        api.issue_status.return_value = issue(delegate_id='test-app')
+        from test_receiver import APP
+        api = Mock(app_user_id=APP)
+        api.issue_status.return_value = issue(delegate_id=APP)
+        api.fetch_issue.return_value = issue(delegate_id=APP)
+        api.create_comment.return_value = 'question-comment'
         api.awaiting_reply.return_value = True
         with patch('agent.__main__.configured_bot_name', return_value='TestBot'):
             parked = run(args, self.ledger, lambda: api)
@@ -603,7 +606,8 @@ class SingleWorkerTests(LedgerBase):
         api.create_activity.assert_called_once()
         session, content = api.create_activity.call_args.args
         self.assertEqual((session, content['type']), (SESSION, 'elicitation'))
-        self.assertIn(body, content['body'])
+        self.assertIn('issue 评论', content['body'])
+        self.assertIn(body, api.create_comment.call_args.args[1])
         question = self.ledger.human_question(self.key)
         self.now += 7 * 24 * 60 * 60
         self.assertEqual(self.ledger.item(self.key)['state'], 'awaiting_input')

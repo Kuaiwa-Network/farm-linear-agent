@@ -57,6 +57,9 @@ class Lifecycle:
                 # session for shows: the ledger records it from this read's start, and the receiver settles it
                 # (silent-delegation design P11). Nothing starts or is posted here.
                 self.ledger.clear_undelegated(issue_id, observed_at=started)
+            if not current['archived'] and current['status_type'] not in TERMINAL_STATUS_TYPES:
+                from .question_threads import reconcile as reconcile_questions
+                reconcile_questions(self.ledger, self.api, issue_id)
             self.ledger.finish_status_check(issue_id, self.interval)
             # A label failure must not masquerade as a failed status read or
             # block an otherwise valid launch. Every status pass retries it.
