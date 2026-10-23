@@ -411,7 +411,8 @@ class SingleWorkerTests(LedgerBase):
         self.ledger.confirm_comment(action['action_id'], 'remote-comment')
         report = {'summary': 'Purchased units implemented', 'verification': 'Affected tests pass',
                   'prs': [PR], 'comment_action_id': action['action_id']}
-        self.assertEqual(self.ledger.finish(self.key, self.token, 'delivered', report)['state'], 'delivered')
+        self.assertEqual(self.ledger.finish(self.key, self.token, 'delivered', report,
+                                          verified_prs=[PR])['state'], 'delivered')
 
     def test_candidate_resource_keeps_claim_pid_and_needs_no_baseline_or_resume(self):
         self.claim_owner()
