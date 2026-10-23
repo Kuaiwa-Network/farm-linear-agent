@@ -1077,6 +1077,7 @@ class Scheduler:
                 for row in parents:
                     wake_parent(self.ledger, row["id"])
             queue = self.ledger.queue()
+            priorities = {item['id']: item['priority'] for item in queue}
         # The worker CLI runs inside its repository sandbox. Only this host
         # path may fill missing farmgui objects for a Client continuation.
         from .fgui_history import refresh_pending
@@ -1143,6 +1144,12 @@ class Scheduler:
             with self.lock:
                 if self.ledger.item(item["id"])["state"] != "queued":
                     continue
+                # Preflight or another connection may have refreshed priorities.
+                # Rebuild the ordering next tick instead of spending a worker seat
+                # from this stale snapshot. Admission/resource checks still apply.
+                if any(row['priority'] != priorities.get(row['id'], row['priority'])
+                       for row in self.ledger.queue()):
+                    break
                 # Preflight runs without the lock. The pool may have reserved a
                 # seat while Linear was being read; recheck before spawning.
                 reserved = self.ledger.pending_unity_workers(self.host)

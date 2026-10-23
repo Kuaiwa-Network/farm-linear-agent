@@ -596,14 +596,14 @@ class LinearAPI:
         return True
 
     def issue_status(self, issue_id):
-        """The issue's version, closure and delegate. A trashed issue, one being deleted, reads as archived, which
-        closes it; an issue Linear no longer returns is a `not_found` LinearError (withdrawn-work design E3, U7)."""
+        """The issue's version, priority, closure and delegate. A trashed issue reads as archived, which closes it;
+        an issue Linear no longer returns is a `not_found` LinearError (withdrawn-work design E3, U7)."""
         issue = self.graphql("""query FarmBotIssueStatus($id: String!) {
-            issue(id: $id) { id updatedAt archivedAt trashed state { name type } delegate { id } }
+            issue(id: $id) { id updatedAt priority archivedAt trashed state { name type } delegate { id } }
         }""", {"id": issue_id})["issue"]
         if not issue:
             raise LinearError("not_found", "Issue not found")
-        return {"id": issue["id"], "updated_at": issue["updatedAt"],
+        return {"id": issue["id"], "updated_at": issue["updatedAt"], "priority": issue["priority"],
                 "archived": issue["archivedAt"] is not None or issue.get("trashed") is True,
                 "status": issue["state"]["name"], "status_type": issue["state"]["type"],
                 "delegate_id": (issue.get("delegate") or {}).get("id")}

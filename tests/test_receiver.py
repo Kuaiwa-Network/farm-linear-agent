@@ -2555,7 +2555,8 @@ class SilentDelegationReceiverTests(ReceiverBase):
         self.linear_says("session-0", "awaitingInput")
         self.now = 1100.0
         self.assertEqual(self.redelegated(), 1130.0)
-        self.labelled(["Bug", "修改"], CHANGE, priority=1)
+        # This changed priority is newer than the preceding lifecycle status reads.
+        self.labelled(["Bug", "修改"], CHANGE, priority=1, updated_at="2026-09-21T00:01:00Z")
         self.api.reset_mock()
         self.now = 1219.0
         self.assertIsNone(self.settle())
