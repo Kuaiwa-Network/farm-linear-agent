@@ -103,6 +103,20 @@ diagnostic work for an unanswered question. Advancing main, a restart, or an old
 unrelated failure does not itself require another merge or test run.
 Retained reports may be reused only when relevant code and inputs still match.
 Results, skips and limitations must be reported honestly.
+Latest explicit human requests define the current turn, including conflict-only
+continuations. Historical unfinished acceptance lists are retained evidence, not
+new obligations. The router preserves attributed inbox requests when steering or
+resuming the same owner; `current_request` highlights the latest one separately
+from historical handoffs. Before new resource tests or delivered finish, an owner
+with new attributed input records `request_scope` in its existing checkpoint:
+`through_message_id` and a bounded summary of the interpreted scope. Consuming the
+inbox, maintenance or restart does not acknowledge it. The host checks freshness,
+not semantic correctness; scope interpretation and failure attribution remain the
+worker's responsibility. Status questions alone do not erase the latest explicit
+work request. Conflict-only work checks actual conflicts, required source/generated
+dependencies and affected validation, classifies each failure, and leaves unrelated
+historical failures reported without reopening whole-feature acceptance.
+
 The first worker action claims and reads resume context, before investigation.
 Issue and current Project Overview attachments use the same authenticated
 `download-uploads` helper and private local cache for chat and work. Every download
@@ -349,8 +363,8 @@ For server tests, request services only when needed, using an explicit scoped
 package/test/race plan. The worker runs the actual commands against isolated
 loopback services. Local tests that need no services need no server reservation.
 Docker administration remains host-owned. Server cleanup retains the existing
-process-quiescence requirement; containers remain reserved for cleanup until
-the checkpointed server-release handoff exits and teardown is verified.
+process-quiescence requirement; new leases use reservation-scoped command proofs
+to retain the main worker. Historical leases require full worker teardown.
 
 An unavailable read-only Docker identity probe at server startup is retried for
 up to three minutes, allowing the host watchdog to restart Docker. No Docker
@@ -379,11 +393,11 @@ before rolling back: older releases do not retry that pre-start journal state.
 
 Released or cancelled reservations from an older worker generation can settle
 after a finish/requeue handoff, including after controller restart. Cleanup still
-verifies the lease's exact Docker identities and ownership and waits for all
-recorded worker attempts, including a running successor. It preserves the cleaned
+verifies the lease's exact Docker identities and ownership and requires the sealed command scope to be empty, or all
+recorded worker attempts to have exited for historical/uncertain leases. It preserves the cleaned
 journal without changing the successor's claim or reservation. Open reservations
 with mismatched generations and reservations ahead of the current generation
-remain held. No schema migration is needed; already-held slots still require
+remain held. Already-held slots still require
 guarded `recover-server-slot` after the controller stops.
 Server setup now journals the verified startup Docker identity before its next
 Docker call, including combined leases. A failed identity probe therefore retains
@@ -481,12 +495,20 @@ Only these regenerable paths are eligible inside a worker attempt:
 
 - `home/cache/remote_plugin_catalog`, `home/cache/codex_apps_tools` and
   `home/plugins/cache`: downloaded Codex catalogs, tool descriptions and plugin bundles.
-- `disposable/go-cache`, `disposable/go-tmp` and `disposable/build`: attempt-local
-  Go compiler caches/temporary files and disposable build outputs.
+- `disposable/go-cache` (historical), `disposable/go-tmp` and `disposable/build`:
+  attempt-local Go temporary files and disposable build outputs.
 
-The launcher always supplies absolute `GOCACHE`, `GOTMPDIR` and
-`FARMBOT_BUILD_ROOT` paths under that attempt. Workers keep these paths instead
-of creating additional job-level caches. An external build-output layout is used
+The launcher supplies absolute `GOCACHE` at the same item's
+`compiler-cache-v1/go-cache`, reusing Go's content-addressed compilation cache only
+after every previous attempt is proved quiescent. It supplies attempt-local
+`GOTMPDIR` and `FARMBOT_BUILD_ROOT`; arbitrary binaries/build trees are not silently
+reused. Item roots never share caches. Go keys compilation by source/toolchain/flags;
+service tests retain `-count=1`, so a warm compile cache is no test-result pass.
+Native/cgo external libraries still require the toolchain's documented invalidation.
+Historical per-attempt caches stay on their existing retention path; the first
+launch adopting the item cache can still compile cold. No old build tree is
+automatically promoted into the new cache.
+Workers keep these paths instead of creating additional caches. An external build-output layout is used
 only where the repository supports it; Client tests requiring in-tree `bin/obj`
 keep that layout, whose existing worktree retirement remains unchanged. Logs,
 results XML/TRX, screenshots, reports, source snapshots, checkpoints and anything
@@ -494,7 +516,7 @@ needed for recovery must stay outside disposable paths under `state_dir`.
 Credentials, home settings, session history/databases, claims, process evidence,
 ledger history, memory and recovery refs are never retention targets.
 
-For older jobs the sweep also recognizes exactly the earlier controller-managed
+The sweep recognizes `compiler-cache-v1/go-cache` and exactly the earlier controller-managed
 `<runs>/<item>/server-tests/go-cache` and `server-tests/tmp` paths. Every recorded
 attempt in the job must have verified teardown; shared job caches additionally
 wait until the newest teardown is older than the grace period. It does not infer
@@ -554,32 +576,67 @@ profile ownership and controller locking still apply. Rollback stops the new
 sweep but cannot restore regenerable data already deleted; preserved source and
 evidence remain available for rebuild/recovery.
 
-## Server release handoff
+## Server service release
 
-A single worker stays alive while waiting for and using resources. Releasing
-server services, including a combined Client/server lease, is a process handoff:
-the worker first saves a current checkpoint with results, candidate SHAs, report
-paths and the next action in `handoff`. The authenticated release atomically
-releases the reservation and retires the claim, returning `worker_handoff: true`.
-The worker exits; the same issue resumes only after all-attempt teardown and
-server cleanup are verified. Generation, candidates, checkpoint and retry budgets
-remain intact. Unity-only releases do not retire the worker.
+New single-worker server and combined reservations create a claim/generation-bound
+process scope. `run-server-tests --module MODULE` runs the exact package/test/race
+plan from the owned clean server worktree; `run-integration` registers both command
+trees in the same scope. These are worker-side commands under the existing sandbox
+and automatic review. Controllers never execute worker-supplied commands. Managed
+status responses omit usable service environments/ports; only scoped commands get
+them. Do not start ad hoc service clients or reuse old endpoints.
 
-Released services block relaunch of their owner until the pool recycles them;
-this also fences maintenance/retry/restart paths. A cancelled or withdrawn job
-is never requeued by release. Uncertain cleanup remains held for host recovery.
-Idle Unity Editors yield memory only when a configured server slot is available
-to use it. Held or unsettled server slots cannot indefinitely suppress Unity
-warmup or close a healthy idle Editor. Normal memory admission still applies.
+Every command records `starting` before creation, then its native identity. Windows
+uses a nested, non-breakaway Job assigned while the child is suspended. POSIX uses
+an owned group within the worker session and pins its leader through cleanup.
+Because that group cannot contain children moving to another group, POSIX retains
+the existing whole-worker handoff and session proof; it does not use the fast
+release path. Observed escaped descendants retain uncertain evidence. Shared
+Editors remain outside worker containment. The documented outer POSIX limitation
+for unobserved descendants creating new sessions is unchanged.
 
-This adds no schema migration. The durable handoff audit and existing queued
-state survive restart. Settle handoffs and services before rolling back: older
-controllers do not enforce the new released-service relaunch fence. Deploy the
-matching controller, worker CLI and instructions together.
+On Windows, after saving results and next action in a current checkpoint, release
+seals the process scope atomically with releasing the reservation. It requires all
+registered commands to have successful teardown and fresh native emptiness checks.
+It returns `keep_worker: true`, retaining the main claim, PID and generation. New
+commands cannot enter a sealed scope. The server pool repeats checks for that exact
+released reservation and validates Docker identity/ownership before cleanup. Unity
+quiet-state checks remain independent and mandatory for combined leases.
+
+Missing/incomplete process evidence, a lost runner, failed native queries or an
+unclean release retain recovery evidence and the existing all-worker teardown path.
+POSIX and historical reservations without a process scope return `worker_handoff: true`
+and retire the claim; the owner exits and resumes only after all-attempt teardown
+and service cleanup. Cancellation/withdrawal never becomes an automatic resume.
+Held slots still require the existing guarded recovery. Closing a parent, setting
+an empty flag, or releasing the reservation alone is not quiescence.
+
+The additive `resource_process_scopes` and `resource_commands` tables preserve
+claim fences, identities and completed/uncertain runs. Existing grants are not
+upgraded in place. Deploy matching controller, CLI and instructions after a full
+settled pause. Before rollback, settle all scopes/services and all worker attempts;
+older workers can disclose endpoints and do not register commands, so mixing them
+with active managed scopes is unsupported. Keep journals and the database backup;
+checking out old code does not reverse a migration.
 
 ## Cooperative maintenance pause
 
-Maintenance blocks new worker/resource admission. Existing workers finish or
+`maintenance-pause --except-issue FARM-1` (repeatable for a selected set) requests
+cooperative pause for other issues while the selected claim stays active. Queued
+workers/resources are filtered by this same durable exception set; selected
+workers can keep or request resources within existing capacity. `resource-status`
+renews and returns maintenance, withdrawal and inbox signals in every state,
+including none/queued/preparing. Workers act on those signals before more work.
+This priority mode always reports `ready_to_stop: false`; it is not a deployment
+pause. A different existing maintenance scope cannot silently be overwritten.
+Ordinary `maintenance-resume` ends priority mode while retaining any earlier
+admission restriction, pending teardown and human-input waits. No completion timer
+or automatic resume is created. A subsequent explicit ordinary resume can clear
+an older admission restriction as before. Exceptions are saved in the audit with
+the maintenance request ID; old code conservatively treats this as full pause.
+Settle priority mode and workers before release/rollback.
+
+Ordinary maintenance blocks new worker/resource admission. Existing workers finish or
 collect an in-flight operation, cancel still-queued requests, stop their owned
 test processes and release acquired resources safely. They checkpoint current
 SHAs, report paths and the next action, then acknowledge maintenance and exit.
@@ -643,8 +700,8 @@ both pins; uncertain setup holds resources and journals. The controller creates 
 read-only server snapshot during preparation; worker commands only validate it. A
 release never lifts a held server half, which waits for verified `recover-server-slot`,
 and Unity settlement continues meanwhile. Server cleanup still
-requires verified teardown of all worker attempts; the checkpointed release
-handoff retires the continuing worker before reuse. Settle pairs and preserve journals before rollback:
+requires verified reservation-command teardown for managed Windows scopes, or all
+worker attempts for POSIX, historical and uncertain scopes. Settle pairs and preserve journals before rollback:
 older code cannot interpret companion ownership. See [the reference](../references/client-server-integration.md).
 
 The combined hand-over's thread-local server helper inherits the main pool's

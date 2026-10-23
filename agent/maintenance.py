@@ -30,27 +30,71 @@ def request(db):
     return dict(row) if row else None
 
 
+def exceptions(db, current=None):
+    current = current or request(db)
+    if not current:
+        return []
+    row = db.execute("SELECT details FROM audit WHERE item_id='maintenance' "
+                     "AND kind='maintenance_exceptions' ORDER BY id DESC LIMIT 1").fetchone()
+    if not row:
+        return []
+    value = json.loads(row['details'])
+    if value.get('request_id') != current['request_id']:
+        return []
+    from .admission_scope import valid_entry
+    selected = value.get('issues')
+    if not isinstance(selected, list) or not 1 <= len(selected) <= 32 or not all(map(valid_entry, selected)):
+        from .ledger import LedgerError
+        raise LedgerError('maintenance exceptions damaged; preserve pause')
+    return selected
+
+
+def exempt(db, item_id, current=None):
+    selected = exceptions(db, current)
+    row = db.execute('SELECT issue_id FROM work_items WHERE id=?', (item_id,)).fetchone()
+    return bool(row and any(entry['issue_id'] == row['issue_id'] for entry in selected))
+
+
 class Maintenance:
     def __init__(self, ledger):
         self.ledger = ledger
         self.db = ledger.connection
 
-    def requested(self):
-        return request(self.db) is not None
+    def requested(self, item_id=None):
+        current = request(self.db)
+        return bool(current and (item_id is None or not exempt(self.db, item_id, current)))
+
+    def blocks_admission(self):
+        current = request(self.db)
+        return bool(current and not exceptions(self.db, current))
 
     def pending(self, item_id):
         return self.db.execute("SELECT 1 FROM maintenance_handoffs WHERE item_id=? AND completed_at IS NULL",
                                (item_id,)).fetchone() is not None
 
-    def pause(self, reason):
+    def pause(self, reason, *, except_issues=None):
         from .ledger import LedgerError
         if not isinstance(reason, str) or not reason.strip() or len(reason) > 500:
             raise LedgerError("maintenance pause requires a reason of 1 to 500 characters")
         with self.ledger._transaction():
+            selected = []
+            if except_issues is not None:
+                from .admission_scope import resolve, allows
+                selected = resolve(self.ledger, except_issues)
+                for entry in selected:
+                    for row in self.db.execute('SELECT id FROM work_items WHERE issue_id=?', (entry['issue_id'],)):
+                        if not allows(self.db, row['id']):
+                            raise LedgerError('priority pause cannot override an existing issue admission restriction')
+            existing = request(self.db)
+            if existing and exceptions(self.db, existing) != selected:
+                raise LedgerError('existing maintenance has a different scope; resume it explicitly before changing scope')
             if not self.requested():
                 self.db.execute("INSERT INTO maintenance_control VALUES(1,?,?,?,NULL,NULL)",
                                 (str(uuid4()), self.ledger.clock(), reason.strip()))
                 self.ledger._audit('maintenance', "maintenance_pause", reason.strip())
+                if selected:
+                    self.ledger._audit('maintenance', 'maintenance_exceptions', details={
+                        'request_id': request(self.db)['request_id'], 'issues': selected})
             # Include workers which just parked and cleared worker_pid but have not exited yet.
             for row in self.db.execute("SELECT id FROM work_items WHERE state IN "
                                        "('queued','running','awaiting_input','awaiting_resource')").fetchall():
@@ -63,7 +107,8 @@ class Maintenance:
         with self.ledger._transaction():
             if only_issue is not None and not self.requested():
                 raise LedgerError('request maintenance before selecting acceptance issues')
-            select(self.ledger, only_issue)
+            if only_issue is not None or not exceptions(self.db):
+                select(self.ledger, only_issue)
             if self.requested():
                 self.ledger._audit('maintenance', "maintenance_resume", "operator resumed scheduling")
                 self.db.execute("DELETE FROM maintenance_control")
@@ -72,7 +117,7 @@ class Maintenance:
 
     def track(self, item_id, pid):
         current = request(self.db)
-        if current and pid:
+        if current and pid and not exempt(self.db, item_id, current):
             self.db.execute("INSERT OR IGNORE INTO maintenance_attempts VALUES(?,?,?)",
                             (current['request_id'], item_id, pid))
 
@@ -81,7 +126,7 @@ class Maintenance:
             return False
         # An already admitted reservation needs its worker to collect results and release it.
         # The worker sees maintenance in claim and must yield without starting another test.
-        if self.requested():
+        if self.requested(item_id):
             return self.ledger.active_reservation(item_id) is not None
         from .admission_scope import allows
         return allows(self.db, item_id)
@@ -90,7 +135,7 @@ class Maintenance:
         from .ledger import LedgerError
         with self.ledger._transaction():
             row = self.ledger._owned(item_id, token)
-            if not self.requested():
+            if not self.requested(item_id):
                 raise LedgerError("maintenance is not requested; continue the current claim")
             self.ledger.require_valid_checkpoint(item_id, token)
             checkpoint = json.loads(row['checkpoint'])
@@ -167,6 +212,15 @@ class Maintenance:
             blockers.append({'code': 'resource_active', 'subject': row['item_id']})
         for row in self.db.execute("SELECT slot_id FROM slots WHERE state NOT IN ('idle_open','idle_closed')"):
             blockers.append({'code': 'resource_unsettled', 'subject': row['slot_id']})
+        if exceptions(self.db, current):
+            def selected_blocker(blocker):
+                if blocker['code'] in ('worker_teardown', 'worker_handoff', 'resource_active'):
+                    return exempt(self.db, blocker['subject'], current)
+                if blocker['code'] in ('resource_unsettled', 'resource_probe'):
+                    holder = self.ledger.active_reservation_on(blocker['subject'])
+                    return bool(holder and exempt(self.db, holder['item_id'], current))
+                return False
+            blockers = [entry for entry in blockers if not selected_blocker(entry)]
         unique = list({(b['code'], b['subject']): b for b in blockers}.values())
         observation = {'controller_started_at': controller_started_at, 'blockers': unique}
         with self.ledger._transaction():
@@ -220,6 +274,10 @@ def status(db, heartbeat, now):
             'ready_to_stop': bool(verified and not blockers), 'requested_at': current['requested_at'],
             'checked_at': checked, 'blockers': blockers}
     result.update(public_scope(scope))
+    selected = exceptions(db, current)
+    if selected:
+        result.update(state='prioritizing', ready_to_stop=False, others_quiescent=bool(verified and not blockers),
+                      except_issues=[entry['identifier'] for entry in selected])
     return result
 
 

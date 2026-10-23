@@ -405,7 +405,8 @@ class Controller:
         from .execution import single, REPOSITORIES
         item = self.ledger.item(item_id)
         claim = self.ledger._row(item_id)['token']
-        return (not self.stop() and item['state'] == 'running' and item['generation'] == request['generation']
+        from .maintenance import Maintenance
+        return (not Maintenance(self.ledger).requested(item_id) and not self.stop() and item['state'] == 'running' and item['generation'] == request['generation']
                 and (item['root_repo'] == request['repo'] or
                      single(item) and request['repo'] in REPOSITORIES) and item['withdraw_deadline'] is None
                 and item['lease_expires_at'] > self.ledger.clock() and claim
@@ -415,6 +416,9 @@ class Controller:
         rows = self.ledger.connection.execute('SELECT item_id,details FROM audit WHERE kind=? ORDER BY id', (REQUEST,)).fetchall()
         for row in rows:
             item_id, value = row['item_id'], json.loads(row['details'])
+            from .maintenance import Maintenance
+            if Maintenance(self.ledger).requested(item_id):
+                continue
             if status(self.ledger, self.config, item_id, value['id'])['state'] != 'pending': continue
             if not self.active(item_id, value):
                 result = {'state':'cancelled'}

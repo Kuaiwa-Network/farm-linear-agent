@@ -244,8 +244,12 @@
         worker_handoff: "等待 worker 保存交接点", resource_active: "资源仍在使用",
         resource_unsettled: "资源尚未安全收尾", controller_unconfirmed: "尚无当前控制器的有效确认"};
       labels.resource_probe = "Unity 尚未确认静默（测试、编译、PlayMode 或连接未就绪）";
-      rows.unshift(row("pair", cell("main", maintenance.ready_to_stop ?
-        "维护暂停：任务已安全交接，可以停机；重启后须恢复调度" : "维护暂停：正在等待安全交接，暂不可停机")));
+      const message = maintenance.state === "prioritizing" ?
+        `优先处理 ${(maintenance.except_issues || []).join("、")}：${maintenance.others_quiescent ?
+          "其余任务已安全交接" : "其余任务正在安全交接"}，指定任务继续运行，不可停机` :
+        maintenance.ready_to_stop ? "维护暂停：任务已安全交接，可以停机；重启后须恢复调度" :
+          "维护暂停：正在等待安全交接，暂不可停机";
+      rows.unshift(row("pair", cell("main", message)));
       for (const blocker of maintenance.blockers) {
         rows.push(row("pair", cell("main", labels[blocker.code] || "等待维护交接"),
           cell("side muted", blocker.subject || "")));

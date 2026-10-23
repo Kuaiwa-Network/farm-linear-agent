@@ -375,7 +375,7 @@ def _serve(components):
         components.go_dependencies.stop = stop.is_set
         def dependencies_once():
             from .maintenance import Maintenance
-            if Maintenance(components.go_dependencies.ledger).requested():
+            if Maintenance(components.go_dependencies.ledger).blocks_admission():
                 return 2.0
             return .1 if components.go_dependencies.tick() else 2.0
         threads.append(threading.Thread(target=guarded('go_dependencies', dependencies_once), daemon=True))
@@ -479,6 +479,7 @@ def main(argv=None):
     parser.add_argument("--config")
     parser.add_argument("--from", dest="source_root", help="directory holding local checkouts to seed from")
     parser.add_argument("--issue", help="Linear issue id or identifier to enqueue work for")
+    parser.add_argument("--except-issue", action="append", help="maintenance-pause: keep selected issues active while others drain")
     parser.add_argument("--only-issue", action='append', help="maintenance-resume only: allow this known issue; repeat for a selected group")
     parser.add_argument("--skill", default="work")
     parser.add_argument("--commit", help="pin this commit instead of resolving the default branch")
@@ -487,6 +488,8 @@ def main(argv=None):
     parser.add_argument("--reason", help="operator explanation for maintenance or recovery")
     parser.add_argument("--evidence-manifest", help="host-reviewed retained server evidence manifest")
     args = parser.parse_args(argv)
+    if args.except_issue is not None and args.command != 'maintenance-pause':
+        parser.error('--except-issue requires maintenance-pause')
     if args.only_issue is not None and args.command != 'maintenance-resume':
         parser.error('--only-issue requires maintenance-resume')
     if args.command == 'adopt-single-worker':
@@ -533,7 +536,7 @@ def main(argv=None):
             ledger = Ledger(Paths(config).ledger)
             try:
                 if args.command == 'maintenance-pause':
-                    Maintenance(ledger).pause(args.reason)
+                    Maintenance(ledger).pause(args.reason, except_issues=args.except_issue)
                 else:
                     selected = args.only_issue
                     Maintenance(ledger).resume(only_issue=selected[0] if selected and len(selected) == 1 else selected)

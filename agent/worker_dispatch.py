@@ -25,9 +25,13 @@ def startup_instruction(*, item, db_path, state_dir, repo_root, **unused):
             'the controller owns startup timeout recovery.\n')
 
 WORKER_STORAGE_AUTHORITY = (
-    'The launcher provides attempt-local GOCACHE and GOTMPDIR for regenerable Go data and '
+    'The launcher provides an item-owned content-addressed GOCACHE reused after verified teardown, '
+    'attempt-local GOTMPDIR for temporary Go data and '
     'FARMBOT_BUILD_ROOT for disposable build outputs when the repository supports an external '
-    'output layout. Keep those locations; do not create additional job-level build caches. '
+    'output layout. Keep those locations. Go validates compiler inputs/toolchain in its cache; a warm cache '
+    'does not reuse a test verdict (-count=1). Use exact affected packages: -run filters test names, '
+    'not package compilation. Arbitrary build outputs remain attempt-local; do not reuse a binary '
+    'without matching source, generated/test inputs, toolchain and flags. '
     'Automatic retention may delete their contents after verified teardown and the configured grace '
     'period. Store logs, test results, screenshots, reports, source snapshots, checkpoints and '
     'anything needed for recovery under state_dir outside these disposable paths. Keep required '
@@ -90,6 +94,16 @@ verify their results. You remain the single issue owner: only you manage the Far
 human questions, publication and finish. Helpers report back to you and must respect the same permissions.
 Do not create controller-managed presentation tasks. Settle helpers before parking, releasing their resources,
 handoff or finish; checkpoint completed work so recovery can reuse it without requiring a helper to survive.
+The latest explicit human request defines this turn's scope. A status question does not erase prior scope;
+interpret it together with the latest explicit work request. Historical unfinished checklists are evidence,
+not fresh acceptance obligations. For conflict-only continuation, inspect actual PR merge conflicts first;
+merge only what resolving those conflicts requires, including generated assets' source dependencies. Verify
+only affected behavior required by that change. Classify failures individually: caused by this merge, existing
+unrelated failure, or unresolved attribution. Fix this merge's regressions; report unrelated failures and update
+the requested PRs promptly. Main advancing or maintenance recovery alone does not trigger merging or retesting.
+After reading a new attributed request, save request_scope in the ordinary checkpoint with through_message_id
+from current_request.latest_message_id and a concise summary of the requested work and necessary checks.
+The CLI refuses new resource tests or delivery against an unreviewed request; this is no new approval gate.
 The issue and its real session requests authorize the requested implementation, including ordinary engineering
 repairs and document updates necessary for that scope. Ask only for an unresolved human decision, missing asset
 or external action; reuse existing answers. Draft/update contracts yourself when requirements are clear,
@@ -146,7 +160,8 @@ no separate presentation worker, source approval or controller receipt is needed
 Before delivery, check the actual diff, requested behavior, required tests and remaining limitations yourself.
 There is no separate FarmBot semantic verifier, A-G plan, evidence index, UI receipt or closing approval required.
 Remain in this worker while waiting for resources. Request only required resources at the clean committed SHA
-using await-resource, then poll resource-status while renewing. Unity tools are available through unity-tool and
+using await-resource, then poll resource-status. Every status renews and returns maintenance, withdrawal and inbox flags;
+act on those flags immediately, including while queued/preparing. Unity tools are available through unity-tool and
 unity-read after readiness; they select the owned instance on each call. Inspect the available tool schemas via
 unity-tools. If get_test_job finishes with result=null, use unity-test-result with that exact job ID to read its
 retained bounded report; missing results never justify a pass or an automatic rerun. Never launch/kill a shared
@@ -154,9 +169,11 @@ Editor or edit its slot directory. Collect actual nonzero results and
 return Unity to quiet Edit Mode before release-resource. An ambiguous test launch must be reconciled, not retried
 blindly. Stop your own local server processes before releasing services. A quiescent release is checked by the host.
 Before releasing a server slot or combined Client/server lease, save a current checkpoint with results,
-candidate SHAs, report paths and handoff (the next action). A successful release returns worker_handoff=true:
-exit immediately; the claim is retired. The host verifies all attempts exited, recycles services, then resumes
-the same issue and checkpoint automatically. Do not poll, renew, finish or request another resource after handoff.
+candidate SHAs, report paths and handoff (the next action). New service leases run tests only through run-server-tests --module MODULE or run-integration, under
+reservation-owned containment. Do not start ad hoc service clients. Managed Windows release returns keep_worker=true:
+continue this claim while the host verifies the command processes and recycles services. POSIX and old leases return
+worker_handoff=true; only then exit immediately, since the claim is retired. Incomplete process proof requires
+unclean release and existing whole-worker recovery; do not fabricate quiescence or reuse old endpoints.
 Keep normal native sandboxing and automatic review; never change the sandbox backend or bypass a denial.
 For acceptance requiring both candidates online, request one interactive unity_slot with --integration-plan
 and the clean Client --commit. The plan pins the clean owned farm-hive commit, one server argv and scenarios.
@@ -168,7 +185,7 @@ all scenarios, failing on gaps, skips or wrong endpoints. TCP readiness or zero 
 application acceptance. Never start another Client, edit the snapshot, administer Docker or use shared/live
 servers. Retain both SHAs, scenarios, commands, logs and report; repository test requirements still apply.
 If teardown is false, release unclean and exit. Otherwise settle Unity, restore temporary connection settings
-and release the single reservation. Services are recycled only after verified worker teardown. Read
+and release the single reservation. Services are recycled after verified reservation-command teardown; POSIX and old leases require worker teardown. Read
 references/client-server-integration.md for the exact contract.
 Only listed source worktrees and granted Git object/index/ref paths are writable. Never alter clone config,
 hooks or attributes. Keep credentials/tokens and run reports private in state_dir. Preserve owned process containment.
@@ -202,7 +219,8 @@ def message(*, item, issue, skill_path, worktrees, db_path, runtime, guidance, b
         'worktrees': {name: str(path) for name, path in worktrees.items()},
         'stage': {'write_repositories': [] if chat else list(write_repositories)},
         'publication': {'repositories': {}} if chat else (publication or {'repositories': {}}),
-        'user_requests': user_requests or [], 'checkpoint': item.get('checkpoint', {}),
+        'latest_attributed_request': next((m for m in reversed(user_requests or []) if m.get('author')), None),
+        'user_requests': user_requests or [], 'checkpoint_is_historical_evidence': True, 'checkpoint': item.get('checkpoint', {}),
         'recovery': {'candidate_repair': item.get('candidate_repair'), 'prior_context': prior_context},
         'tools': tools or {}, 'memory': memory, 'runtime': runtime,
         'renew_minutes': budget['renew_minutes'], 'lease_seconds': budget['lease_seconds'],

@@ -83,6 +83,14 @@ release resources safely, acknowledge maintenance and exit. Stale heartbeat,
 HTTP health or a dead parent PID cannot prove quiescence. Never remove a lease,
 kill an unverified process or release a busy shared Editor to force readiness.
 
+To let selected issues finish while others cooperatively pause, use
+`python -m agent.service maintenance-pause --config C:\FarmBot\config.json --reason "finish priority work" --except-issue FARM-1`
+on Windows (`python3` on macOS).
+Repeat `--except-issue` for a selected set. Selected claims remain active; other
+workers receive maintenance in renew/resource-status and safely hand off. This is
+not readiness to stop the service. Ordinary `maintenance-resume` removes this pause
+without changing earlier admission restrictions or human-input waits.
+
 After an authorized complete release, verify the actual running revision,
 configuration, worker source and resource health. A selected settled historical
 job can be adopted while maintenance is requested:
@@ -126,7 +134,8 @@ removed. The manifest, hashes, review reports and derived images are preserved;
 workers keep reports in `STATE_DIR/reports` and refetch expired inputs as needed.
 Custom historical download directories are not inferred or swept.
 
-New workers receive attempt-local `GOCACHE`, `GOTMPDIR` and `FARMBOT_BUILD_ROOT`.
+New workers reuse item-owned `GOCACHE` after verified prior-attempt teardown;
+`GOTMPDIR` and `FARMBOT_BUILD_ROOT` remain attempt-local.
 Only regenerable build outputs belong there; durable evidence belongs elsewhere
 under `state_dir`. Known Codex download caches and the earlier controller-managed
 `server-tests/go-cache` and `server-tests/tmp` also expire. Other historical build
@@ -138,6 +147,7 @@ not change the running instance.
 
 ## Further references
 
+- [FARM-1693 continuation and measured startup timing](docs/diagnostics/2026-10-23-farm1693-continuation.md)
 - [Go dependency preparation](docs/go-dependency-preparation.md)
 - [Current resource and authority boundaries](docs/operating-contract.md#resource-ownership)
 

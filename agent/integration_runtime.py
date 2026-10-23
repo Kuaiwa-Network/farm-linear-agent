@@ -19,12 +19,17 @@ class Command:
     Windows children use a nested non-breakaway Job. POSIX children get their own
     group inside the worker's session, so outer worker containment still covers them.
     """
-    def __init__(self, argv, *, cwd, env, log):
+    def __init__(self, argv, *, cwd, env, log, identified=lambda child: None):
         self.job = None
+        self.job_name = None
+        self.observed = set()
+        self.escaped = False
+        self.next_observation = 0
         options = {'process_group':0} if os.name!='nt' else {}
         if os.name=='nt':
             from .windows_job import WindowsJob, CREATE_SUSPENDED
             self.job = WindowsJob()
+            self.job_name = self.job.name
             options = {'creationflags':CREATE_SUSPENDED | subprocess.CREATE_NO_WINDOW}
         self.process = None
         try:
@@ -33,6 +38,8 @@ class Command:
                                                 stdout=stream, stderr=subprocess.STDOUT, **options)
             if self.job:
                 self.job.assign(self.process)
+            identified(self)
+            if self.job:
                 self.job.resume(self.process)
         except BaseException:
             if self.process:
@@ -42,7 +49,25 @@ class Command:
                 self.job.close()
             raise
 
+    def identity(self):
+        if self.job_name:
+            return {'pid': self.process.pid, 'windows_job': self.job_name}
+        return {'pid': self.process.pid, 'process_group': self.process.pid,
+                'descendants': sorted(self.observed), 'escaped': self.escaped}
+
+    def observe(self, *, force=False):
+        if os.name != 'nt' and (force or time.monotonic() >= self.next_observation):
+            self.next_observation = time.monotonic() + .5
+            for pid in Launcher.descendants(self.process.pid):
+                try:
+                    if os.getpgid(pid) != self.process.pid:
+                        self.escaped = True
+                        self.observed.add(pid)
+                except ProcessLookupError:
+                    pass
+
     def exited(self):
+        self.observe()
         return Launcher.exited(self.process)
 
     def stop(self):
@@ -53,6 +78,9 @@ class Command:
             finally:
                 self.job.close()
             return
+        self.observe(force=True)
+        if self.escaped:
+            raise RuntimeError('service child left its owned group; preserve evidence for worker recovery')
         # Keep the leader unreaped until the group is gone, preventing PID/PGID reuse.
         if self.exited() and not Launcher._pinned(self.process):
             raise RuntimeError('cannot certify POSIX command ownership without a pinned leader')
@@ -94,7 +122,7 @@ def execute(resource, client_argv, directory, *, check=lambda:None, command=Comm
                    'FARMBOT_UNITY_MCP':resource['mcp_address']}
     for key in ('GOCACHE','GOTMPDIR'):
         if key in environment:
-            continue  # Keep launcher-owned attempt-local disposable cache paths.
+            continue  # Keep the launcher's item cache and attempt-local temporary path.
         path = directory / key.lower()
         path.mkdir()
         environment[key] = str(path)
@@ -202,7 +230,8 @@ def run_owned(ledger, args, token):
     def check():
         nonlocal next_renew
         if time.monotonic() >= next_renew:
-            ledger.renew(args.item, token)
+            if ledger.renew(args.item, token).get('maintenance_requested'):
+                raise LedgerError('maintenance requested; collect partial results and stop owned integration commands')
             next_renew = time.monotonic() + 10
         ledger._refuse_withdrawn(ledger._owned(args.item, token))
         current = ledger.active_reservation(args.item)
@@ -210,7 +239,10 @@ def run_owned(ledger, args, token):
             raise LedgerError('combined lease no longer active')
         if any(ledger.slot(slot_id)['state']=='held' for slot_id in (current['resource'], server['resource'])):
             raise LedgerError('combined resource held for recovery')
-    result = execute(resource, client_argv, directory, check=check)
+    from .resource_processes import Commands, scope
+    managed = scope(ledger, reservation['reservation_id'])
+    commands = Commands(ledger, args.item, token, reservation['reservation_id'])
+    result = execute(resource, client_argv, directory, check=check, command=commands.command if managed else Command)
     ledger.renew(args.item, token)
     try:
         trees.verification_commit('Farm-Client', args.item, reservation['commit_sha'])
