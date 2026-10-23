@@ -364,6 +364,14 @@ class Receiver:
         session_id = prepared["session_id"]
         text = prepared["text"]
 
+        def collect_answers(item):
+            # Ordinary replies produce no session event. Explicit human contact asks this owner
+            # to review accumulated answers before the receiver's normal inbox wake.
+            if author and text.strip() and item['skill'] == 'work' and (
+                    prepared['action'] == 'prompted' or prepared.get('is_mention')):
+                from .question_threads import collect_replies
+                collect_replies(self.ledger, self.api, issue['id'], item_id=item['id'], issue=issue)
+
         def routing():
             """This session's work, the router's decision, the issue's work in any session, whether the event
             concerns feature work, and whether it re-routes a delegation (D16)."""
@@ -483,6 +491,7 @@ class Receiver:
                 # says what becomes of the message (design R10).
                 flagged = elsewhere["withdraw_deadline"] is not None
                 resume = (delegated or elsewhere["skill"] == "chat") and not flagged
+                collect_answers(elsewhere)
                 delivered = self.ledger.push_inbox(elsewhere["id"], text or "（无正文）", resume_waiting=resume,
                                                    author=author, received_at=received_at)
                 self.ledger.record_forward(session_id, delivered["item_id"])
@@ -519,9 +528,11 @@ class Receiver:
                     self.ledger.push_inbox(item["id"], text, author=author, received_at=received_at)
                 acknowledge("thought", self._opening(decision, text))
             elif decision.kind == "steer":
+                collect_answers(active)
                 self.ledger.push_inbox(active["id"], decision.text, author=author, received_at=received_at)
                 acknowledge("thought", "已转给正在处理的 worker，会在下一次检查点读取。")
             elif decision.kind == "resume":
+                collect_answers(active)
                 # `active` is this session's work, or the job its conversation handed over to, which lives and asked
                 # its question in another thread (Ledger.active_item_for_session).
                 if active["skill"] == "chat":

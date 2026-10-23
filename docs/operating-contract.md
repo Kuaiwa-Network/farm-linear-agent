@@ -217,6 +217,30 @@ posted summary references and actual answers; unchanged entries are reused on
 resume and only new or changed decisions need publication. Ordinary resource
 queueing is not a human-input blocker.
 
+The current work owner posts human questions in an issue comment through the
+durable notice outbox; its session carries a pointer. Each teammate can reply
+directly under that comment without collecting a combined session answer. After
+everyone is finished, any teammate @mentions the bot to request review and
+continuation. A human mention or session reply imports accumulated answers in
+that outstanding thread before the normal inbox resume. Ordinary replies do not
+wake work, and there is no periodic question-thread polling. The import retains
+reply authors and comment references. Repeated
+reads are idempotent; a newer edit is delivered as another attributed message.
+Bots, unknown authors, unrelated comment threads, resolved rounds and terminal
+jobs cannot wake the owner through this path. Current issue scope, delegation,
+withdrawal, maintenance and launch checks still apply.
+
+Partial replies preserve the question ID, original comment, reply floor and
+earlier answers across checkpoint/resume/park. The worker records which questions
+remain, and resolves the round only when all have actual answers; receiving a
+comment is not automatic semantic approval. Session replies and comment @mentions
+remain supported. Existing session-only questions stay answerable that way; an
+owner re-asking one under this release gives it a comment thread. Chat and staged
+historical jobs keep their existing path. No database migration is required:
+thread and reply references use the existing checkpoint, notices, inbox and audit.
+Older releases do not import these thread answers; rollback preserves the question
+but answers then need to be sent in a session reply or @mention until restored.
+
 This review is a worker instruction and reporting requirement, not an automated
 semantic confidence judge. Existing question/claim/delivery fences remain in force;
 there is no new CLI, schema or migration. It takes effect for workers launched with

@@ -1800,7 +1800,8 @@ class Ledger:
             checkpoint = json.loads(row["checkpoint"])
             checkpoint["pending_question"] = question
             checkpoint["pending_reason"] = reason
-            if reason == "question":
+            existing_question = self.human_question(item_id)
+            if reason == "question" and not (existing_question and existing_question.get('comment_request_id')):
                 after = self.connection.execute("SELECT COALESCE(MAX(id),0) FROM inbox "
                     "WHERE item_id=? AND consumed_at IS NOT NULL", (item_id,)).fetchone()[0]
                 checkpoint[QUESTION_KEY] = {"id": str(uuid4()), "body": question, "after_message_id": after}

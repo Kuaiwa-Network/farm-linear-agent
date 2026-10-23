@@ -50,7 +50,7 @@ def reconcile_reply_label(ledger, api, issue_id):
         mark_reply_label(ledger, pending[0]["item_id"])
 
 
-def question_notice(ledger, item, body, bot_name):
+def question_notice(ledger, item, body, bot_name, *, comment_thread=False):
     context = ledger.issue_context(item["id"])
     person = (context.get("owner") or {}).get("person")
     mention = (person or {}).get("url", "")
@@ -60,6 +60,12 @@ def question_notice(ledger, item, body, bot_name):
     instructions = (f"请直接在 {bot_name} 的会话中回复，或在本 issue 评论中 @{bot_name} 并写明问题编号和答案。"
                     "@提及会新开 Linear 会话，答案会转给原工作项；直接回复原会话可保持同一会话。"
                     "普通评论不自动唤醒暂停任务；部分答复只解决已回答的问题。")
+    if comment_thread:
+        instructions = ("请直接回复这条问题评论，写明问题编号和答案。各负责人可以分别回答，不必由一人汇总。"
+                        f"等大家回答完毕后，由任意一人 @{bot_name} 告知可以检查并继续；"
+                        "届时会一并读取本评论串的答复并保留答复人，普通回复不会自动唤醒任务。"
+                        "也可回复原会话要求检查。部分答复只解决已回答的问题；"
+                        "尚未回答的问题会继续等待。")
     parts = [heading]
     if mention and mention not in body:
         parts.append(mention)
