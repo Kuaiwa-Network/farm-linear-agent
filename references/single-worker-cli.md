@@ -20,6 +20,11 @@ unchanged resource/dependency/test status: 30 seconds initially, then 60 seconds
 subject to earlier renewal, control and operation deadlines. Reuse the pending
 handle; never relaunch an operation to obtain status.
 
+Follow [context/output discipline](worker-context-output.md): reuse the claim's
+resume context and prefer resume for later reads. `--if-changed DIGEST` returns a
+small receipt only when the complete stored context matches a retained response.
+Keep live checks and required full reads; store large logs privately with exit status.
+
 The main worker may use native Codex subagents for bounded work within the same
 permissions. Helpers report to the main worker; they do not claim this issue or
 call its lifecycle/resource/publication commands. The main worker coordinates
@@ -29,7 +34,7 @@ parking or finish, and checkpoints their work. No FarmBot child task is created.
 | Command | Additional arguments and purpose |
 | --- | --- |
 | `fetch-issue` | No token arguments. Read live issue facts before delivery or after a new request. |
-| `issue-context` | No token arguments; `--view resume` or `full` includes history, questions, reports and inputs. |
+| `issue-context` | No token arguments; prefer `--view resume`, optionally `--if-changed DIGEST` from retained `context_view.digest`. `--view full` keeps all evidence and remains the CLI default. |
 | `download-uploads` | `--out STATE_DIR/uploads`, optional repeatable `--url UNSIGNED_UPLOAD_URL`: authenticated download of issue and current Project Overview attachments, with a local manifest. Reuse intact files; never fetch private upload URLs anonymously. |
 | `renew` | Read maintenance/withdrawal flags; keep the current claim alive. |
 | `checkpoint` | `--input FILE`: bounded JSON progress, candidate SHAs, report paths and next action. |

@@ -348,6 +348,37 @@ startup watchdogs, retry delays and resource quiescence checks are unchanged.
 It takes effect for workers receiving the updated launch instructions after an
 authorized release. Rollback removes the guidance without migrating state.
 
+## Worker context and output
+
+Current chat/work instructions reuse the resume context returned by startup claim
+and prefer `issue-context --view resume` for later reads. Resume responses include
+`context_view.digest`, a SHA-256 digest of the complete stored context, including
+evidence omitted from that projection. With `--view resume --if-changed DIGEST`,
+an exact match returns an explicit unchanged receipt with coordination, fingerprint
+and inbox count; any change returns the normal resume projection and a new digest.
+The digest is distinct from the issue input fingerprint and covers requests,
+questions, recovery, project content and historical evidence as well.
+
+Conditional reads require the worker to retain the matching context. Missing or
+truncated context requires an unconditional read; stale handoffs and omitted
+facts still require full evidence. Default/explicit full views are unchanged.
+The comparison reads stored state and does not fetch Linear, consume inbox messages,
+renew a claim, check maintenance, revalidate inputs or approve work. Existing live
+authority and control checks remain required.
+
+Workers keep large stdout/stderr in private UTF-8 reports, preserve exit status,
+and return focused summaries/excerpts with report paths. Routine text reads start
+around 2,000 output tokens where supported and expand when needed. Required
+instructions, human requests, control flags, failures and approval evidence are
+not subject to a hard truncation cap. See [the guide](../references/worker-context-output.md).
+
+The conditional CLI response is deterministic; reuse and output sizing are worker
+guidance whose production token savings still require measurement. No context is
+deleted and there is no database/config migration. An authorized release is needed
+for these changes to reach workers. On rollback, older code ignores the added
+response metadata but does not accept `--if-changed`; use unconditional reads with
+the matching older worker instructions.
+
 ## Approval-review capacity recovery
 
 When automatic approval review returns the complete `Selected model is at capacity`

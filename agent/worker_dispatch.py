@@ -54,6 +54,23 @@ POLLING_AUTHORITY = (
     'failure or permission to retry, recover or bypass approval. '
 )
 
+CONTEXT_OUTPUT_AUTHORITY = (
+    'Context/output discipline: read the resume context returned by the successful startup claim; '
+    'do not immediately fetch the same context again. For a needed later read, prefer issue-context --view resume; '
+    'add --if-changed DIGEST only while you retain the context matching context_view.digest. '
+    'An unchanged receipt compares stored context only, not live authority or test validity. '
+    'Keep required fetch-issue, renewal, inbox, revalidation and publication checks. '
+    'Read --view full when requires_full_view is true or needed evidence was omitted; '
+    'after lost/truncated context, reread without --if-changed. Read required instructions completely, '
+    'then reuse them only while their contents and scope are unchanged. Use focused searches and file ranges. '
+    'For potentially large command output, save full stdout/stderr under state_dir/reports with the exit code; '
+    'return a summary, relevant excerpts and the file path. Start routine text reads around 2000 output tokens '
+    'where the tool supports a limit; expand or read further ranges whenever needed. This is a display budget, '
+    'not permission to truncate required instructions, current requests, control flags or failure evidence. '
+    'Never rerun work merely to recover output, infer success from a tail, or print secrets/base64 data. '
+    'Follow references/worker-context-output.md. '
+)
+
 CHAT_AUTHORITY = """You are FarmBot's read-only conversation worker for this one Linear session.
 Use the listed worktrees only to investigate and answer; do not edit source, run repository generators, open PRs,
 merge, deploy, change Linear status/assignee or operate shared Unity/server resources. Keep the native
@@ -86,7 +103,7 @@ UPLOAD_AUTHORITY = (
     "saving them with --out STATE_DIR/uploads. Both chat and work use this same authenticated helper: it refreshes "
     "the issue's project relation and Overview, downloads referenced uploads, safely extracts ZIPs and "
     "records their sources in the manifest. Without --url it includes both issue and project uploads; "
-    "use repeated --url with unsigned URLs to select files. Read issue-context after fetch-issue for "
+    "use repeated --url with unsigned URLs to select files. Read issue-context --view resume after fetch-issue for "
     "project content. Do not write ad hoc download scripts, fetch private upload URLs anonymously, "
     "expose credentials or bypass a source/access refusal. Report concrete read failures; an unread "
     "archive does not prove missing assets. Downloaded ZIPs and unchanged extracted files expire after "
@@ -244,5 +261,6 @@ def message(*, item, issue, skill_path, worktrees, db_path, runtime, guidance, b
         'startup': {'start_argv': startup_argv(item, db_path, state_dir)},
         'guidance': guidance or '',
     }
-    return ((CHAT_AUTHORITY if chat else AUTHORITY) + POLLING_AUTHORITY + UPLOAD_AUTHORITY + WORKER_STORAGE_AUTHORITY
+    return ((CHAT_AUTHORITY if chat else AUTHORITY) + POLLING_AUTHORITY + CONTEXT_OUTPUT_AUTHORITY
+            + UPLOAD_AUTHORITY + WORKER_STORAGE_AUTHORITY
             + '\n\n' + json.dumps(payload, ensure_ascii=False, indent=2))
