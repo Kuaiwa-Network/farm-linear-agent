@@ -288,6 +288,13 @@ class QuestionThreadTests(LedgerBase):
         self.assertEqual(self.ledger.item(self.item)['state'], 'queued')
         self.assertIsNotNone(self.ledger.human_question(self.item))
         self.api.fetch_issue.assert_called_once_with(ISSUE)
+        forwarded = [call.args[1] for call in self.api.create_activity.call_args_list
+                     if call.args[0] == 'mention-1']
+        self.assertEqual(len(forwarded), 1)
+        self.assertEqual(forwarded[0]['type'], 'response')
+        self.assertIn('[原任务会话](https://linear.app/x/agent-session/session-1)', forwarded[0]['body'])
+        self.assertEqual(self.ledger.items_for_session('mention-1'), [])
+        self.assertEqual(self.ledger.stop_target('mention-1')[0]['id'], self.item)
         self.trigger()
         self.assertEqual(len(self.messages()), 2)
 
