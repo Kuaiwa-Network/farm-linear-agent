@@ -15,6 +15,11 @@ ambiguous outcome, inspect the process/claim result; never blindly claim again.
 Use `--db DATABASE` before the command and `--item ITEM --token-file STATE_DIR/token`
 for authenticated commands. The token itself must never appear in logs.
 
+Use the [bounded polling cadence](worker-polling.md) for pending tool handles and
+unchanged resource/dependency/test status: 30 seconds initially, then 60 seconds,
+subject to earlier renewal, control and operation deadlines. Reuse the pending
+handle; never relaunch an operation to obtain status.
+
 The main worker may use native Codex subagents for bounded work within the same
 permissions. Helpers report to the main worker; they do not claim this issue or
 call its lifecycle/resource/publication commands. The main worker coordinates

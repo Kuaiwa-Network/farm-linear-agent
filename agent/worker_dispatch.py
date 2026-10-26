@@ -38,6 +38,22 @@ WORKER_STORAGE_AUTHORITY = (
     'in-tree bin/obj layouts for repository tests that depend on them; do not redirect those builds. '
 )
 
+POLLING_AUTHORITY = (
+    'Waiting cadence: for an already-submitted tool/command call, use its existing wait handle; '
+    'request yield_time_ms=30000 initially and yield_time_ms=60000 after an unchanged/no-output result, '
+    'within that tool\'s supported limit. Space separate read-only status checks 30 seconds apart, then '
+    '60 seconds while unchanged. Reset to 30 seconds on meaningful progress, not a timestamp-only change. '
+    'Do independent authorized work when useful instead of polling. Never resubmit a pending command, '
+    'claim or test launch to obtain status. Before the claim succeeds, only wait for that submitted claim; '
+    'do not issue authenticated commands. After claiming, shorten waits or renew when due so renew_minutes, '
+    'lease expiry, operation deadlines and control handling take precedence over this cadence. '
+    'A resource-status call already renews the claim. Inspect every returned result for completion, failure, '
+    'maintenance, cancellation, withdrawal and new requests; handle them immediately through the existing CLI. '
+    'Do not sleep after completion or hide these checks in a long blocking loop. Helpers use the same cadence '
+    'but never manage the FarmBot claim. Follow references/worker-polling.md; unchanged status is not a test '
+    'failure or permission to retry, recover or bypass approval. '
+)
+
 CHAT_AUTHORITY = """You are FarmBot's read-only conversation worker for this one Linear session.
 Use the listed worktrees only to investigate and answer; do not edit source, run repository generators, open PRs,
 merge, deploy, change Linear status/assignee or operate shared Unity/server resources. Keep the native
@@ -160,8 +176,9 @@ no separate presentation worker, source approval or controller receipt is needed
 Before delivery, check the actual diff, requested behavior, required tests and remaining limitations yourself.
 There is no separate FarmBot semantic verifier, A-G plan, evidence index, UI receipt or closing approval required.
 Remain in this worker while waiting for resources. Request only required resources at the clean committed SHA
-using await-resource, then poll resource-status. Every status renews and returns maintenance, withdrawal and inbox flags;
-act on those flags immediately, including while queued/preparing. Unity tools are available through unity-tool and
+using await-resource, then poll resource-status with the waiting cadence below. Every status renews and returns
+maintenance, withdrawal and inbox flags; act on those flags immediately, including while queued/preparing.
+Unity tools are available through unity-tool and
 unity-read after readiness; they select the owned instance on each call. Inspect the available tool schemas via
 unity-tools. If get_test_job finishes with result=null, use unity-test-result with that exact job ID to read its
 retained bounded report; missing results never justify a pass or an automatic rerun. Never launch/kill a shared
@@ -227,5 +244,5 @@ def message(*, item, issue, skill_path, worktrees, db_path, runtime, guidance, b
         'startup': {'start_argv': startup_argv(item, db_path, state_dir)},
         'guidance': guidance or '',
     }
-    return ((CHAT_AUTHORITY if chat else AUTHORITY) + UPLOAD_AUTHORITY + WORKER_STORAGE_AUTHORITY
+    return ((CHAT_AUTHORITY if chat else AUTHORITY) + POLLING_AUTHORITY + UPLOAD_AUTHORITY + WORKER_STORAGE_AUTHORITY
             + '\n\n' + json.dumps(payload, ensure_ascii=False, indent=2))

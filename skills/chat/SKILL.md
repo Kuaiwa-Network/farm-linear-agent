@@ -22,6 +22,11 @@ token or put it in an argument. Fetch current facts, read the resume context and
 actual attributed session messages, and inspect the full context when needed.
 Renew normally and check maintenance/withdrawal before more work.
 
+Use the [bounded polling cadence](../../references/worker-polling.md) for pending
+tools: wait on the existing handle for 30 seconds, then 60 seconds while unchanged.
+Honor earlier renewal/control deadlines and returned changes; never resubmit the
+claim or another pending command to obtain status. This adds no resource authority.
+
 Use `download-uploads --out STATE_DIR/uploads` to read both issue attachments and the
 current Project Overview's embedded files/images. It discovers the project from
 the live issue, authenticates downloads, safely extracts ZIPs and records sources.
