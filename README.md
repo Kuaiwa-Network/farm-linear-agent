@@ -63,6 +63,20 @@ every optional tool.
 Use read-only `doctor`, Monitor, heartbeat and read-only SQLite snapshots for
 live inspection. Constructing a production Ledger can migrate its database.
 
+For investigation on another Mac or PC, `export-diagnostics` creates a private
+ZIP with redacted diagnostics, revision information and selected job history.
+Add `--include-logs` for bounded worker log tails:
+
+```powershell
+python -m agent.service export-diagnostics --config C:\FarmBot\config.json --issue FARM-1 --include-logs --output C:\FarmBotEvidence\FARM-1.zip
+```
+
+Create the output directory first, outside the instance's state root, and choose
+a new filename. On macOS use `python3` and absolute macOS paths. Review the bundle
+before sharing; free-form logs can retain private content. See
+[portable diagnostic exports](docs/development-workflow.md#portable-diagnostic-exports)
+for contents, limits, exit codes and the local debugging workflow.
+
 ## Maintenance and rollout
 
 For scenarios requiring both candidates online, use
