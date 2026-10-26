@@ -40,6 +40,9 @@ _SOL_MODEL = re.compile(r"gpt-([1-9][0-9]{0,2})(?:\.(0|[1-9][0-9]{0,2}))?-sol")
 _CODEX_ROLLOUT_NOT_FOUND = re.compile(
     r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z ERROR codex_core::session: "
     r"failed to record rollout items: thread [0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12} not found")
+_CODEX_UNKNOWN_PROCESS_ID = re.compile(
+    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z ERROR codex_core::tools::router: "
+    r"error=exec_command failed: UnknownProcessId \{ process_id: [0-9]+ \}")
 
 
 def _read_worker_file(path, tail=None):
@@ -1037,9 +1040,11 @@ class Launcher:
         lines = [line.strip() for line in tail.splitlines() if line.strip()]
         if len(lines) >= 2 and lines[-2] == "tokens used" and lines[-1].replace(",", "").isdigit():
             lines = lines[:-2]
-        # Codex may log this shutdown bookkeeping failure after its capacity exit.
-        # Ignore only that exact diagnostic; other trailing errors still take precedence.
-        while lines and _CODEX_ROLLOUT_NOT_FOUND.fullmatch(lines[-1]):
+        # Codex may log missing rollout/process bookkeeping after its capacity exit.
+        # Ignore only these exact trailing diagnostics, including interleaved ones;
+        # another error still takes precedence and neither diagnostic alone qualifies.
+        while lines and (_CODEX_ROLLOUT_NOT_FOUND.fullmatch(lines[-1])
+                         or _CODEX_UNKNOWN_PROCESS_ID.fullmatch(lines[-1])):
             lines.pop()
         if lines and lines[-1] in (
                 "ERROR: Selected model is at capacity. Please try a different model.",

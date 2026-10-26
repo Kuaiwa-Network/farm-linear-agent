@@ -458,6 +458,22 @@ for these changes to reach workers. On rollback, older code ignores the added
 response metadata but does not accept `--if-changed`; use unconditional reads with
 the matching older worker instructions.
 
+## Worker capacity recovery
+
+A claimed worker's nonzero Codex exit ending in the exact model-capacity or HTTP
+429 retry-limit diagnostic uses the existing bounded capacity retry path. The
+classifier reads only the bounded stderr tail, ignoring the optional token-count footer and exact
+timestamped missing-rollout and `exec_command` `UnknownProcessId` diagnostics that
+can follow the capacity error during shutdown. These diagnostics may interleave;
+they do not qualify by themselves. Other trailing errors, quoted capacity messages,
+successful exits and stopped workers retain their normal handling.
+
+Retries retain progress and use the shared three-retry allowance at 60, 180 and
+600 seconds. Worker teardown, claim fencing and resource quiescence checks remain
+required. This classification change needs no schema migration; older releases
+can read the same state but may treat these exits as ordinary failures. Already
+failed jobs are not automatically resumed by deploying the change.
+
 ## Approval-review capacity recovery
 
 When automatic approval review returns the complete `Selected model is at capacity`

@@ -12,6 +12,8 @@ import test_scheduler
 CAPACITY = "ERROR: Selected model is at capacity. Please try a different model.\n"
 ROLLOUT_NOT_FOUND = ("2026-10-12T13:00:49.179447Z ERROR codex_core::session: "
                      "failed to record rollout items: thread 01a1302b-0ccd-7421-97b4-756cf1e1e7ce not found\n")
+UNKNOWN_PROCESS_ID = ("2026-10-26T14:02:45.302374Z ERROR codex_core::tools::router: "
+                      "error=exec_command failed: UnknownProcessId { process_id: 92907 }\n")
 
 
 class CapacitySchedulerTests(unittest.TestCase):
@@ -140,6 +142,8 @@ class CapacityLauncherTests(unittest.TestCase):
     def run_cli(self, text, code=1):
         with tempfile.TemporaryDirectory() as tmp:
             script = "import sys;sys.stdin.read();sys.stderr.write(%r);sys.exit(%d)" % (text, code)
+            # Runtime argv is a format template; diagnostics may contain literal braces.
+            script = script.replace("{", "{{").replace("}", "}}")
             runtime = RUNTIMES["codex"]._replace(command=[sys.executable, "-c", script], seed_files={})
             launcher = Launcher(tmp, runtime, "test")
             launcher.spawn("item", "hello", {}, 30, tmp)
@@ -181,6 +185,32 @@ class CapacityLauncherTests(unittest.TestCase):
                 result = self.run_cli(CAPACITY * 2 + ROLLOUT_NOT_FOUND + footer)
                 self.assertEqual(result.failure_kind, "model_capacity")
                 self.assertFalse(result.killed)
+
+    def test_capacity_with_shutdown_process_error_is_classified(self):
+        # FARM-1917: a missing-process diagnostic between rollout errors masked
+        # the capacity exit, bypassing the scheduler's bounded retry path.
+        shutdown = ROLLOUT_NOT_FOUND + UNKNOWN_PROCESS_ID + ROLLOUT_NOT_FOUND
+        rate_limit = "ERROR: exceeded retry limit, last status: 429 Too Many Requests\n"
+        for diagnostic in (CAPACITY * 2, rate_limit):
+            for suffix in (UNKNOWN_PROCESS_ID, shutdown + "tokens used\n273,004\n"):
+                with self.subTest(diagnostic=diagnostic, suffix=suffix):
+                    result = self.run_cli(diagnostic + suffix)
+                    self.assertEqual(result.failure_kind, "model_capacity")
+                    self.assertFalse(result.killed)
+
+    def test_shutdown_process_error_does_not_hide_other_failures(self):
+        for text, code in (
+                (UNKNOWN_PROCESS_ID, 1),
+                (CAPACITY + UNKNOWN_PROCESS_ID, 0),
+                ("docs: " + CAPACITY + UNKNOWN_PROCESS_ID, 1),
+                (CAPACITY + "ERROR: Unauthorized\n" + UNKNOWN_PROCESS_ID, 1),
+                (CAPACITY + UNKNOWN_PROCESS_ID + "ERROR: Unauthorized\n", 1),
+                (CAPACITY + "tool output: " + UNKNOWN_PROCESS_ID, 1),
+                (CAPACITY + UNKNOWN_PROCESS_ID.replace("exec_command", "write_stdin"), 1),
+                (CAPACITY + UNKNOWN_PROCESS_ID.replace("92907", "unknown"), 1),
+                (CAPACITY + UNKNOWN_PROCESS_ID.replace("UnknownProcessId", "PermissionDenied"), 1)):
+            with self.subTest(text=text, code=code):
+                self.assertIsNone(self.run_cli(text, code).failure_kind)
 
     def test_shutdown_recording_error_does_not_hide_other_failures(self):
         for text, code in (
