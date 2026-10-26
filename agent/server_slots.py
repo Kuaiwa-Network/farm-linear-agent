@@ -401,7 +401,11 @@ class ServerSlotPool:
             return False  # cancellation during startup; ordinary quiescent settlement owns cleanup
         directory = Path(self.state_dir(item_id))
         directory.mkdir(parents=True, exist_ok=True)
-        public = {key: lease[key] for key in ('slot', 'reservation_id', 'commit', 'ports', 'expires_at')}
+        from .resource_processes import scope as process_scope
+        fields = ('slot', 'reservation_id', 'commit', 'expires_at')
+        if not process_scope(self.ledger, reservation['reservation_id']):
+            fields += ('ports',)
+        public = {key: lease[key] for key in fields}
         _write_worker_file(directory / 'server-resource.json', json.dumps(public), sync=True)
         _write_worker_file(directory / 'reservation.token', lease['token'], mode=0o600, sync=True)
         self.ledger.set_slot_state(slot, 'batch_busy', parked_commit=lease['commit'])
@@ -451,7 +455,7 @@ class ServerSlotPool:
                     live = (single(item) and item['state'] == 'running' and item['worker_pid']
                             and item['lease_expires_at'] > self.clock() and item['withdraw_deadline'] is None)
                     legacy = not single(item) and item['state'] == 'awaiting_resource' and self.quiescent(item['id'])
-                    if not reservation.get('integration') and (live or legacy) and not Maintenance(self.ledger).requested():
+                    if not reservation.get('integration') and (live or legacy) and not Maintenance(self.ledger).requested(item['id']):
                         granted += int(self._start(lease, reservation))
                         continue
                 if reservation["state"] == "active" and item["state"] in ("queued", "running"):
@@ -461,7 +465,9 @@ class ServerSlotPool:
                     continue  # Unity preparation owns hand-over; the shared deadline remains bounded.
                 if item["state"] == "awaiting_resource" and reservation["state"] == "active":
                     self.ledger.fail_queued(item["id"], "server startup interrupted; retained lease will be cleaned")
-                if not self.quiescent(item["id"]):
+                from .resource_processes import quiescent
+                managed_empty = (reservation['state'] == 'released' and quiescent(self.ledger, reservation['reservation_id']))
+                if not managed_empty and not self.quiescent(item['id']):
                     continue
                 self.services.cleanup(lease)
                 if reservation["state"] in ("active", "cancel_requested"):
@@ -483,7 +489,7 @@ class ServerSlotPool:
                 continue
             except Exception as exc:
                 self._hold(slot["slot_id"], "server settlement failed: " + type(exc).__name__)
-        if Maintenance(self.ledger).requested():
+        if Maintenance(self.ledger).blocks_admission():
             return {"settled": settled, "granted": 0}
         for _ in range(self.settings["count"]):
             pending = self.ledger.reservation_queue('server_slot', single_only=self.single_only)

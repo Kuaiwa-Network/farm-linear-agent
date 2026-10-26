@@ -11,7 +11,7 @@ from test_scheduler import FakeLauncher, FakeWorktrees
 
 
 class HandoffTests(ServerPoolFixture):
-    def start(self, *, pair=False):
+    def start(self, *, pair=False, managed=False):
         key = self.request(skill='work', reserve=False, execution_contract='single-worker-v1')
         self.ledger.set_worker(key, 123, 'test')
         token = self.ledger.claim(key, worker_id='owner')['token']
@@ -22,6 +22,8 @@ class HandoffTests(ServerPoolFixture):
             self.ledger.ensure_slot('unity_slot:1', kind='unity_slot', host='test', folder=str(self.root/'editor'))
             options, kind, mode = dict(integration_plan=plan()), 'unity_slot', 'interactive'
         queue_resource(self.ledger, key, token, kind, mode, 'a'*40, **options)
+        if not managed:
+            self.ledger.connection.execute('DELETE FROM resource_process_scopes WHERE item_id=?', (key,))
         self.exited = False
         if pair:
             grant = self.admission.acquire(self.ledger, kind, owner='pool', host='test')

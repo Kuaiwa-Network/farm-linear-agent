@@ -292,12 +292,61 @@ class CancellationCleanupTests(unittest.TestCase):
             self.scheduler.tick()
         self.assertFalse(self.ledger.cleanup_record(item['id'])['done'])
         self.assertEqual(set(self.ledger.cleanup_record(item['id'])['result']['refs']), {'Farm-Client', 'second'})
+        # A later attempt may leave the remaining repository detached. Its old branch
+        # must not survive a fresh preservation, while the removed repository's does.
+        remaining = trees.worktrees_root / item['id'] / 'second'
+        trees.git_in(remaining, 'checkout', '--quiet', '--detach', 'HEAD')
         self.scheduler.tick()
         record = self.ledger.cleanup_record(item['id'])
-        self.assertTrue(record['done'])
+        self.assertTrue(record['done'], record['error'])
         self.assertEqual(set(record['result']['refs']), {'Farm-Client', 'second'})
         self.assertEqual(set(record['result']['committed']), {'Farm-Client', 'second'})
         self.assertEqual(set(record['result']['snapshots']), {'Farm-Client', 'second'})
+        self.assertEqual(record['result']['branches'], {'Farm-Client': 'farmbot/preserve'})
+        self.assertFalse(remaining.exists())
+        for repo, ref in record['result']['refs'].items():
+            self.assertEqual(test_worktrees.git('rev-parse', ref, cwd=trees.clone_path(repo)),
+                             record['result']['committed'][repo])
+
+    def test_detached_cleanup_refreshes_stale_branch_only_after_successful_preservation(self):
+        fixture = test_worktrees.WorktreeTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        trees = fixture.trees
+        trees.worktrees_root = Path(fixture.tmp.name) / '恢复 工作目录'
+        item = self.item()
+        branch = 'farmbot/farm-1-清理'
+        path = trees.add('Farm-Client', item['id'], branch)
+        saved = trees.preserve(item['id'])
+        self.scheduler.worktrees = trees
+        self.ledger.cancel(item['id'], 'closed')
+        self.ledger.record_cleanup(item['id'], saved, error='interrupted cleanup')
+        trees.git_in(path, 'checkout', '--quiet', '--detach', 'HEAD')
+        original = trees.git_in
+
+        def fail_branch_read(path, *args, **kwargs):
+            if args == ('branch', '--show-current'):
+                raise WorktreeError('branch read failed')
+            return original(path, *args, **kwargs)
+
+        with patch.object(trees, 'git_in', side_effect=fail_branch_read):
+            self.scheduler.tick()
+        record = self.ledger.cleanup_record(item['id'])
+        self.assertFalse(record['done'])
+        self.assertEqual(record['result']['errors'], {'Farm-Client': 'branch read failed'})
+        self.assertEqual(record['result']['branches'], saved['branches'])
+        self.assertTrue(path.exists())
+
+        self.scheduler.tick()
+        record = self.ledger.cleanup_record(item['id'])
+        self.assertTrue(record['done'], record['error'])
+        self.assertEqual(record['result']['branches'], {})
+        for key in ('committed', 'refs', 'snapshots'):
+            self.assertEqual(record['result'][key], saved[key])
+        self.assertFalse(path.exists())
+        clone = trees.clone_path('Farm-Client')
+        for ref in (saved['refs']['Farm-Client'], 'refs/heads/' + branch):
+            self.assertEqual(test_worktrees.git('rev-parse', ref, cwd=clone), saved['committed']['Farm-Client'])
 
     @unittest.skipIf(os.name == 'nt', 'Windows worker jobs contain children; tested in test_windows_workers')
     def test_exited_parent_with_detached_child_holds_cleanup_after_restart(self):

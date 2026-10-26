@@ -13,7 +13,8 @@ def context(args, ledger, config, token):
     item = ledger.item(args.item)
     if not single(item):
         raise LedgerError('this tool requires a single-worker job')
-    ledger._refuse_withdrawn(ledger._row(args.item))
+    if getattr(args, 'command', 'resource-status') != 'resource-status':
+        ledger._refuse_withdrawn(ledger._row(args.item))
     paths = Paths(config)
     if Path(args.db).resolve() != paths.ledger.resolve():
         raise LedgerError('resource tools require the configured host ledger')
@@ -90,6 +91,13 @@ def status(args, ledger, config, token):
                 source = trees.read_candidate('farm-hive', item['id'], reservation['commit_sha'], create=False)
                 result['integration'] = {**read_resource(ledger.slot(reservation['resource']), reservation, paths.server_slots),
                                          'plan':reservation['integration']['plan'], 'source':str(source)}
+    from .resource_processes import scope as process_scope
+    if result.get('reservation_id') and process_scope(ledger, result['reservation_id']):
+        for key in ('services', 'integration'):
+            if key in result:
+                for field in ('environment', 'ports', 'game_port'):
+                    result[key].pop(field, None)
+                result[key]['run_command'] = 'run-server-tests' if key == 'services' else 'run-integration'
     return result
 
 

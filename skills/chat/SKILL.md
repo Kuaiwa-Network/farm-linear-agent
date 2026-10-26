@@ -22,6 +22,21 @@ token or put it in an argument. Fetch current facts, read the resume context and
 actual attributed session messages, and inspect the full context when needed.
 Renew normally and check maintenance/withdrawal before more work.
 
+The host defaults current chat attempts to medium reasoning unless explicitly
+configured otherwise. Follow [the reasoning policy](../../references/worker-reasoning.md);
+required evidence, authority checks and approval review remain in force.
+
+Use the [bounded polling cadence](../../references/worker-polling.md) for pending
+tools: wait on the existing handle for 30 seconds, then 60 seconds while unchanged.
+Honor earlier renewal/control deadlines and returned changes; never resubmit the
+claim or another pending command to obtain status. This adds no resource authority.
+
+Follow [context/output discipline](../../references/worker-context-output.md):
+reuse the claim's resume context and use `issue-context --view resume` with
+`--if-changed DIGEST` only while its matching context is retained. Preserve live checks and
+required full reads. Keep large read-only investigation logs under `state_dir/reports`
+and return relevant excerpts and paths; this adds no write authority outside state_dir.
+
 Use `download-uploads --out STATE_DIR/uploads` to read both issue attachments and the
 current Project Overview's embedded files/images. It discovers the project from
 the live issue, authenticates downloads, safely extracts ZIPs and records sources.

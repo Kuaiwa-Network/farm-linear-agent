@@ -141,13 +141,22 @@ class SingleWorkerJourneyTests(unittest.TestCase):
         self.assertEqual(f.c.ledger.item(key)['state'], 'queued')
         state = f.c.paths.runs / key
         body, evidence = state / 'repair.txt', state / 'repair.json'
+        scope_file = state / 'repair-scope.json'
+        current = f.c.ledger.issue_context(key)['current_request']
+        self.assertTrue(current['review_required'])
+        self.assertIn('merge conflicts', current['latest_request']['body'])
         restored = state / 'restored.json'
         roots = {repo: str(f.c.paths.worktrees / key / repo) for repo in changes}
         program = ('import json, subprocess\nfrom pathlib import Path\nroots = ' + repr(roots) + '\n'
             'result = {repo: [subprocess.check_output(["git", "branch", "--show-current"], cwd=p, text=True).strip(), '
             'subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=p, text=True).strip()] for repo,p in roots.items()}\n'
             f'Path({str(restored)!r}).write_text(json.dumps(result), encoding="utf-8")')
-        steps = [['claim', '--item', '{item}', '--worker-id', 'resumed-owner'], ['python', '-c', program]]
+        steps = [['claim', '--item', '{item}', '--worker-id', 'resumed-owner'],
+            ['file', str(scope_file), json.dumps({'request_scope': {
+                'through_message_id': current['latest_message_id'],
+                'summary': 'Resolve existing PR conflicts and validate the changed candidates'}})],
+            ['checkpoint', '--item', '{item}', '--token', '{token}', '--input', str(scope_file)],
+            ['python', '-c', program]]
         for repo in changes:
             steps += [['file', str(Path(roots[repo]) / 'behavior.py'), 'VALUE = 2\n'],
                       ['git', repo, 'commit', '-qam', 'Repair existing PR']]

@@ -67,7 +67,9 @@ def queue_resource(ledger, item_id, token, resource, mode, commit, *, test_plan=
         if not single(row):
             raise LedgerError('single-worker resource request requires its execution contract')
         ledger._refuse_withdrawn(row)
-        if Maintenance(ledger).requested():
+        from .request_scope import require_reviewed
+        require_reviewed(ledger, item_id)
+        if Maintenance(ledger).requested(item_id):
             raise LedgerError('maintenance requested; checkpoint and hand off instead of starting tests')
         if ledger.connection.execute("SELECT 1 FROM reservations WHERE item_id=? AND state IN "
                                      "('queued','active','cancel_requested')", (item_id,)).fetchone():
@@ -77,6 +79,9 @@ def queue_resource(ledger, item_id, token, resource, mode, commit, *, test_plan=
             "commit_sha,state,created_at,server_test_plan) VALUES(?,?,?,?,?,?,'queued',?,?)",
             (reservation, item_id, row['generation'], resource, mode, commit, ledger.clock(),
              _json(test_plan) if test_plan else None))
+        if resource == 'server_slot' or integration_plan:
+            from .resource_processes import create
+            create(ledger, reservation, row)
         if integration_plan:
             ledger.connection.execute('INSERT INTO integration_leases(reservation_id,plan) VALUES(?,?)',
                                       (reservation, _json(integration_plan)))
@@ -176,12 +181,13 @@ def adopt(ledger, item_id, launcher, reason):
 
 
 def resource_status(ledger, item_id, token):
-    ledger.renew(item_id, token)
-    item = ledger.item(item_id)
+    item = ledger.renew(item_id, token)
+    control = {key: item[key] for key in ('maintenance_requested', 'withdraw_deadline', 'withdraw_reason')}
+    control['inbox_pending'] = ledger.connection.execute('SELECT count(*) FROM inbox WHERE item_id=? AND consumed_at IS NULL', (item_id,)).fetchone()[0]
     row = ledger.connection.execute('SELECT * FROM reservations WHERE item_id=? AND generation=? ORDER BY sequence DESC LIMIT 1',
                                     (item_id, item['generation'])).fetchone()
     if row is None:
-        return {'state': 'none'}
+        return {'state': 'none', **control}
     reservation = ledger._reservation_view(row)
     slot = ledger.slot(reservation['resource']) if reservation['resource'] else None
     ready = reservation['state'] == 'active' and slot is not None and slot['state'] in ('interactive_busy', 'batch_busy') and any(
@@ -193,6 +199,7 @@ def resource_status(ledger, item_id, token):
     if paired_slot and paired_slot['state']!='batch_busy':
         ready = False
     result = {key: reservation.get(key) for key in ('reservation_id', 'kind', 'mode', 'commit_sha', 'state', 'wait_detail', 'release_reason')}
+    result.update(control)
     result['ready'] = ready
     result['wait_detail'] = json.loads(row['wait_detail']) if row['wait_detail'] else None
     if slot and reservation['state'] == 'active':

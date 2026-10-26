@@ -68,6 +68,8 @@ def parser():
     cmd("revalidate", "--item", "--fingerprint", token=True)
     context = cmd("issue-context", "--item")
     context.add_argument("--view", choices=["full", "resume"], default="full")
+    context.add_argument('--if-changed', metavar='DIGEST',
+                         help='with --view resume, return a small receipt when retained context is unchanged')
     cmd("pop-inbox", "--item", token=True)
     dependency = cmd("prepare-go-dependencies", "--item", "--module", "--commit", token=True)
     dependency.add_argument('--repo', help='repository for a single-worker dependency request')
@@ -136,6 +138,7 @@ def parser():
     resource.add_argument('--checkpoint', help='save this checkpoint before requesting the resource')
     resource.add_argument("--server-test-plan", help="JSON file with exact packages, tests and race selection")
     resource.add_argument('--integration-plan', help='single-client/game-server plan, from the Client stage')
+    cmd('run-server-tests', '--item', '--module', token=True)
     integration = cmd('run-integration', '--item', '--client-command', token=True)
     resource.add_argument("--server-scope-reason", help="concrete coverage reason for broader or named-only server checks")
     resource.add_argument("--mode", required=True, choices=["interactive", "batch"])
@@ -756,10 +759,12 @@ def run(args, ledger, api_factory):
     if c == "revalidate":
         return ledger.revalidate(args.item, resolve_token(args), args.fingerprint)
     if c == "issue-context":
+        if args.if_changed is not None and args.view != 'resume':
+            raise LedgerError('--if-changed requires --view resume')
         context = ledger.issue_context(args.item)
         if args.view == 'resume':
             from .resume_context import resume_view
-            return resume_view(context)
+            return resume_view(context, if_changed=args.if_changed)
         return context
     if c == "pop-inbox":
         return ledger.pop_inbox(args.item, resolve_token(args))
@@ -1345,6 +1350,9 @@ def run(args, ledger, api_factory):
             raise LedgerError('only Client code jobs may continue a comparison baseline')
         return ledger.await_resource(args.item, token, args.resource, mode, skill=skill,
                                      commit_sha=selected_commit, **request_options)
+    if c == 'run-server-tests':
+        from .server_test_runtime import run_owned
+        return run_owned(ledger, args, resolve_token(args))
     if c == 'run-integration':
         from .integration_runtime import run_owned
         return run_owned(ledger, args, resolve_token(args))
