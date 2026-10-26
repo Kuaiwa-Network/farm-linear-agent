@@ -258,6 +258,18 @@ Bots, unknown authors, unrelated comment threads, resolved rounds and terminal
 jobs cannot wake the owner through this path. Current issue scope, delegation,
 withdrawal, maintenance and launch checks still apply.
 
+After a message is delivered to work owned by another session, the receiver sends
+a final `response` in the forwarding session with a link to the owner's Linear
+session. This also covers later replies in a conversation that handed work back
+to the original owner. Only the forwarding exchange is complete: the job,
+questions, claims and resources keep their existing state and authority. Replies
+in the owner's own session remain progress activities. Forwarded replies and Stop
+continue to reach the original job through the existing routing records.
+Operator-created jobs have no Linear session and link to the issue instead.
+Malformed historical URLs cannot prevent the forwarding response from closing.
+This needs a controller release, with no schema migration or automatic rewrite of
+historical stale sessions. Rollback restores the old acknowledgement behavior.
+
 Partial replies preserve the question ID, original comment, reply floor and
 earlier answers across checkpoint/resume/park. The worker records which questions
 remain, and resolves the round only when all have actual answers; receiving a
