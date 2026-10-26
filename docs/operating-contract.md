@@ -822,6 +822,27 @@ absolute config path is propagated to every worker; settle and restart before
 changing it. Diagnostics use read-only doctor/SQLite snapshots, not a constructed
 production Ledger.
 
+`export-diagnostics --config FILE --output NEW.zip` creates portable, private
+evidence using the existing read-only doctor and SQLite snapshot readers. It
+does not modify configuration, migrate a ledger, contact Linear, start workers
+or change resource ownership. Its output is a new ZIP outside `local_root`;
+read-only SQLite may also create WAL/shared-memory sidecars for a stopped ledger.
+An optional issue/item selection includes bounded history, even for terminal
+jobs; worker log tails additionally require `--include-logs`. Doctor and heartbeat
+remain host-wide. The exporter distinguishes its checkout revision from the
+service revision recorded in the heartbeat and records missing/truncated evidence.
+
+Only allowlisted log filenames from selected local jobs are read, with regular
+file, link/reparse-point, identity and size checks. No config, database, credential
+store, token file, upload or arbitrary checkpoint/report path is copied. Redaction
+occurs before writing; it covers known secrets and common credential formats but
+does not make arbitrary log prose safe for public sharing. Bundles remain private
+and require review before sharing. They are diagnostic evidence, not replayable
+state, process ownership proof or live-test authorization. This command requires
+no schema migration; removing it leaves saved ZIPs untouched. See the
+[export workflow](development-workflow.md#portable-diagnostic-exports) for limits
+and partial-result exit codes.
+
 Local regression fixtures use temporary state, local Git remotes, fake workers
 and stub Linear/Unity/services. They verify flow and safety boundaries but do
 not certify business behavior, model autonomy or a real Unity run.
