@@ -14,6 +14,10 @@ or bypass a refusal. For later authenticated calls use `--token-file STATE_DIR/t
 
 All commands start with `PYTHON -m agent --db DATABASE`; they take `--item ITEM`.
 
+Follow the [bounded polling cadence](worker-polling.md) for pending tool handles:
+30 seconds initially, then 60 seconds while unchanged, shortened for earlier
+renewal/control deadlines. Before a claim succeeds, wait only for that same call.
+
 | Command | Other arguments / purpose |
 | --- | --- |
 | `fetch-issue` | No token arguments; current Linear facts. |

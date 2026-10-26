@@ -314,6 +314,28 @@ input fingerprint and remain owned after a restart or continuation; other PRs
 still appear in the foreign-work report. Arbitrary checkpoint `prs` or historical
 delivery prose is not a substitute for current publication verification.
 
+## Worker polling cadence
+
+Current chat/work launch authority and skills instruct workers to wait on an
+existing tool handle for 30 seconds initially and 60 seconds after unchanged or
+empty output, within the tool's supported limit. Separate resource, dependency
+and test-status reads use the same intervals. Meaningful progress resets the
+interval to 30 seconds; repeated timestamps or heartbeat notices do not.
+Completion, errors and control changes are handled as soon as they are returned.
+
+Earlier renewal, lease, operation and control deadlines take precedence. After
+claiming, workers continue normal renewal/inbox checks and inspect maintenance,
+cancellation and withdrawal flags. Resource status already renews the claim.
+Pending startup claims are waited on, never resubmitted; authenticated commands
+still require a successful claim. Helpers retain no claim/resource authority.
+The [polling guide](../references/worker-polling.md) describes these boundaries.
+
+This is worker instruction guidance, not a host-enforced timer or a guarantee of
+token savings. It adds no CLI, schema, permissions or background polling process;
+startup watchdogs, retry delays and resource quiescence checks are unchanged.
+It takes effect for workers receiving the updated launch instructions after an
+authorized release. Rollback removes the guidance without migrating state.
+
 ## Approval-review capacity recovery
 
 When automatic approval review returns the complete `Selected model is at capacity`

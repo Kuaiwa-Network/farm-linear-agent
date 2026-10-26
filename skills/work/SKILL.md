@@ -40,6 +40,12 @@ returns the resume context. Then read [the concise CLI guide](../../references/s
 and relevant repository instructions. Use `execution.python`
 with argument arrays and `--token-file`, never put a token in logs. Renew normally,
 and before expensive operations. Post concise progress when something changes.
+
+Use the [bounded polling cadence](../../references/worker-polling.md): wait on
+the existing handle for 30 seconds, then 60 seconds while unchanged. Apply the
+same backoff between read-only status checks. Shorten waits for renewal/control
+deadlines and act immediately on returned changes; never resubmit pending work.
+
 Download issue attachments and the current Project Overview's embedded files/images
 with `download-uploads --out STATE_DIR/uploads`, just as chat does. The helper discovers the
 project from the live issue, handles authentication, safe local names and ZIP
@@ -122,8 +128,9 @@ repository's native toolchain before running a bundled executable: fresh worktre
 may contain an LFS pointer instead of the binary. Preserve version/schema checks.
 
 For Unity, request a slot at the clean committed candidate, stay in this worker,
-and poll `resource-status`. When ready, use `unity-tools` to discover schemas and
-`unity-tool`/`unity-read` to work with the reserved instance. Collect actual test
+and poll `resource-status` with the bounded cadence above. When ready, use
+`unity-tools` to discover schemas and `unity-tool`/`unity-read` to work with the
+reserved instance. Collect actual test
 results and needed UI observations in that same reservation. Reconcile a lost
 test-start response before retrying. Leave tests finished, Edit Mode idle and
 compilation quiet before releasing. Never operate shared Editor processes yourself.
