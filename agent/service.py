@@ -96,6 +96,9 @@ def build(config, runtime_override=None, *, replay_legacy=False):
         finally:
             current.close()
     scheduler.preflight = preflight
+    if not replay_legacy:
+        from .version_targets import TargetController
+        scheduler.version_targets = TargetController(ledger, worktrees, config.version_targets)
     receiver = Receiver(paths.ledger, config.webhook_secret,
                         {"oauthClientId": config.client_id, "appUserId": identity["viewer"]["id"],
                          "organizationId": identity["organization"]["id"]},
@@ -285,8 +288,12 @@ def _serve(components):
     heartbeat_path = Paths(components.config).heartbeat
     components.scheduler.maintenance_epoch = heartbeat.started_at
     components.scheduler.maintenance_resources = getattr(components.pool, 'maintenance_blockers', None)
+    version_sync = None
     def maintenance_busy():
-        return heartbeat.unsettled_loops(('pool', 'server_pool', 'resource_recovery', 'go_dependencies', 'worker_retention'))
+        busy = heartbeat.unsettled_loops(('pool', 'server_pool', 'resource_recovery', 'go_dependencies', 'worker_retention'))
+        if version_sync is not None and version_sync.busy:
+            busy.append('version_labels')
+        return busy
     components.scheduler.maintenance_busy = maintenance_busy
     # The receiver's handler counts each /webhook outcome into it (receiver.make_server).
     components.server.heartbeat = heartbeat
@@ -316,7 +323,7 @@ def _serve(components):
         while not beat_stop.wait(HEARTBEAT_INTERVAL):
             beat()
 
-    def guarded(name, work):
+    def guarded(name, work, *, error_pause=1.0):
         """One loop iteration never kills its thread: log the kind of failure and back off.
 
         `work` returns how long to pause before the next iteration. The heartbeat times the work and not the
@@ -329,7 +336,7 @@ def _serve(components):
                 except Exception as exc:
                     heartbeat.loop_failed(name, exc)
                     print(json.dumps({"event": "loop_error", "loop": name, "error": type(exc).__name__}), flush=True)
-                    pause = 1.0
+                    pause = error_pause
                 else:
                     heartbeat.loop_finished(name)
                 stop.wait(pause)
@@ -352,6 +359,14 @@ def _serve(components):
     threads = [threading.Thread(target=guarded("receive", receive_once), daemon=True),
                threading.Thread(target=guarded("schedule", schedule_once), daemon=True),
                threading.Thread(target=guarded("pool", pool_once), daemon=True)]
+    from .version_targets import LabelSync
+    if components.config.version_targets.get('sync_labels', False):
+        version_sync = LabelSync(components.worktrees, components.api, components.config.version_targets)
+        def version_sync_once():
+            version_sync.tick()
+            return max(0.1, version_sync.next_at - version_sync.clock())
+        threads.append(threading.Thread(target=guarded('version_labels', version_sync_once,
+            error_pause=version_sync.policy['sync_seconds']), daemon=True))
     from .worker_retention import Controller as RetentionController
     retention = RetentionController(components.launcher, components.config.worker_retention)
     if retention.policy['enabled']:

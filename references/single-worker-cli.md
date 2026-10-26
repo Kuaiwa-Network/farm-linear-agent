@@ -119,6 +119,14 @@ A delivered finish uses:
 {"summary":"What changed","verification":"Actual checks, results and remaining limitations","prs":["https://github.com/OWNER/REPO/pull/123"],"comment_action_id":"CONFIRMED_DELIVERY_ACTION"}
 ```
 
+`branch_target` in the job context is the controller's saved per-repository base
+branch, starting commit and remote identity. It survives retries and continuations.
+`verify-publication` returns `base_branch`; pass it explicitly when creating the PR.
+An issue target change cannot be accepted through `revalidate`, a checkpoint or PR
+retargeting. Restore the original target or use a new linked issue, retaining the
+existing work and reports. Historical jobs without a saved target retain default-
+branch behavior and cannot acquire an explicit target implicitly.
+
 Each listed PR is checked on GitHub: this issue's branch in its owned worktree,
 head at that worktree's current HEAD, and open (draft or marked ready) or merged.
 Push the final commit, then run `finish --check-ready` before posting the

@@ -429,13 +429,22 @@ class LinearAPITests(unittest.TestCase):
 
     def test_the_issue_query_reads_people_label_parents_and_reply_parents(self):
         query = " ".join(ISSUE_QUERY.split())
-        for part in ("labels { nodes { name parent { id name } } }", "assignee { id name url app }",
+        for part in ("labels(first: 250) { nodes { name parent { id name } } pageInfo { hasNextPage } }", "assignee { id name url app }",
                      "creator { id name url app }",
                      "nodes { id url body createdAt updatedAt user { id name url app } botActor { id } parent { id } }"):
             self.assertIn(part, query)
         self.assertNotIn("email", query)
         self.fetched([])
         self.assertEqual(self.http.calls[-1][2]["query"], ISSUE_QUERY)
+
+    def test_partial_labels_never_imply_the_default_branch(self):
+        for method, operation in (('fetch_issue', 'FarmBotIssue'), ('issue_status', 'FarmBotIssueStatus')):
+            with self.subTest(method=method):
+                response = issue_page(None, False, [], labels={'nodes': [], 'pageInfo': {'hasNextPage': True}})
+                api = self.api({operation: [response]})
+                api.app_user_id = APP
+                with self.assertRaisesRegex(linear_api_module.LinearError, 'more than 250 labels'):
+                    getattr(api, method)('issue')
 
     def test_fetch_issue_keeps_people_as_id_name_and_url_and_replies_as_parent_ids(self):
         issue = self.fetched([comment_node("c1", DESIGNER), comment_node("c2", OWNER, parent="c1"),

@@ -63,6 +63,19 @@ every optional tool.
 Use read-only `doctor`, Monitor, heartbeat and read-only SQLite snapshots for
 live inspection. Constructing a production Ledger can migrate its database.
 
+## Targeting a release version
+
+Select a **Target version** label such as `1.0` on the issue, then delegate it.
+FarmBot starts from `release/1.0` and opens its PR against that branch. With no
+selection it uses each repository's default branch. A description line such as
+`Target branch: feature/new-market` overrides the version label for an occasional
+feature branch. Missing targets stop for clarification rather than falling back.
+
+Enable automatic discovery on one instance with `version_targets.sync_labels`;
+see [version target configuration and recovery](docs/version-targets.md). New
+release choices are discovered at startup and every five minutes. No deployment,
+service restart or live label changes are performed by editing this checkout.
+
 ## Maintenance and rollout
 
 For scenarios requiring both candidates online, use

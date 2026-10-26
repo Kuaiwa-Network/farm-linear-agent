@@ -333,14 +333,18 @@ def _in_scope(issue):
 
 
 def _fingerprint(issue, own_bodies, own_prs=()):
-    # Issue input only: labels, label groups, people, reply parents and comment links are left out, so reassigning
-    # or relabelling an issue never requeues its work. Shared Project Overview is reference context,
+    # Issue input only: ordinary labels, people, reply parents and comment links are left out.
+    # Only the Target version label group is a branch-selection input. Shared Project Overview is reference context,
     # not an automatic replay trigger for every issue. Downloads refresh its live membership/content.
     material = {key: issue[key] for key in ["title", "description", "attachments"]}
     material["attachments"] = [url for url in issue["attachments"] if url not in own_prs]
     material["comments"] = [{"id": comment["id"], "body": comment["body"]}
                             for comment in issue["comments"]
                             if comment["author_kind"] != "bot" and comment["body"] not in own_bodies]
+    from .version_targets import label_input
+    targets = label_input(issue)
+    if targets:
+        material['version_target'] = targets
     return hashlib.sha256(_json(material).encode("utf-8")).hexdigest()
 
 
@@ -460,6 +464,10 @@ class Ledger:
                     metadata TEXT NOT NULL,
                     fingerprint TEXT NOT NULL,
                     observed_at REAL NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS work_targets (
+                    item_id TEXT PRIMARY KEY REFERENCES work_items(id),
+                    record TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS issue_checks (
                     issue_id TEXT PRIMARY KEY REFERENCES issues(id),
@@ -758,6 +766,8 @@ class Ledger:
         from .resource_recovery import RecoveryStore
         result['candidate_repair'] = RecoveryStore(self).candidate_context(row['id'], row['generation'])
         result['maintenance_requested'] = Maintenance(self).requested()
+        from .version_targets import Store
+        result['branch_target'] = Store(self).get(row['id'])
         return result
 
     def _audit(self, item_id, kind, reason="", details=None):
@@ -819,6 +829,13 @@ class Ledger:
                         self._version(issue["updated_at"]) <= self._version(previous["updated_at"])):
                     for key in ("status", "status_type", "archived", "delegate_id", "updated_at", "priority"):
                         issue[key] = previous.get(key)
+            if previous and previous.get('updated_at') and (not raw.get('updated_at') or
+                    self._version(raw['updated_at']) < self._version(previous['updated_at'])):
+                for key in ('description', 'labels', 'label_groups'):
+                    if key in previous:
+                        issue[key] = previous[key]
+                    else:
+                        issue.pop(key, None)
             own_bodies = self._own_bodies(issue["id"])
             own_prs = {r["url"] for r in self.connection.execute("SELECT url FROM published_prs WHERE issue_id=?", (issue["id"],))}
             fingerprint = _fingerprint(issue, own_bodies, own_prs)
@@ -865,6 +882,15 @@ class Ledger:
                 current["priority"] = raw["priority"]
             self.connection.execute("UPDATE issues SET metadata=?,observed_at=? WHERE id=?",
                                     (_json(current), self.clock(), issue_id))
+            if all(key in raw for key in ('description', 'labels', 'label_groups')):
+                current['description'] = _text(raw['description'], 'description', empty=True)
+                current['labels'] = sorted({_text(v, 'label') for v in raw['labels']})
+                current['label_groups'] = _label_groups(raw['label_groups'], current['labels'])
+                own_prs = {r['url'] for r in self.connection.execute(
+                    'SELECT url FROM published_prs WHERE issue_id=?', (issue_id,))}
+                fingerprint = _fingerprint(current, self._own_bodies(issue_id), own_prs)
+                self.connection.execute('UPDATE issues SET metadata=?,fingerprint=? WHERE id=?',
+                                        (_json(current), fingerprint, issue_id))
             self._sync_queued_priority(current)
         return current
 
@@ -1313,6 +1339,8 @@ class Ledger:
             row = self._row(item_id)
             if row["state"] != "queued":
                 raise LedgerError("only a queued work item can be claimed")
+            from .version_targets import require_current
+            require_current(self, item_id)
             if StartupRecovery(self).pending(item_id):
                 raise LedgerError("startup recovery awaits proven worker teardown")
             if row["next_root_repo"] is not None:
@@ -1581,6 +1609,8 @@ class Ledger:
                 raise LedgerError("issue left scope; cancel instead of revalidating")
             if row["requeue_requested"]:
                 raise LedgerError("a requeue is already requested for this item; revalidate cannot cancel it")
+            from .version_targets import require_current
+            require_current(self, item_id)
             if fingerprint != issue_row["fingerprint"]:
                 raise LedgerError("issue changed since that read; run fetch-issue, read the new input and revalidate again")
             self.connection.execute("UPDATE work_items SET claimed_fingerprint=?,revalidated_fingerprint=?,updated_at=? "
@@ -3617,6 +3647,9 @@ class Ledger:
         with self._transaction():
             self.require_valid_checkpoint(item_id, token)
             row = self._owned(item_id, token)
+            if outcome == 'delivered':
+                from .version_targets import require_current
+                require_current(self, item_id)
             if check_only:
                 self.validate_finish_input(item_id, token, outcome, evidence)
                 if row['withdraw_deadline'] is not None:
@@ -3870,6 +3903,7 @@ class Ledger:
         # A withdrawn item's worker saves its progress and runs `withdraw` (design P2).
         coordination["withdrawn"] = view["withdraw_deadline"] is not None
         coordination['candidate_repair'] = view['candidate_repair']
+        coordination['branch_target'] = view['branch_target']
         authority = self._delegation_session(row["issue_id"], row["session_id"])
         owner = _owner(issue, self._owner_delegation(row["issue_id"]))
         from .workflow import task_views

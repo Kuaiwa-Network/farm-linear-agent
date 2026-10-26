@@ -22,7 +22,7 @@ class SingleWorkerJourneyTests(unittest.TestCase):
             'GIT_CONFIG_COUNT': '2', 'GIT_CONFIG_KEY_1': f'url.{fixture.ORG}.pushInsteadOf',
             'GIT_CONFIG_VALUE_1': fixture.ORG}))
 
-    def github(self, changes, branch):
+    def github(self, changes, branch, base='main'):
         """The file-backed GitHub a delivered finish verifies: each changed repository's draft PR 123 at the
         worktree HEAD when the step runs."""
         answers = {}
@@ -34,12 +34,13 @@ class SingleWorkerJourneyTests(unittest.TestCase):
             answers['repos/' + name + '/pulls/123'] = {
                 'html_url': fixture.ORG + repo + '/pull/123', 'state': 'open', 'draft': True,
                 'head': {'ref': branch, 'sha': '{rev:' + repo + ':HEAD}', 'repo': metadata},
-                'base': {'ref': 'main', 'repo': metadata}}
+                'base': {'ref': base, 'repo': metadata}}
         return ['file', str(self.f.stub / 'github.json'), json.dumps(answers)]
 
-    def journey(self, title, changes, test_code):
+    def journey(self, title, changes, test_code, *, version=None):
         f = self.f
-        f.refresh_issue(title=title, labels=['Bug'] if 'fix' in title else ['Feature'], label_groups=[])
+        f.refresh_issue(title=title, labels=[version] if version else ['Bug'] if 'fix' in title else ['Feature'],
+                        label_groups=[{'group': 'Target version', 'label': version}] if version else [])
         key = f.delegate()
         self.assertEqual(f.c.ledger.item(key)['execution_contract'], CONTRACT)
         state = f.c.paths.runs / key
@@ -68,7 +69,7 @@ class SingleWorkerJourneyTests(unittest.TestCase):
             ['file', str(body), title + '\n' + '\n'.join(prs)],
             ['prepare-comment', '--item', '{item}', '--token', '{token}', '--kind', 'delivery', '--body-file', str(body)],
             ['post-comment', '--item', '{item}', '--token', '{token}', '--action-id', '{action_id}'],
-            self.github(changes, 'farmbot/' + identifier.lower()),
+            self.github(changes, 'farmbot/' + identifier.lower(), 'release/' + version if version else 'main'),
             # A PR number GitHub does not know is refused before the card can move to review.
             ['file', str(unknown), json.dumps({'summary': title, 'verification': str(reports),
                 'prs': [*prs, fixture.ORG + 'Farm-Client/pull/124'], 'comment_action_id': '{action_id}'})],
@@ -94,6 +95,24 @@ class SingleWorkerJourneyTests(unittest.TestCase):
         self.assertIsNone(f.c.ledger.connection.execute("SELECT 1 FROM audit WHERE item_id=? AND kind='repository_handoff'", (key,)).fetchone())
         self.assertEqual(f.c.ledger.issue_context(key)['published_prs'], sorted(prs))
         return key
+
+    def test_release_version_runs_on_selected_sources_and_delivers_release_pr(self):
+        from test_worktrees import git
+        for repo in fixture.REPOS:
+            origin = self.f.origins / (repo + '.git')
+            git('branch', 'release/1.0', cwd=origin)
+            (origin / 'next-version.txt').write_text('main only', encoding='utf-8')
+            git('add', '.', cwd=origin)
+            git('commit', '-qm', 'main advances', cwd=origin)
+        key = self.journey('fix version 1.0', {'Farm-Client': 'VALUE = 10\n', 'farm-hive': 'VALUE = 10\n'},
+            "assert all(not (Path(root) / 'next-version.txt').exists() for root in roots.values())",
+            version='1.0')
+        record = self.f.c.ledger.item(key)['branch_target']
+        self.assertEqual(set(record['repositories']), set(fixture.REPOS))
+        self.assertTrue(all(v['branch'] == 'release/1.0' for v in record['repositories'].values()))
+        self.f.tick_until(lambda: self.f.cleaned(key), 'release cleanup')
+        self.f.restart()
+        self.assertEqual(self.f.c.ledger.item(key)['branch_target'], record)
 
     def test_delivered_owner_resumes_original_branches_and_keeps_its_prs_after_cleanup(self):
         from agent.foreign_work import foreign_work

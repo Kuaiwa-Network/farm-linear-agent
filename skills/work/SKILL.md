@@ -219,7 +219,13 @@ before any publication. Never bypass review, change permissions/models, or treat
 safety denial or uncertain execution outcome as this capacity failure.
 
 Review the final diff and required verification yourself. Use `verify-publication`
-before pushing each exact issue branch or creating/updating its draft PR. Push the
+before pushing each exact issue branch or creating/updating its draft PR.
+Use the returned `base_branch` explicitly for the PR. `branch_target` in the launch
+and issue context records the controller-selected branches and starting commits.
+Keep source, dependency changes and verification on that version; optional baseline
+comparisons use its saved commit. Do not switch to main, reset work, or retarget a
+PR when the issue's target changes. Preserve work and ask for clarification: restore
+the original selection or use a new linked issue for a different target. Push the
 final commit and run `finish --check-ready` before posting the delivery. Publish
 a clear delivery with the PRs, behavior tested and limitations; then `finish`.
 Successful `finish` registers its verified PR list as this issue's own output for

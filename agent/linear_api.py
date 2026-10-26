@@ -38,7 +38,9 @@ _EMAIL = re.compile(r"""[^\s@<>()\[\],;:"']+@[^\s@<>()\[\],;:"']+\.[A-Za-z]{2,}"
 ISSUE_QUERY = """query FarmBotIssue($id: String!, $after: String) {
   issue(id: $id) {
     id identifier url branchName title description priority archivedAt trashed updatedAt
-    state { name type } team { id } labels { nodes { name parent { id name } } } attachments { nodes { url } }
+    state { name type } team { id }
+    labels(first: 250) { nodes { name parent { id name } } pageInfo { hasNextPage } }
+    attachments { nodes { url } }
     delegate { id } assignee { id name url app } creator { id name url app }
     project { id name url description content }
     comments(first: 50, after: $after) {
@@ -119,6 +121,13 @@ def _label_groups(nodes):
         if isinstance(group, str) and group.strip() and isinstance(label, str) and label.strip():
             pairs.add((group, label))
     return [{"group": group, "label": label} for group, label in sorted(pairs)]
+
+
+def _require_complete_labels(issue):
+    # A partial label list cannot prove that no version was selected. Keep the
+    # last complete observation instead of silently preparing the default branch.
+    if (issue.get('labels') or {}).get('pageInfo', {}).get('hasNextPage'):
+        raise LinearError('rejected', 'Issue has more than 250 labels; reduce them before selecting a branch target')
 
 
 class LinearError(RuntimeError):
@@ -441,6 +450,10 @@ class LinearAPI:
             raise RuntimeError("Linear sent no status for the session")
         return {"status": status, "archived": session.get("archivedAt") is not None}
 
+    def sync_target_versions(self, versions):
+        from .version_labels import sync
+        return sync(self, versions)
+
     def awaiting_reply(self, issue_id, waiting=True):
         """Reconcile only FarmBot's current human-attention label, preserving other labels."""
         from .attention import REPLY_LABEL
@@ -599,14 +612,19 @@ class LinearAPI:
         """The issue's version, priority, closure and delegate. A trashed issue reads as archived, which closes it;
         an issue Linear no longer returns is a `not_found` LinearError (withdrawn-work design E3, U7)."""
         issue = self.graphql("""query FarmBotIssueStatus($id: String!) {
-            issue(id: $id) { id updatedAt priority archivedAt trashed state { name type } delegate { id } }
+            issue(id: $id) { id updatedAt priority archivedAt trashed state { name type } delegate { id }
+                description labels(first: 250) { nodes { name parent { id name } } pageInfo { hasNextPage } } }
         }""", {"id": issue_id})["issue"]
         if not issue:
             raise LinearError("not_found", "Issue not found")
+        _require_complete_labels(issue)
         return {"id": issue["id"], "updated_at": issue["updatedAt"], "priority": issue["priority"],
                 "archived": issue["archivedAt"] is not None or issue.get("trashed") is True,
                 "status": issue["state"]["name"], "status_type": issue["state"]["type"],
-                "delegate_id": (issue.get("delegate") or {}).get("id")}
+                "delegate_id": (issue.get("delegate") or {}).get("id"),
+                **({'description': strip_signed(issue.get('description') or ''),
+                    'labels': [n['name'] for n in issue['labels']['nodes']],
+                    'label_groups': _label_groups(issue['labels']['nodes'])} if 'labels' in issue else {})}
 
     def fetch_issue(self, issue_ref):
         """Complete detail plus every comment page, shaped for Ledger.observe_issue. As for `issue_status`, a trashed
@@ -629,6 +647,7 @@ class LinearAPI:
                     time.sleep(0.25 * (attempt + 1))
             if issue is None:
                 raise LinearError("not_found", "Issue not found")
+            _require_complete_labels(issue)
             for node in issue["comments"]["nodes"]:
                 user = node.get("user") or {}
                 if node.get("botActor") or user.get("app") or (self.app_user_id and user.get("id") == self.app_user_id):

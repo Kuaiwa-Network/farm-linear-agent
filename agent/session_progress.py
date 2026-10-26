@@ -29,6 +29,8 @@ class SessionProgress:
         """What holds a queued job back: the first of a retry delay, its predecessor's cleanup, a failing status read
         and a card no longer delegated to this app, which only work the delegation authorised depends on
         (withdrawn-work design C6, §5.1 commit 5); else it waits for an execution resource."""
+        if item['stage'] == 'waiting-target-selection':
+            return 'Branch target needs clarification. Correct the issue selection or restore its original target; saved work is retained.'
         if item['stage'] == 'legacy-adoption-required':
             return '旧流程已暂停，源码和报告已保留；等待操作员显式接续到单 worker 流程。'
         if item["retry_not_before"] > self.ledger.clock():
