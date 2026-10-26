@@ -51,6 +51,7 @@
   const LOOP = {
     receive: "接收", schedule: "调度", pool: "Unity 池", lifecycle: "状态同步", progress: "进度汇报",
     resource_recovery: "资源恢复", server_pool: "服务测试池", worker_retention: "缓存清理",
+    version_labels: "版本标签同步",
   };
   const WORKER = {
     alive: ["worker 运行中", "ok"], unknown: ["worker 状态未知", "neutral"],
