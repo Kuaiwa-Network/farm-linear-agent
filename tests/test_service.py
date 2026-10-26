@@ -680,7 +680,7 @@ class ServeTests(unittest.TestCase):
         self.addCleanup(self.c.server.shutdown)
         self.wait_for_beat(path, lambda beat: beat["phase"] == "serving")
         deadline = time.time() + 20
-        while set(LOOPS) - set(self.c.server.heartbeat.payload()["loops"]) and time.time() < deadline:
+        while set(LOOPS) - {"server_pool", "version_labels"} - set(self.c.server.heartbeat.payload()["loops"]) and time.time() < deadline:
             time.sleep(0.05)
         self.c.server.shutdown()
         thread.join(timeout=20)
@@ -689,7 +689,7 @@ class ServeTests(unittest.TestCase):
         state, beat = read(path, now=time.time())
         self.assertEqual((state, beat["phase"]), ("fresh", "stopped"))
         self.assertIsNotNone(beat["stopped_at"])
-        self.assertEqual(set(beat["loops"]), set(LOOPS) - {"server_pool"})
+        self.assertEqual(set(beat["loops"]), set(LOOPS) - {"server_pool", "version_labels"})
         self.assertEqual(beat["workers"], {})  # the launcher's own list: this fixture launched no worker
         self.assertEqual(beat["capacity"], {"max_workers": components.config.max_concurrent,
                                             "unity_slots": len(components.config.slots),
@@ -1165,6 +1165,22 @@ class ServeHeartbeatTests(unittest.TestCase):
     def beats_since(self, step):
         events = list(self.events)
         return events[events.index(step):].count(("beat", "serving")) if step in events else 0
+
+    def test_enabled_version_sync_discovers_on_startup_and_joins_on_shutdown(self):
+        self.config.version_targets = {'sync_labels': True}
+        synced = threading.Event()
+        trees = Mock(remotes={'Farm-Client': 'local'})
+        trees.remote_branches.return_value = {'main': 'a' * 40, 'release/1.0': 'b' * 40}
+        api = Mock()
+        api.sync_target_versions.side_effect = lambda versions: synced.set()
+        components = self.components()._replace(worktrees=trees, api=api)
+        thread, problems = self.run_serve(components, io.StringIO())
+        self.assertTrue(synced.wait(10))
+        self.released.set()
+        thread.join(20)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(problems, [])
+        api.sync_target_versions.assert_called_once_with({'main': 'main', '1.0': 'release/1.0'})
 
     def test_beats_go_on_while_a_slow_join_drains_and_stopped_is_written_after_it(self):
         """A slot switch running when shutdown begins holds its thread's join for minutes. Beats that stopped with

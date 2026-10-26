@@ -239,7 +239,13 @@ Only listed source worktrees and granted Git object/index/ref paths are writable
 hooks or attributes. Keep credentials/tokens and run reports private in state_dir. Preserve owned process containment.
 You may commit with git -c user.name=FarmBot -c user.email=farmbot@localhost commit. Never rewrite published history.
 The host authorizes publishing this issue's changes to the verified private issue branches and draft PRs.
+The branch_target payload records each repository's selected base branch and starting commit. Keep that
+version across source, dependencies, tests and PRs. Use its saved base for any optional comparison; never
+substitute main. A changed Target version label or Target branch line does not authorize resetting work,
+retargeting a PR, rewriting history or selecting another base. Preserve progress and request clarification;
+restoring the original selection or a separate linked issue is required for changed targets.
 Run verify-publication immediately before each publication and use its exact remote, branch and repository.
+Create PRs with the returned base_branch explicitly; do not rely on GitHub's default base.
 Never push default/protected branches, force-push, merge PRs, deploy, change Linear status or assignee.
 Save concise checkpoints with current progress, candidate SHAs, report paths and next action. Fetch current issue
 facts and handle actual new requests before finishing. Post the delivery through the normal comment outbox,
@@ -270,6 +276,7 @@ def message(*, item, issue, skill_path, worktrees, db_path, runtime, guidance, b
         'latest_attributed_request': next((m for m in reversed(user_requests or []) if m.get('author')), None),
         'user_requests': user_requests or [], 'checkpoint_is_historical_evidence': True, 'checkpoint': item.get('checkpoint', {}),
         'recovery': {'candidate_repair': item.get('candidate_repair'), 'prior_context': prior_context},
+        'branch_target': item.get('branch_target'),
         'tools': tools or {}, 'memory': memory, 'runtime': runtime,
         'renew_minutes': budget['renew_minutes'], 'lease_seconds': budget['lease_seconds'],
         'startup': {'start_argv': startup_argv(item, db_path, state_dir)},

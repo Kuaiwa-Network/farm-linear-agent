@@ -366,6 +366,51 @@ class Worktrees:
         if fetched is not None:
             fetched.add(repo)
 
+    def remote_branches(self, repo):
+        """Read actual remote heads; worker-writable tracking refs are not authority."""
+        clone = self.ensure_clone(repo)
+        output = _git('ls-remote', '--heads', 'origin', cwd=clone, config=HOOKS_OFF)
+        result = {}
+        for line in output.splitlines():
+            sha, ref = line.split()
+            if ref.startswith('refs/heads/') and self.COMMIT.fullmatch(sha):
+                result[ref[len('refs/heads/'):]] = sha
+        return result
+
+    def resolve_target(self, repo, branch=None):
+        from .version_targets import TargetError, branch_name
+        branch = branch_name(branch or self.default_branch(repo, config=HOOKS_OFF))
+        commit = self.remote_branches(repo).get(branch)
+        if commit is None:
+            raise TargetError(f'{repo}: target branch {branch} does not exist; correct the issue target or repository mapping')
+        self.fetch(repo)
+        if not self.has_commit(repo, commit):
+            _git('fetch', '--quiet', '--no-tags', 'origin', commit, cwd=self.ensure_clone(repo), config=HOOKS_OFF)
+        if not self.has_commit(repo, commit):
+            raise WorktreeError('target branch moved during fetch; retry preparation')
+        return {'branch': branch, 'commit': commit}
+
+    def retain_target(self, repo, item_id, commit):
+        from .version_targets import TargetError
+        clone = self.ensure_clone(repo)
+        if not self.COMMIT.fullmatch(commit) or not self.has_commit(repo, commit):
+            raise TargetError('saved target commit is unavailable; preserve records for recovery')
+        ref = 'refs/farmbot/targets/' + _branch_safe(item_id) + '/' + commit
+        previous = self._ref_commit(clone, ref)
+        if previous and previous != commit:
+            raise TargetError('saved target Git ref differs from the ledger; preserve both for recovery')
+        _git('update-ref', ref, commit, previous or '0' * 40, cwd=clone, config=HOOKS_OFF)
+
+    def verify_target(self, repo, path, target):
+        from .version_targets import TargetError
+        if target['remote'] != self.remotes.get(repo):
+            raise TargetError('target repository differs from configured repository')
+        self.worktree_entry(repo, path)
+        missing = self.git_in(path, 'rev-list', '--max-count=1', target['commit'], '--not', 'HEAD',
+                              env={**GIT_ENV, 'GIT_NO_REPLACE_OBJECTS': '1'})
+        if missing:
+            raise TargetError('candidate does not contain the saved target commit; preserve work and reconcile its branch')
+
     def default_branch(self, repo, *, config=()):
         return self._origin_head(repo, config=config)[0]
 
@@ -516,7 +561,16 @@ class Worktrees:
             _git("branch", "--quiet", f"--set-upstream-to=origin/{branch}", branch, cwd=clone)
         return path
 
-    def add(self, repo, item_id, branch, *, refresh=True, attach=False, recovery_from=(), recovery_branches=None):
+    def add(self, repo, item_id, branch, *, refresh=True, attach=False, recovery_from=(), recovery_branches=None,
+            target=None):
+        path = self._add(repo, item_id, branch, refresh=refresh, attach=attach, recovery_from=recovery_from,
+                         recovery_branches=recovery_branches, base_commit=target['commit'] if target else None)
+        if target:
+            self.verify_target(repo, path, target)
+        return path
+
+    def _add(self, repo, item_id, branch, *, refresh=True, attach=False, recovery_from=(), recovery_branches=None,
+             base_commit=None):
         """The item's write worktree of `repo` on `branch`; an existing one is returned as it is.
 
         By default a new worktree restarts at the item's recovery commit when cleanup preserved one, else tracks
@@ -564,6 +618,17 @@ class Worktrees:
         path.parent.mkdir(parents=True, exist_ok=True)
         remote_branches = set(_git("for-each-ref", "--format=%(refname:short)", "refs/remotes/origin", cwd=clone).splitlines())
         local_branches = set(_git("for-each-ref", "--format=%(refname:short)", "refs/heads", cwd=clone).splitlines())
+        if base_commit:
+            # A remote issue branch alone cannot prove it belongs to this saved
+            # target. Only controller recovery above may reuse prior candidates.
+            name = branch
+            if name in local_branches or f'origin/{name}' in remote_branches:
+                name = self._unused_branch(f'{branch}-{item_id}', clone)
+                while name in local_branches or f'origin/{name}' in remote_branches:
+                    name += '-next'
+            _git('worktree', 'add', '--quiet', '-b', name, str(path), base_commit, cwd=clone, config=HOOKS_OFF,
+                 env={**GIT_ENV, 'GIT_NO_REPLACE_OBJECTS': '1'})
+            return path
         if f"origin/{branch}" in remote_branches and branch not in local_branches:
             _git("worktree", "add", "--quiet", "--track", "-b", branch, str(path), f"origin/{branch}", cwd=clone)
         else:

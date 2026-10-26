@@ -158,6 +158,59 @@ gate. Missing historical schema falls back to the recorded stage. Workers keep
 their checkpoint summary current after collecting results and before delivery.
 No schema migration is required; rollback loses these display refinements only.
 
+## Per-issue version targets
+
+Select one workspace `Target version` label (`main` or `MAJOR.MINOR`) before
+delegation. A version such as `1.0` selects `release/1.0` across the five source
+repositories. An exact `Target branch: feature/name` line in the issue description
+selects that branch across repositories and overrides the label. Multiple lines,
+invalid branch names, ambiguous version labels and missing branches hold launch
+for clarification; no explicit selection falls back to main. Without either input,
+each repository's current default is selected. Configured per-version repository
+exceptions are resolved before work starts; see [configuration](version-targets.md).
+
+One designated instance can enable `version_targets.sync_labels`. It discovers
+`main` and strictly `release/<major>.<minor>` branches from the configured source
+repository at service startup and every 300 seconds by default. It creates a
+workspace group and missing choices, and updates only descriptions marked as its
+own. It never applies/removes issue labels or deletes existing choices. Missing
+branches are marked unavailable while existing selections remain intact. Remote
+or Linear failures retain choices and retry on the normal interval. TestBot and
+production read the same group; configure only one writer. Sync is disabled by
+default so upgrading a second instance cannot make it another label writer.
+
+Before fresh single-worker worktrees are prepared, the controller fetches and
+validates every selected remote branch, atomically records the complete target
+map, and retains starting commits under `refs/farmbot/targets/<item>/<sha>`. The additive
+`work_targets` SQLite table records the selection, its hash, remote identities,
+starting commits and selection time. Existing worktrees and recovery commits keep
+progress; retries and linked continuations inherit the saved map. The ledger SHA
+is authority, never worker-editable tracking refs or checkpoint prose. A selected
+branch advancing does not reset the candidate or require a new merge/test run.
+
+Only the Target version group participates in the input fingerprint; unrelated
+labels still do not requeue work. Lifecycle status reads refresh target inputs,
+and launch/publication perform fresh issue reads. After target preparation, a
+changed selection fences claim/revalidation, new resource requests and delivery
+(including no-change delivery). Workers can still renew, preserve progress and
+release resources. Restore the original selection to continue, or create a new
+linked issue for the new target; no automatic retarget/rebase is provided.
+
+Publication validates the saved remote, base ancestry, actual remote branch
+existence/history and the PR's selected base. The base may advance normally but
+cannot lose the pinned starting commit. Push authority remains only this issue's
+own branch; pushing the selected base itself is refused even when unprotected.
+Candidate testing uses the owned candidate and saved target; no current-main
+integration requirement is introduced. Historical jobs without a target record
+keep default-branch behavior and cannot gain an explicit target implicitly.
+
+Migration creates only an additive table and optional launch fields; it neither
+rewrites historical jobs nor touches Linear during migration. Before rollback,
+settle all jobs with target records and disable the label sync owner. Older code
+cannot enforce selected release branches and must not resume those jobs. Preserve
+the database, target refs and recovery records; a Git checkout does not reverse
+this migration or changes to shared Linear labels.
+
 ## Authority
 
 ### Worker startup and unattended queues
@@ -307,8 +360,8 @@ questions and changed issue inputs still fence completion.
 
 A delivered finish of the current owner also checks every PR it lists on GitHub
 before the card can move to In Review. Each must be in a configured publishing
-repository, on this issue's branch in the owned worktree, based on the default
-branch, with its head at that worktree's current HEAD. It may be an open draft,
+repository, on this issue's branch in the owned worktree, based on its saved target
+branch (the repository default for historical jobs without a saved target), with its head at that worktree's current HEAD. It may be an open draft,
 an open PR a person marked ready for review, or a PR already merged; a PR closed
 without merging, or a number GitHub does not know, is refused.
 `finish --check-ready` runs the same check so the worker finds a wrong number or

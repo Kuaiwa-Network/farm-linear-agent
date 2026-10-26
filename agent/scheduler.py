@@ -81,6 +81,7 @@ class Scheduler:
         self.maintenance_busy = lambda: ()
         self.maintenance_epoch = None
         self.maintenance_resources = None
+        self.version_targets = None
 
     def _branch(self, issue, *, suffixes=()):
         canonical = issue_branch(issue.get('identifier'), self.issue_prefix)
@@ -93,6 +94,11 @@ class Scheduler:
     def _worktrees_for(self, skill, item, issue):
         paths = {}
         if single(item):
+            target = self.version_targets.prepare(item, skill.writes) if self.version_targets else None
+            if target and not item.get('branch_target'):
+                choices = ', '.join(f"{repo}: {base['branch']} @ {base['commit'][:12]}"
+                                    for repo, base in target['repositories'].items())
+                self._notify(item['id'], 'thought', 'Selected branch targets: ' + choices)
             branch = self._branch(issue)
             previous, seen = item.get('predecessor_id'), {item['id']}
             recovery = []
@@ -116,7 +122,8 @@ class Scheduler:
                 paths[repo] = self.worktrees.add(repo, item['id'], branch,
                                                 refresh=not bool(item['publication_retries'] or item['capacity_retries'] or item['startup_retries']
                                                                  or resource_handoff_requested(self.ledger, item)),
-                                                recovery_from=recovery, recovery_branches=recovery_branches)
+                                                recovery_from=recovery, recovery_branches=recovery_branches,
+                                                **({'target': target['repositories'][repo]} if target else {}))
             return paths
         if item.get('root_repo') == COORDINATION_ROOT and skill.name == 'work':
             return paths  # Message routing must not fetch or alter retained candidates.
@@ -291,6 +298,9 @@ class Scheduler:
             # used by both views needs one fresh fetch, not another network trip.
             # Client preparation may persist this item's baseline, never the session target.
             item = self.ledger.item(item["id"])
+            if single(item) and self.version_targets:
+                from .version_targets import Store
+                Store(self.ledger).current(item["id"])
             if (item["state"] != "queued" or item["generation"] != current["generation"]
                     or item["root_repo"] != current["root_repo"] or item["next_root_repo"] is not None):
                 return None
@@ -474,6 +484,22 @@ class Scheduler:
             raise
         self.active[item["id"]] = handle
         return handle
+
+    def _hold_target(self, item, reason):
+        current = self.ledger.item(item['id'])
+        if current['state'] != 'queued':
+            return
+        previous = self.ledger.connection.execute(
+            "SELECT reason FROM audit WHERE item_id=? AND kind='version_target_held' ORDER BY id DESC LIMIT 1",
+            (item['id'],)).fetchone()
+        changed = current['stage'] != 'waiting-target-selection' or not previous or previous['reason'] != reason
+        with self.ledger._transaction():
+            self.ledger.connection.execute("UPDATE work_items SET stage='waiting-target-selection',retry_not_before=? "
+                "WHERE id=? AND state='queued'", (self.ledger.clock() + 60, item['id']))
+            if changed:
+                self.ledger._audit(item['id'], 'version_target_held', reason)
+        if changed:
+            self._notify(item['id'], 'thought', 'Branch target needs clarification: ' + reason)
 
     def _hold_legacy(self, item):
         if item['stage'] == 'legacy-adoption-required':
@@ -1187,7 +1213,11 @@ class Scheduler:
                     if self.launch(item) is not None:
                         launched += 1
                 except Exception as exc:
-                    self._fail_launch(item["id"], exc)
+                    from .version_targets import TargetError
+                    if isinstance(exc, TargetError):
+                        self._hold_target(item, str(exc))
+                    else:
+                        self._fail_launch(item["id"], exc)
         with self.lock:
             Maintenance(self.ledger).observe(self.launcher, self.maintenance_busy(),
                                               controller_started_at=self.maintenance_epoch,

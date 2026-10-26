@@ -264,6 +264,20 @@ class SingleWorkerTests(LedgerBase):
         return Scheduler(self.ledger, self.launcher, SKILLS, self.trees, skill_root=ROOT / 'skills',
             db_path=self.path, runtime_name='fake', host='test', enabled_skills={'work', 'chat'})
 
+    def test_bad_branch_target_holds_queue_without_starting_or_discarding_work(self):
+        from agent.version_targets import TargetError
+        self.owner()
+        scheduler = self.scheduler()
+        scheduler.version_targets = Mock()
+        scheduler.version_targets.prepare.side_effect = TargetError('common: release/1.0 does not exist')
+        result = scheduler.tick()
+        self.assertEqual(result['launched'], 0)
+        self.assertEqual(self.launcher.spawned, [])
+        item = self.ledger.item(self.key)
+        self.assertEqual(item['state'], 'queued')
+        self.assertEqual(item['stage'], 'waiting-target-selection')
+        self.assertGreater(item['retry_not_before'], self.now)
+
     def reservation(self):
         self.ledger.ensure_slot('unity:1', kind='unity_slot', host='test', folder='/slot',
                                 instance='instance-one', mcp_address='http://127.0.0.1:8080/mcp')
