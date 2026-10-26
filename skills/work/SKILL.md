@@ -194,6 +194,24 @@ owned Client, preserve valid GUIDs, inspect the diff and test bindings/behavior.
 No separate UI task, source PR approval or controller receipt is required.
 Missing art is a concrete human question; do not invent final assets.
 
+For appearance/layout changes, follow [UI verification](../../references/ui-verification.md).
+Establish the reference's design resolution, panel origin and key content bounds
+before editing. Use repeatable `--component PACKAGE/RESOURCE_ID` on `publish-ui`
+for affected roots and reusable/list components. Inspect `layout-check.json` and
+fix scoped failures; `not_requested` is not a pass. The helper checks serialized
+size, loader fill and nested instance controller selections; it does not certify
+visual agreement or runtime adaptation. Approximate previews must not silently
+repair unsupported fill or controller settings.
+
+Verify final native exports through the production UI lifecycle with nonzero
+SafeArea insets, tall screens and relevant controller states, including empty or
+not-enrolled states. Check rendered content bounds as well as container bounds,
+sibling overlap and button hit areas. Direct `UIPackage` construction and passing
+click tests do not prove SafeArea adaptation. Compare actual runtime screenshots
+with the reference at the same scale and record dimensions, insets, states,
+asset SHAs and remaining differences. A preview or test count alone cannot
+establish visual acceptance; missing runtime evidence is an explicit limitation.
+
 For copy-only work, first distinguish editable text from lettering baked into an
 image or authored art. Changing the words does not authorize replacing image
 lettering with Text, cropping/masking/hiding it, or overlaying substitute text.

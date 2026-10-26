@@ -10,7 +10,7 @@ from .preview_upload import _plain_path
 from .worktrees import Worktrees
 
 
-def export(ledger, item_id, token, config, api_factory, packages):
+def export(ledger, item_id, token, config, api_factory, packages, *, components=None):
     paths = Paths(config)
     item = ledger.item(item_id)
     if not single(item) or not config.fgui_export:
@@ -42,10 +42,12 @@ def export(ledger, item_id, token, config, api_factory, packages):
     block = config.fgui_export
     result = publish(source, packages, block['executable'], block['tool_sha256'], run, fence=fence,
         verify_source=lambda: owned_source(trees, item_id, branch, packages, expected_head=initial['head']),
-        timeout=block.get('timeout_seconds', 180))
+        timeout=block.get('timeout_seconds', 180), components=components)
     fence()
     ledger.note(item_id, 'single_worker_ui_export', details={
         'head': initial['head'], 'packages': packages, 'run': str(run)})
     return {'head': initial['head'], 'packages': packages, 'run': str(run),
             'staging': str(run / 'staging'), 'result': result.evidence(),
-            'next': 'Install only the selected outputs in the owned Client; check metadata, bindings and required tests.'}
+            'next': 'Inspect layout-check.json (not_requested is not a pass). Install selected outputs in the owned Client; '
+                    'check metadata, bindings and required tests. For appearance/layout changes, verify runtime geometry, '
+                    'reference appearance and SafeArea through the real UI lifecycle.'}

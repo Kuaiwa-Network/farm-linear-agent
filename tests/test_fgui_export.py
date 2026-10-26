@@ -44,7 +44,9 @@ def package_bytes(name="One", identity="pack0001", *, items=None, dependencies=(
         elif kind == 1:
             body += b"\1" + struct.pack(">i", len(item.get("payload", b""))) + item.get("payload", b"")
         elif kind == 3:
-            body += b"\0" + struct.pack(">i", len(item.get("payload", b""))) + item.get("payload", b"")
+            payload = item.get("payload", b"")
+            payload = payload(s) if callable(payload) else payload
+            body += b"\0" + struct.pack(">i", len(payload)) + payload
         elif kind == 5:
             body += struct.pack(">i", len(item.get("payload", b""))) + item.get("payload", b"")
         body += s(item.get("branch")) + b"\0\0"

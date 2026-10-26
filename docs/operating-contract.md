@@ -521,6 +521,23 @@ publisher mutex and owned process containment. The main worker installs the
 necessary outputs in its Client and checks GUIDs, bindings and behavior itself.
 There is no parallel controller-managed UI task in this rollout.
 
+For appearance/layout work, the owner supplies repeatable `--component
+PACKAGE/RESOURCE_ID` selections and follows [UI verification](../references/ui-verification.md).
+Native export checks those components and direct component references against
+the verified source: component/explicit loader sizes, native loader fill and
+nested instance controller selections. Failures retain staging plus
+`layout-check.json` and refuse a successful export result. Unselected components
+remain opaque; dynamic and list components must be selected by the owner. An
+omitted scope reports `not_requested` for compatibility, not a layout pass.
+This is a bounded export check, not a new finish gate or human approval step.
+The owner still verifies rendered content, relevant states and nonzero SafeArea
+insets through the production UI lifecycle, compares native screenshots at the
+reference scale and reports remaining differences. A source preview, successful
+publication or passing click tests cannot establish visual agreement.
+No database migration or host permission change is needed. This takes effect
+only after deployment of the updated worker/controller; older releases omit
+these checks and do not accept the new optional CLI argument.
+
 Source Git normalization uses batches of at most 128 non-LFS files and 8 MiB
 (an individually bounded larger file runs alone). LFS pointer identity and
 materialized-byte checks still cover every LFS file. Each hash batch has a

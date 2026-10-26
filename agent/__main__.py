@@ -134,7 +134,9 @@ def parser():
     cmd('unity-read', '--item', '--uri', token=True)
     cmd('unity-tool', '--item', '--name', '--input', token=True)
     cmd('unity-test-result', '--item', '--job-id', token=True)
-    cmd('publish-ui', '--item', '--packages', token=True)
+    ui_publish = cmd('publish-ui', '--item', '--packages', token=True)
+    ui_publish.add_argument('--component', action='append',
+                            help='affected PACKAGE/RESOURCE_ID from package.xml; repeatable; enables source/export layout checks')
     resource.add_argument('--checkpoint', help='save this checkpoint before requesting the resource')
     resource.add_argument("--server-test-plan", help="JSON file with exact packages, tests and race selection")
     resource.add_argument('--integration-plan', help='single-client/game-server plan, from the Client stage')
@@ -574,7 +576,7 @@ def run(args, ledger, api_factory):
         config = load_config(secure_permissions=False)
         _, paths = context(args, ledger, config, token)
         return export(ledger, args.item, token, config, api_factory,
-                      read_packages(args.packages, paths.runs / args.item))
+                      read_packages(args.packages, paths.runs / args.item), components=args.component)
     if c == "document-reader-status":
         from .lark_cli import SKILLS
         from .lark_diagnostics import profile_status
