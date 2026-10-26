@@ -143,6 +143,16 @@ reuse them for delivery only when the tested inputs still match; run independent
 Use publish-ui for native exports of explicitly selected FairyGUI packages, then install the needed outputs
 in your owned Client and check metadata, bindings and behavior. This helper is authorized for this issue scope;
 no separate presentation worker, source approval or controller receipt is needed.
+For UI appearance/layout changes, follow references/ui-verification.md. Establish the target image's design
+resolution and measure key bounds before editing. Pass repeatable --component PACKAGE/RESOURCE_ID to publish-ui
+for affected roots and reusable/list components; inspect layout-check.json, and fix scoped failures. A missing
+check is not a pass. Approximate previews must not silently repair unsupported fill or controller settings.
+Verify final native exports through the production UI lifecycle, including nonzero SafeArea insets, tall screens
+and relevant controller states (including empty/not-enrolled states). Assert rendered content bounds as well as
+container bounds, sibling overlap and button hit areas. Direct UIPackage construction and passing click tests
+do not prove SafeArea adaptation or visual agreement. Compare actual runtime screenshots with the reference at
+the same scale; record tested dimensions, insets, states, asset SHAs and remaining differences. Never claim visual
+acceptance from a source preview or test count alone; missing runtime evidence stays an explicit limitation.
 Before delivery, check the actual diff, requested behavior, required tests and remaining limitations yourself.
 There is no separate FarmBot semantic verifier, A-G plan, evidence index, UI receipt or closing approval required.
 Remain in this worker while waiting for resources. Request only required resources at the clean committed SHA

@@ -117,6 +117,15 @@ class DiskItem:
 
 
 @dataclass(frozen=True)
+class ComponentItem:
+    identity: str
+    name: str
+    width: int
+    height: int
+    data: bytes
+
+
+@dataclass(frozen=True)
 class Descriptor:
     name: str
     identity: str
@@ -124,6 +133,8 @@ class Descriptor:
     files: tuple
     item_count: int
     ambiguous_names: tuple
+    components: tuple = ()
+    strings: tuple = ()
 
 
 def descriptor(data, name, identity):
@@ -199,7 +210,7 @@ def descriptor(data, name, identity):
     items = block(1)
     total = items.count(">h", 32767)
     ids, names, files, disk_files, ambiguous = set(), set(), set(), [], set()
-    item_types, atlas_sizes = {}, {}
+    item_types, atlas_sizes, components = {}, {}, []
     for _ in range(total):
         record = _Reader(data, items.pos + 4, items.pos + 4 + items.count(">i", MAX_DESCRIPTOR_BYTES))
         if record.end > items.end:
@@ -231,7 +242,9 @@ def descriptor(data, name, identity):
                 record.boolean()
             elif kind == 3:
                 record.byte()
-            record.take(record.count(">i", MAX_DESCRIPTOR_BYTES))
+            payload = record.take(record.count(">i", MAX_DESCRIPTOR_BYTES))
+            if kind == 3:
+                components.append(ComponentItem(item_id, item_name, width, height, payload))
         branch = record.string(table)
         effective_name = (branch + "/" if branch else "") + (item_name or "")
         if item_name is not None:
@@ -289,7 +302,8 @@ def descriptor(data, name, identity):
                 raise LedgerError("export descriptor pixel hit-test record is invalid")
             hit_tests.pos = record.end
         hit_tests.finished()
-    return Descriptor(name, identity, tuple(dependencies), tuple(disk_files), total, tuple(sorted(ambiguous)))
+    return Descriptor(name, identity, tuple(dependencies), tuple(disk_files), total,
+                      tuple(sorted(ambiguous)), tuple(components), tuple(table))
 
 
 @dataclass(frozen=True)

@@ -260,6 +260,7 @@ class NativeUiTests(unittest.TestCase):
         result = SimpleNamespace(evidence=lambda: {'published': True})
         def publish(*args, **kwargs):
             self.assertEqual(args[1], packages)
+            self.assertEqual(kwargs['components'], ['AnimalBreeding/view'])
             kwargs['fence']()
             self.assertEqual(kwargs['verify_source']()['head'], 'a'*40)
             return result
@@ -271,8 +272,15 @@ class NativeUiTests(unittest.TestCase):
                 worker_ui.export(f.ledger, f.key, f.token, config, lambda: api, packages)
             publisher.assert_not_called()
             trees.git_in.return_value = 'farmbot/farm-1'
-            exported = worker_ui.export(f.ledger, f.key, f.token, config, lambda: api, packages)
+            exported = worker_ui.export(f.ledger, f.key, f.token, config, lambda: api, packages,
+                                        components=['AnimalBreeding/view'])
         self.assertEqual(publisher.call_count, 1)
         self.assertEqual(exported['packages'], packages)
         self.assertEqual(exported['result'], {'published': True})
         self.assertEqual(f.ledger.item(f.key)['state'], 'running')
+
+    def test_publish_ui_cli_accepts_repeatable_component_scope(self):
+        from agent.__main__ import parser
+        args = parser().parse_args(['--db', 'unused', 'publish-ui', '--item', 'item', '--packages', 'packages.json',
+                                   '--component', 'Guild/view', '--component', 'Guild/card'])
+        self.assertEqual(args.component, ['Guild/view', 'Guild/card'])

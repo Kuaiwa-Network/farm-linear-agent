@@ -216,6 +216,53 @@ class PublisherTests(unittest.TestCase):
         with patch.object(publisher, "_native_windows", return_value=False):
             self.rejected_before_process("native Windows")
 
+    def test_scoped_layout_failure_retains_native_export_and_actionable_report(self):
+        from test_fgui_layout import component_payload
+        (self.project / "assets/One/package.xml").write_text(
+            '<packageDescription id="pack0001"><resources>'
+            '<component id="view" name="View.xml" path="/"/></resources></packageDescription>', encoding="utf-8")
+        component = self.project / "assets/One/View.xml"
+        component.write_text('<component size="200,200"><displayList>'
+            '<loader id="n1" name="icon" size="128,128" fill="scale"/>'
+            '</displayList></component>', encoding="utf-8")
+
+        def source():
+            result = self.source()
+            result["files"]["assets/One/View.xml"] = hashlib.sha256(component.read_bytes()).hexdigest()
+            return result
+
+        for fill, state in ((0, "failed"), (1, "passed")):
+            self.run = self.root / ("attempt-" + state)
+            def exported(*args):
+                result = self.export(*args)
+                (args[2] / "staging/One_fui.bytes").write_bytes(package_bytes(items=[
+                    {"kind": 4, "id": "atlas0", "file": "atlas0.png"},
+                    {"kind": 3, "id": "view", "width": 200, "height": 200,
+                     "payload": lambda s: component_payload(s, fill=fill)}]))
+                return result
+            self.runner_mock.side_effect = exported
+            if state == "failed":
+                with self.assertRaisesRegex(LedgerError, "icon.*native FillType 0.*layout-check.json"):
+                    self.publish(components=["One/view"], verify_source=source)
+                self.assertEqual(json.loads((self.run / "receipt.json").read_text())["state"], "interrupted")
+            else:
+                result = self.publish(components=["One/view"], verify_source=source)
+                self.assertEqual(result.evidence()["layout"]["status"], "passed")
+            report = json.loads((self.run / "layout-check.json").read_text())
+            self.assertEqual(report["status"], state)
+            self.assertEqual(report["source_head"], "a" * 40)
+            self.assertEqual(report["descriptors"][0]["sha256"],
+                             hashlib.sha256((self.run / "staging/One_fui.bytes").read_bytes()).hexdigest())
+            self.assertTrue((self.run / "staging/One_fui.bytes").is_file())
+
+    def test_invalid_component_selection_refuses_before_native_process(self):
+        self.rejected_before_process("unselected", components=["Other/view"])
+
+    def test_omitted_layout_scope_is_not_reported_as_verified(self):
+        result = self.publish()
+        self.assertEqual(result.evidence()["layout"]["status"], "not_requested")
+        self.assertEqual(json.loads((self.run / "layout-check.json").read_text())["status"], "not_requested")
+
     def test_native_environment_withholds_runtime_and_credential_selectors(self):
         with patch.dict(os.environ, {"FARMBOT_CONFIG": "live", "fake_cli_mode": "live", "GH_TOKEN": "secret",
                 "LARKSUITE_CLI_CONFIG_DIR": "live", "CODEX_HOME": "runtime", "OPENAI_API_KEY": "secret"}):

@@ -207,6 +207,15 @@ class UiPreviewTests(unittest.TestCase):
         with self.assertRaisesRegex(LedgerError, "default controller"):
             self.render()
 
+    def test_unsupported_fill_and_instance_override_are_gaps_not_visual_success(self):
+        self.component("One", "child", '')
+        self.component("One", "view", '<loader url="ui://pack0001art" size="8,8" fill="scaleToFit"/>'
+                       '<component src="child" size="4,4"><controller name="featured" selected="1"/></component>')
+        report, _ = self.render()
+        self.assertEqual(report["status"], "gap")
+        self.assertIn("unsupported loader fill: scaleToFit", report["gaps"])
+        self.assertIn("instance controller selection requires native export verification", report["gaps"])
+
     def test_missing_lfs_image_is_a_visible_gap_with_no_success_status(self):
         (self.root/"assets/One/Res/red.png").write_bytes(
             b"version https://git-lfs.github.com/spec/v1\noid sha256:"+b"0"*64+b"\nsize 9\n")

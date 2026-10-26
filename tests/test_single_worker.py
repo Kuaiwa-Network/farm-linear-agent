@@ -354,6 +354,11 @@ class SingleWorkerTests(LedgerBase):
         payload = json.loads(payload)
         authority = ' '.join(authority.split())
         skill = ' '.join(Path(payload['skill']).read_text(encoding='utf-8').split())
+        for text in (authority, skill):
+            for requirement in ('references/ui-verification.md', '--component PACKAGE/RESOURCE_ID',
+                                'layout-check.json', 'production UI lifecycle', 'nonzero SafeArea insets',
+                                'rendered content bounds', 'not-enrolled states', 'runtime screenshots'):
+                self.assertIn(requirement, text)
         # These are model instructions, not a controller confidence classifier. Pin the
         # decision boundaries in the actual launch and skill the worker receives.
         for requirement in (

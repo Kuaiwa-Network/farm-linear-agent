@@ -457,6 +457,8 @@ class Renderer:
             elif node.tag == "image":
                 layer = self.image(attrs.get("pkg", package), attrs.get("src"), wh)
             elif node.tag == "component":
+                if node.findall("controller") or node.get("controllers"):
+                    self.gaps.append("instance controller selection requires native export verification")
                 button = node.find("Button")
                 layer = self.component(attrs.get("pkg", package), attrs.get("src"), size=wh,
                                        overrides=dict(button.attrib) if button is not None else {}, stack=(*stack, key))

@@ -42,7 +42,7 @@ parking or finish, and checkpoints their work. No FarmBot child task is created.
 | `unity-test-result` | `--job-id ID`: read a retained test report in the owned instance, including failed jobs whose normal response has `result=null`. Save stdout privately. No test launch or release. |
 | `unity-read` | `--uri URI`: read a resource from the reserved Unity instance. |
 | `release-resource` | **Use the reservation token file returned by resource-status**, not the claim token. `--outcome quiescent\|unclean`. Before server/combined release, save a current checkpoint with results and `handoff`; exit immediately on `worker_handoff: true`. The controller cleans services after verified teardown and resumes the same issue. |
-| `publish-ui` | `--packages FILE`: JSON package name/ID map; native export into private staging, no Client installation. |
+| `publish-ui` | `--packages FILE`: JSON package name/ID map; repeat `--component PACKAGE/RESOURCE_ID` for scoped source/export layout checks. Native export into private staging, no Client installation. |
 | `prepare-go-dependencies` | `--repo REPO --module MODULE --commit SHA`; inspect `go-dependencies --request-id ID`. |
 | `verify-publication` | `--repo REPO`: fresh exact destination/branch/private-repository check before publishing. |
 | `retry-approval` | `--error-file FILE`: complete UTF-8 approval-review capacity error that explicitly confirms no action executed. Checkpoint, settle helpers and release resources first; then exit on `retry_queued` or `retry_exhausted`. |
@@ -56,6 +56,14 @@ Use `COMMAND --help` for exact syntax. The large parser retains historical
 commands for old state inspection and offline replay; repository handoff,
 presentation subtasks, mandatory baseline comparison, UI receipts and semantic
 closing checks are refused for this contract.
+
+For UI appearance/layout work, follow [UI verification](ui-verification.md) and
+select affected components on `publish-ui`. `layout-check.json` reports checked
+roots/dependencies and precise failures; failures retain staging and refuse a
+successful export result. Omitted selections remain compatible for non-layout
+exports but report `not_requested`. These serialized checks do not certify visual
+agreement or SafeArea; the owner verifies final native assets through the actual
+Client UI lifecycle and records relevant dimensions, insets and states.
 
 For work questions, teammates reply directly under the question comment with
 question numbers. After everyone is finished, any teammate @mentions the bot to
