@@ -326,6 +326,32 @@ input fingerprint and remain owned after a restart or continuation; other PRs
 still appear in the foreign-work report. Arbitrary checkpoint `prs` or historical
 delivery prose is not a substitute for current publication verification.
 
+## Worker reasoning defaults
+
+For Codex launches, the current read-only chat contract defaults to `medium`
+reasoning and the current single work owner defaults to `high`. Historical and
+other contracts retain `xhigh`. Selection uses the same contract/skill-path test
+as dispatch; issue prose, labels, priority, checkpoints and retry counters do not
+select effort. Explicit private `codex_workers` settings override each field for
+that exact skill, so an existing `xhigh` pin continues to win. The `latest-sol`
+model policy, explicit model pins and supported-effort catalog checks are unchanged.
+
+The scheduler passes the selected settings to the existing launcher, which writes
+`model_reasoning_effort` into each attempt's isolated Codex home. New and resumed
+attempts use the policy; an already running attempt keeps its launch settings.
+This is attempt-level selection, not per-tool adaptation or a new escalation,
+restart or helper policy. Workers retain verification obligations at every effort;
+approval review, native sandboxing, claims, renewals and publication guards remain.
+
+An authorized rollout must review current chat/work effort pins to adopt lower
+defaults. This change edits no production configuration and performs no live
+model-quality evaluation. Measure correctness, rework and token usage on comparable
+tasks; lower configured effort does not establish task-level savings. See the
+[reasoning policy](../references/worker-reasoning.md) for overrides and evaluation.
+No schema migration is required. Restore explicit `xhigh` pins on settled workers
+or roll back the release to restore old defaults on subsequent attempts; existing
+explicit model/effort pins survive either direction.
+
 ## Worker polling cadence
 
 Current chat/work launch authority and skills instruct workers to wait on an

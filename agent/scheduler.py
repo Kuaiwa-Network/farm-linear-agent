@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import LARK_CLI_SKILLS
-from .dispatch import dispatch_message
+from .dispatch import dispatch_message, worker_model_settings
 from .execution import single, skill_for
 from .launcher import _read_worker_text
 from .ledger import ACTIVE_STATES, LedgerError, plan_issue_branches
@@ -28,7 +28,6 @@ from .workflow import (JobWorktrees, client_ready, pin_source_entry, repository_
 TERMINAL = ("delivered", "blocked", "cancelled", "failed")
 WAITING = ("awaiting_input", "awaiting_resource")
 READ_REPO = "Farm-Client"
-DEFAULT_CODEX_MODEL_SETTINGS = {"model": "latest-sol", "reasoning_effort": "xhigh"}
 
 
 class TaskDeliveryMismatch(LedgerError):
@@ -450,8 +449,8 @@ class Scheduler:
         if (skill.name in LARK_CLI_SKILLS and tools.get("lark_cli", {}).get("authentication") == "environment"):
             options["lark_cli_access"] = True
         if self.runtime_name == "codex":
-            options["model_settings"] = {**DEFAULT_CODEX_MODEL_SETTINGS,
-                                         **self.codex_workers.get(skill.name, {})}
+            options["model_settings"] = worker_model_settings(
+                item=item, skill_path=skill.skill_md, overrides=self.codex_workers.get(skill.name))
         if self.kw_ops_config and kw_ops_grant.keep_env is None:
             options["withheld_env"] = [self.kw_ops_config["token_env"]]
         worker_env = {"FARMBOT_DB": str(self.db_path), "PYTHONPATH": pythonpath}
