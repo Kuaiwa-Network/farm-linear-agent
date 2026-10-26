@@ -41,6 +41,10 @@ and relevant repository instructions. Use `execution.python`
 with argument arrays and `--token-file`, never put a token in logs. Renew normally,
 and before expensive operations. Post concise progress when something changes.
 
+The host defaults current work attempts to high reasoning unless explicitly
+configured otherwise. Follow [the reasoning policy](../../references/worker-reasoning.md);
+required verification and approval review remain in force at every effort level.
+
 Use the [bounded polling cadence](../../references/worker-polling.md): wait on
 the existing handle for 30 seconds, then 60 seconds while unchanged. Apply the
 same backoff between read-only status checks. Shorten waits for renewal/control

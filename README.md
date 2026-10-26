@@ -45,6 +45,10 @@ configured repositories and resources. [Runtime preparation](docs/codex-runtime.
 covers installing a dedicated Codex runtime. Preserve the native sandbox,
 automatic review, Git trust boundary and owned-process containment.
 
+Codex workers use [selective reasoning defaults](references/worker-reasoning.md):
+current chat uses `medium`, current work uses `high`, and explicit per-skill
+`codex_workers` settings take precedence. Existing `xhigh` pins remain effective.
+
 ```powershell
 python -m agent.service configure
 python -m agent.service serve --config C:\FarmBot\config.json

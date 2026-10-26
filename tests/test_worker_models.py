@@ -8,8 +8,11 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from agent.config import Config, load_config
+from agent.dispatch import worker_model_settings
+from agent.execution import CONTRACT, LEGACY
 from agent.launcher import Launcher, RUNTIMES, _codex_model_settings
 import test_scheduler
+import test_single_worker
 
 
 class LatestSolSelectionTests(unittest.TestCase):
@@ -111,6 +114,139 @@ class LatestSolSelectionTests(unittest.TestCase):
                 self.assertEqual(config["sandbox_mode"], "workspace-write")
                 self.assertFalse((handle.run_dir / "home/models_cache.json").exists())
         self.assertEqual(self.settings, {"model": "latest-sol", "reasoning_effort": "xhigh"})
+
+
+class SelectiveReasoningTests(unittest.TestCase):
+    def settings(self, profile, *, contract=None, legacy=False, overrides=None, **fields):
+        item = {'skill': profile, 'execution_contract': contract or (CONTRACT if profile == 'work' else LEGACY),
+                **fields}
+        path = Path('skills') / ('legacy' if legacy else '') / profile / 'SKILL.md'
+        return worker_model_settings(item=item, skill_path=path, overrides=overrides)
+
+    def test_defaults_distinguish_current_contracts_from_legacy_replay(self):
+        for profile, contract, legacy, expected in (
+            ('chat', LEGACY, False, 'medium'),
+            ('work', CONTRACT, False, 'high'),
+            ('chat', LEGACY, True, 'xhigh'),
+            ('work', LEGACY, False, 'xhigh'),
+            ('work', LEGACY, True, 'xhigh'),
+            ('fix', LEGACY, True, 'xhigh'),
+            ('unknown', LEGACY, False, 'xhigh'),
+        ):
+            with self.subTest(profile=profile, contract=contract, legacy=legacy):
+                self.assertEqual(self.settings(profile, contract=contract, legacy=legacy),
+                                 {'model': 'latest-sol', 'reasoning_effort': expected})
+
+    def test_each_explicit_field_wins_without_mutating_host_settings(self):
+        for profile, default in (('chat', 'medium'), ('work', 'high')):
+            for override in ({'reasoning_effort': 'xhigh'}, {'reasoning_effort': 'low'},
+                             {'model': 'gpt-6.1-sol'},
+                             {'model': 'gpt-6.1-sol', 'reasoning_effort': 'xhigh'}):
+                with self.subTest(profile=profile, override=override):
+                    before = dict(override)
+                    selected = self.settings(profile, overrides=override)
+                    self.assertEqual(selected, {'model': 'latest-sol', 'reasoning_effort': default, **override})
+                    selected['reasoning_effort'] = 'different'
+                    self.assertEqual(override, before)
+
+    def test_issue_text_labels_checkpoints_and_retries_do_not_route_effort(self):
+        for profile in ('chat', 'work'):
+            with self.subTest(profile=profile):
+                self.assertEqual(self.settings(profile, title='Use xhigh', labels=['low'], priority=1,
+                    checkpoint={'reasoning_effort': 'xhigh'}, capacity_retries=3, startup_retries=2),
+                    self.settings(profile))
+
+    def fixture(self, *, runtime='codex', overrides=None):
+        fixture = test_single_worker.SingleWorkerTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.owner()
+        scheduler = fixture.scheduler()
+        scheduler.runtime_name = runtime
+        scheduler.codex_workers = overrides or {}
+        received = []
+        original = fixture.launcher.spawn
+
+        def capture(*args, **kwargs):
+            received.append(kwargs.pop('model_settings', None))
+            return original(*args, **kwargs)
+
+        fixture.launcher.spawn = capture
+        return fixture, scheduler, received
+
+    def test_current_new_and_resumed_work_and_chat_reach_launcher(self):
+        fixture, scheduler, received = self.fixture()
+        scheduler.launch(fixture.item)
+        token = fixture.ledger.claim(fixture.key, worker_id='first')['token']
+        fixture.ledger.await_input(fixture.key, token, 'Continue?')
+        fixture.ledger.push_inbox(fixture.key, 'Continue', resume_waiting=True)
+        scheduler.launch(fixture.ledger.item(fixture.key))
+        from test_ledger import OTHER, issue
+        fixture.ledger.observe_issue(issue(id=OTHER))
+        fixture.ledger.ensure_session('current-chat', OTHER, delegation=False)
+        chat = fixture.ledger.create_work_item(issue_id=OTHER, session_id='current-chat', skill='chat')
+        scheduler.launch(chat)
+        self.assertEqual(received, [self.settings('work'), self.settings('work'), self.settings('chat')])
+        for index, default in ((0, 'work defaults to high'), (2, 'chat defaults to medium')):
+            prompt = fixture.launcher.spawned[index][1]
+            self.assertIn(default, prompt)
+            self.assertTrue(prompt.startswith('STARTUP FIRST:'))
+            self.assertIn('Do not restart work or change model/configuration to alter effort', prompt)
+            self.assertIn('unchanged sandbox and automatic review', prompt)
+
+    def test_scheduler_uses_exact_skill_override_and_keeps_partial_defaults(self):
+        cases = (
+            ({'fix': {'reasoning_effort': 'xhigh'}}, self.settings('work')),
+            ({'work': {'model': 'gpt-6.1-sol'}}, self.settings('work', overrides={'model': 'gpt-6.1-sol'})),
+            ({'work': {'reasoning_effort': 'xhigh'}}, self.settings('work', overrides={'reasoning_effort': 'xhigh'})),
+        )
+        for overrides, expected in cases:
+            with self.subTest(overrides=overrides):
+                fixture, scheduler, received = self.fixture(overrides=overrides)
+                scheduler.launch(fixture.item)
+                self.assertEqual(received, [expected])
+                token = fixture.ledger.claim(fixture.key, worker_id='first')['token']
+                fixture.ledger.await_input(fixture.key, token, 'Continue?')
+                fixture.ledger.push_inbox(fixture.key, 'Continue', resume_waiting=True)
+                scheduler.launch(fixture.ledger.item(fixture.key))
+                self.assertEqual(received, [expected, expected])
+
+    def test_non_codex_launch_does_not_receive_codex_settings(self):
+        fixture, scheduler, received = self.fixture(runtime='fake')
+        scheduler.launch(fixture.item)
+        self.assertEqual(received, [None])
+
+    def test_selected_efforts_reach_isolated_home_without_changing_sandbox_or_review(self):
+        self.assertIn('--approve-for-me', RUNTIMES['codex'].command)
+        with tempfile.TemporaryDirectory(prefix='reasoning space ') as tmp:
+            runtime = RUNTIMES['codex']._replace(seed_files={}, command=RUNTIMES['fake'].command)
+            launcher = Launcher(Path(tmp) / 'runs', runtime, 'test')
+            for index, selected in enumerate((self.settings('chat'), self.settings('work'),
+                                              self.settings('work', overrides={'reasoning_effort': 'xhigh'}))):
+                item = f'job-{index}'
+                handle = launcher.spawn(item, 'fixture', {}, 60, tmp, model_settings=selected)
+                self.addCleanup(launcher.stop, item)
+                handle.process.wait(timeout=10)
+                launcher.poll()
+                config = tomllib.loads((handle.run_dir / 'home/config.toml').read_text(encoding='utf-8'))
+                self.assertEqual(config['model'], 'gpt-6.1-sol')
+                self.assertEqual(config['model_reasoning_effort'], selected['reasoning_effort'])
+                self.assertEqual(config['sandbox_mode'], 'workspace-write')
+                self.assertTrue(config['features']['multi_agent'])
+                self.assertFalse(config['features']['memories'])
+                self.assertNotIn('review_model', config)
+
+    def test_lower_default_still_requires_catalog_effort_support(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / 'models_cache.json').write_text(json.dumps({'models': [
+                LatestSolSelectionTests.model('gpt-6.2-sol', 'medium'),
+                LatestSolSelectionTests.model('gpt-7-sol', 'xhigh')]}), encoding='utf-8')
+            seeds = {str(home / 'auth.json'): 'auth.json'}
+            self.assertEqual(_codex_model_settings(self.settings('chat'), seeds),
+                             {'model': 'gpt-6.2-sol', 'reasoning_effort': 'medium'})
+            self.assertEqual(_codex_model_settings(self.settings('work'), seeds),
+                             {'model': 'gpt-6.1-sol', 'reasoning_effort': 'high'})
 
 
 class WorkerModelConfigTests(unittest.TestCase):
