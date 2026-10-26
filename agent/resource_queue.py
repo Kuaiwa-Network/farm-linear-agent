@@ -81,4 +81,8 @@ def queued_rows(db, *, kind=None, single_only=False):
         query += ' AND item_id IN (SELECT id FROM work_items WHERE issue_id IN (' + ','.join('?' for _ in selected) + '))'
         values += tuple(selected)
     rows = list(db.execute(query + ' ORDER BY sequence', values))
+    from .maintenance import request, exempt
+    current = request(db)
+    if current:
+        rows = [row for row in rows if exempt(db, row['item_id'], current)]
     return sorted(rows, key=lambda row: (0 if continuation_slot(db, row) else 1, row['sequence']))

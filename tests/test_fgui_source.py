@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from agent import fgui_source as source
@@ -83,6 +84,118 @@ class SourceTests(unittest.TestCase):
     def test_scoped_hydrated_lfs_matches_raw_committed_pointer(self):
         file = self.lfs()
         self.assertEqual(self.snapshot()["files"][file.relative_to(self.path).as_posix()], hashlib.sha256(file.read_bytes()).hexdigest())
+
+    def test_batched_normalization_covers_all_non_lfs_files_and_preserves_lfs_hashes(self):
+        for number in range(8):
+            (self.path / f"file {number}.txt").write_bytes(b"x" * (number + 1))
+        (self.path / "large.txt").write_bytes(b"x" * 80)
+        lfs = self.lfs(data=b"hydrated image")
+        batches = []
+        real = source._git
+        def observe(trees, path, args, data=None, **kwargs):
+            if args[0] == "hash-object":
+                batches.append(data.decode("utf-8").splitlines())
+            return real(trees, path, args, data, **kwargs)
+        with patch.object(source, "HASH_BATCH_FILES", 3), patch.object(source, "HASH_BATCH_BYTES", 25), \
+                patch.object(source, "_git", side_effect=observe):
+            result = self.snapshot()
+        expected = sorted(set(result["files"]) - {lfs.relative_to(self.path).as_posix()})
+        self.assertEqual([name for batch in batches for name in batch], expected)
+        self.assertGreater(len(batches), 1)
+        for batch in batches:
+            self.assertLessEqual(len(batch), 3)
+            self.assertTrue(len(batch) == 1 or sum((self.path / name).stat().st_size for name in batch) <= 25)
+        self.assertIn(["large.txt"], batches)
+        self.assertEqual(result["files"][lfs.relative_to(self.path).as_posix()], hashlib.sha256(lfs.read_bytes()).hexdigest())
+
+    def test_hash_timeout_retries_same_batch_then_completes_full_validation(self):
+        real = source.run_git
+        attempts = []
+        def timeout_once(command, **kwargs):
+            if "hash-object" in command:
+                attempts.append(kwargs["data"])
+                if len(attempts) == 1:
+                    raise subprocess.TimeoutExpired(command, kwargs["timeout"], output=b"partial output")
+            return real(command, **kwargs)
+        with patch.object(source, "run_git", side_effect=timeout_once):
+            self.assertEqual(self.snapshot()["head"], self.head)
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(attempts[0], attempts[1])
+
+    def test_hash_timeout_never_accepts_complete_partial_output_and_stops_after_retry(self):
+        real = source.run_git
+        attempts = []
+        def timeout(command, **kwargs):
+            if "hash-object" in command:
+                attempts.append(command)
+                # Even complete, matching stdout is unusable after a timeout.
+                result = real(command, **kwargs)
+                raise subprocess.TimeoutExpired(command, kwargs["timeout"], output=result.stdout)
+            return real(command, **kwargs)
+        with patch.object(source, "run_git", side_effect=timeout), self.assertRaisesRegex(LedgerError, "after two attempts"):
+            self.snapshot()
+        self.assertEqual(len(attempts), 2)
+
+    def test_hash_non_timeout_failures_are_not_retried(self):
+        real = source.run_git
+        for failure in (OSError("unavailable"), LedgerError("cleanup is uncertain; do not retry"),
+                        subprocess.CompletedProcess([], 1, b"", b"failed"),
+                        subprocess.CompletedProcess([], 0, b"incomplete\n", b"")):
+            attempts = []
+            def fail(command, **kwargs):
+                if "hash-object" not in command:
+                    return real(command, **kwargs)
+                attempts.append(command)
+                if isinstance(failure, Exception):
+                    raise failure
+                return failure
+            with self.subTest(failure=failure), patch.object(source, "run_git", side_effect=fail), self.assertRaises(LedgerError):
+                self.snapshot()
+            self.assertEqual(len(attempts), 1)
+
+    def test_retry_rechecks_clone_trust_before_starting_another_process(self):
+        real = source.run_git
+        attempts = []
+        def change_clone(command, **kwargs):
+            if "hash-object" in command:
+                attempts.append(command)
+                git(self.trees.clone_path("farmgui"), "config", "core.sshCommand", "never-run")
+                raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+            return real(command, **kwargs)
+        with patch.object(source, "run_git", side_effect=change_clone), self.assertRaises(WorktreeError):
+            self.snapshot()
+        self.assertEqual(len(attempts), 1)
+
+    def test_file_changed_during_timeout_is_rejected_after_successful_retry(self):
+        real = source.run_git
+        attempts = []
+        def change_file(command, **kwargs):
+            if "hash-object" in command:
+                attempts.append(command)
+                if len(attempts) == 1:
+                    (self.path / "UI.fairy").write_bytes(b"changed while retrying")
+                    raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+            return real(command, **kwargs)
+        with patch.object(source, "run_git", side_effect=change_file), self.assertRaisesRegex(LedgerError, "uncommitted"):
+            self.snapshot()
+        self.assertEqual(len(attempts), 2)
+
+    def test_hash_batches_share_total_time_budget_including_retries(self):
+        now = [0]
+        calls = []
+        entries = {"a": ("100644", "a" * 40), "b": ("100644", "b" * 40)}
+        stamps = {name: (0, 0, 1) for name in entries}
+        def slow(trees, path, args, data, **kwargs):
+            calls.append(kwargs["timeout"])
+            now[0] += 60
+            if len(calls) == 1:
+                raise source._GitReadTimeout("timeout")
+            return ("a" * 40 + "\n").encode("ascii")
+        with patch.object(source, "time", SimpleNamespace(monotonic=lambda: now[0])), \
+                patch.object(source, "HASH_TOTAL_SECONDS", 120), patch.object(source, "HASH_BATCH_FILES", 1), \
+                patch.object(source, "_git", side_effect=slow), self.assertRaisesRegex(LedgerError, "total time budget"):
+            source._normalized_objects(self.trees, self.path, entries, stamps, {})
+        self.assertEqual(calls, [60, 60])
 
     def test_clean_checkout_newlines_change_review_digest_until_exact_bytes_are_restored(self):
         self.global_config.write_text("[core]\n\tautocrlf = true\n", encoding="utf-8")

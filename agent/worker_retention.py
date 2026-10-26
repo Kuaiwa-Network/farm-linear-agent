@@ -23,7 +23,7 @@ CACHE_ROOTS = ('home/cache/remote_plugin_catalog', 'home/cache/codex_apps_tools'
                'disposable/go-cache', 'disposable/go-tmp', 'disposable/build')
 # Earlier Scheduler versions put Go's worker caches here. No other job paths
 # are inferred from names, file extensions or disk size.
-JOB_CACHE_ROOTS = ('server-tests/go-cache', 'server-tests/tmp')
+JOB_CACHE_ROOTS = ('server-tests/go-cache', 'server-tests/tmp', 'compiler-cache-v1/go-cache')
 FILES_PER_BATCH = 500
 
 

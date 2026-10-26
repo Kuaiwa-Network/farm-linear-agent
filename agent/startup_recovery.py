@@ -40,7 +40,7 @@ class StartupRecovery:
                     or row['generation'] != item['generation'] or not row['worker_pid']
                     or row['next_root_repo'] is not None or row['withdraw_deadline'] is not None
                     or not (single(row) or row['skill'] == 'chat')
-                    or Maintenance(self.ledger).requested() or Maintenance(self.ledger).pending(row['id'])
+                    or Maintenance(self.ledger).requested(row['id']) or Maintenance(self.ledger).pending(row['id'])
                     or not _in_scope(json.loads(self.ledger._issue_row(row['issue_id'])['metadata']))):
                 return None
             existing = self.pending(row['id'])

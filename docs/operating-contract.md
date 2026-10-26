@@ -103,6 +103,20 @@ diagnostic work for an unanswered question. Advancing main, a restart, or an old
 unrelated failure does not itself require another merge or test run.
 Retained reports may be reused only when relevant code and inputs still match.
 Results, skips and limitations must be reported honestly.
+Latest explicit human requests define the current turn, including conflict-only
+continuations. Historical unfinished acceptance lists are retained evidence, not
+new obligations. The router preserves attributed inbox requests when steering or
+resuming the same owner; `current_request` highlights the latest one separately
+from historical handoffs. Before new resource tests or delivered finish, an owner
+with new attributed input records `request_scope` in its existing checkpoint:
+`through_message_id` and a bounded summary of the interpreted scope. Consuming the
+inbox, maintenance or restart does not acknowledge it. The host checks freshness,
+not semantic correctness; scope interpretation and failure attribution remain the
+worker's responsibility. Status questions alone do not erase the latest explicit
+work request. Conflict-only work checks actual conflicts, required source/generated
+dependencies and affected validation, classifies each failure, and leaves unrelated
+historical failures reported without reopening whole-feature acceptance.
+
 The first worker action claims and reads resume context, before investigation.
 Issue and current Project Overview attachments use the same authenticated
 `download-uploads` helper and private local cache for chat and work. Every download
@@ -244,6 +258,18 @@ Bots, unknown authors, unrelated comment threads, resolved rounds and terminal
 jobs cannot wake the owner through this path. Current issue scope, delegation,
 withdrawal, maintenance and launch checks still apply.
 
+After a message is delivered to work owned by another session, the receiver sends
+a final `response` in the forwarding session with a link to the owner's Linear
+session. This also covers later replies in a conversation that handed work back
+to the original owner. Only the forwarding exchange is complete: the job,
+questions, claims and resources keep their existing state and authority. Replies
+in the owner's own session remain progress activities. Forwarded replies and Stop
+continue to reach the original job through the existing routing records.
+Operator-created jobs have no Linear session and link to the issue instead.
+Malformed historical URLs cannot prevent the forwarding response from closing.
+This needs a controller release, with no schema migration or automatic rewrite of
+historical stale sessions. Rollback restores the old acknowledgement behavior.
+
 Partial replies preserve the question ID, original comment, reply floor and
 earlier answers across checkpoint/resume/park. The worker records which questions
 remain, and resolves the round only when all have actual answers; receiving a
@@ -300,6 +326,85 @@ input fingerprint and remain owned after a restart or continuation; other PRs
 still appear in the foreign-work report. Arbitrary checkpoint `prs` or historical
 delivery prose is not a substitute for current publication verification.
 
+## Worker reasoning defaults
+
+For Codex launches, the current read-only chat contract defaults to `medium`
+reasoning and the current single work owner defaults to `high`. Historical and
+other contracts retain `xhigh`. Selection uses the same contract/skill-path test
+as dispatch; issue prose, labels, priority, checkpoints and retry counters do not
+select effort. Explicit private `codex_workers` settings override each field for
+that exact skill, so an existing `xhigh` pin continues to win. The `latest-sol`
+model policy, explicit model pins and supported-effort catalog checks are unchanged.
+
+The scheduler passes the selected settings to the existing launcher, which writes
+`model_reasoning_effort` into each attempt's isolated Codex home. New and resumed
+attempts use the policy; an already running attempt keeps its launch settings.
+This is attempt-level selection, not per-tool adaptation or a new escalation,
+restart or helper policy. Workers retain verification obligations at every effort;
+approval review, native sandboxing, claims, renewals and publication guards remain.
+
+An authorized rollout must review current chat/work effort pins to adopt lower
+defaults. This change edits no production configuration and performs no live
+model-quality evaluation. Measure correctness, rework and token usage on comparable
+tasks; lower configured effort does not establish task-level savings. See the
+[reasoning policy](../references/worker-reasoning.md) for overrides and evaluation.
+No schema migration is required. Restore explicit `xhigh` pins on settled workers
+or roll back the release to restore old defaults on subsequent attempts; existing
+explicit model/effort pins survive either direction.
+
+## Worker polling cadence
+
+Current chat/work launch authority and skills instruct workers to wait on an
+existing tool handle for 30 seconds initially and 60 seconds after unchanged or
+empty output, within the tool's supported limit. Separate resource, dependency
+and test-status reads use the same intervals. Meaningful progress resets the
+interval to 30 seconds; repeated timestamps or heartbeat notices do not.
+Completion, errors and control changes are handled as soon as they are returned.
+
+Earlier renewal, lease, operation and control deadlines take precedence. After
+claiming, workers continue normal renewal/inbox checks and inspect maintenance,
+cancellation and withdrawal flags. Resource status already renews the claim.
+Pending startup claims are waited on, never resubmitted; authenticated commands
+still require a successful claim. Helpers retain no claim/resource authority.
+The [polling guide](../references/worker-polling.md) describes these boundaries.
+
+This is worker instruction guidance, not a host-enforced timer or a guarantee of
+token savings. It adds no CLI, schema, permissions or background polling process;
+startup watchdogs, retry delays and resource quiescence checks are unchanged.
+It takes effect for workers receiving the updated launch instructions after an
+authorized release. Rollback removes the guidance without migrating state.
+
+## Worker context and output
+
+Current chat/work instructions reuse the resume context returned by startup claim
+and prefer `issue-context --view resume` for later reads. Resume responses include
+`context_view.digest`, a SHA-256 digest of the complete stored context, including
+evidence omitted from that projection. With `--view resume --if-changed DIGEST`,
+an exact match returns an explicit unchanged receipt with coordination, fingerprint
+and inbox count; any change returns the normal resume projection and a new digest.
+The digest is distinct from the issue input fingerprint and covers requests,
+questions, recovery, project content and historical evidence as well.
+
+Conditional reads require the worker to retain the matching context. Missing or
+truncated context requires an unconditional read; stale handoffs and omitted
+facts still require full evidence. Default/explicit full views are unchanged.
+The comparison reads stored state and does not fetch Linear, consume inbox messages,
+renew a claim, check maintenance, revalidate inputs or approve work. Existing live
+authority and control checks remain required.
+
+Workers keep large stdout/stderr in private UTF-8 reports, preserve exit status,
+and return focused summaries/excerpts with report paths. Routine text reads start
+around 2,000 output tokens where supported and expand when needed. Required
+instructions, human requests, control flags, failures and approval evidence are
+not subject to a hard truncation cap. See [the guide](../references/worker-context-output.md).
+
+The conditional CLI response is deterministic; reuse and output sizing are worker
+guidance whose production token savings still require measurement. No context is
+deleted and there is no database/config migration. An authorized release is needed
+for these changes to reach workers. On rollback, older code ignores the added
+response metadata but does not accept `--if-changed`; use unconditional reads with
+the matching older worker instructions.
+
 ## Approval-review capacity recovery
 
 When automatic approval review returns the complete `Selected model is at capacity`
@@ -349,8 +454,8 @@ For server tests, request services only when needed, using an explicit scoped
 package/test/race plan. The worker runs the actual commands against isolated
 loopback services. Local tests that need no services need no server reservation.
 Docker administration remains host-owned. Server cleanup retains the existing
-process-quiescence requirement; containers remain reserved for cleanup until
-the checkpointed server-release handoff exits and teardown is verified.
+process-quiescence requirement; new leases use reservation-scoped command proofs
+to retain the main worker. Historical leases require full worker teardown.
 
 An unavailable read-only Docker identity probe at server startup is retried for
 up to three minutes, allowing the host watchdog to restart Docker. No Docker
@@ -379,11 +484,11 @@ before rolling back: older releases do not retry that pre-start journal state.
 
 Released or cancelled reservations from an older worker generation can settle
 after a finish/requeue handoff, including after controller restart. Cleanup still
-verifies the lease's exact Docker identities and ownership and waits for all
-recorded worker attempts, including a running successor. It preserves the cleaned
+verifies the lease's exact Docker identities and ownership and requires the sealed command scope to be empty, or all
+recorded worker attempts to have exited for historical/uncertain leases. It preserves the cleaned
 journal without changing the successor's claim or reservation. Open reservations
 with mismatched generations and reservations ahead of the current generation
-remain held. No schema migration is needed; already-held slots still require
+remain held. Already-held slots still require
 guarded `recover-server-slot` after the controller stops.
 Server setup now journals the verified startup Docker identity before its next
 Docker call, including combined leases. A failed identity probe therefore retains
@@ -432,6 +537,19 @@ publication or passing click tests cannot establish visual agreement.
 No database migration or host permission change is needed. This takes effect
 only after deployment of the updated worker/controller; older releases omit
 these checks and do not accept the new optional CLI argument.
+
+Source Git normalization uses batches of at most 128 non-LFS files and 8 MiB
+(an individually bounded larger file runs alone). LFS pointer identity and
+materialized-byte checks still cover every LFS file. Each hash batch has a
+60-second limit and one automatic retry after a timeout, within a five-minute
+normalization budget. Other Git failures and source mismatches are not retried.
+Every attempt rechecks clone/worktree trust, and final commit, index, file stamps
+and untracked-file checks still reject source changes across batches or retries.
+On Windows each Git hash process starts suspended in an owned Job Object;
+timeout cleanup drains its launcher and descendants before retry. Uncertain
+cleanup refuses continuation. This retries read-only validation, never a native
+export. No schema migration or new worker authority is required; deployment is
+still an explicit host operation, and existing parked issues need continuation.
 
 Monitor distinguishes a live worker waiting for resources, project preparation,
 resource readiness and ordinary work. Readiness, stage names and released slots
@@ -498,12 +616,23 @@ Only these regenerable paths are eligible inside a worker attempt:
 
 - `home/cache/remote_plugin_catalog`, `home/cache/codex_apps_tools` and
   `home/plugins/cache`: downloaded Codex catalogs, tool descriptions and plugin bundles.
-- `disposable/go-cache`, `disposable/go-tmp` and `disposable/build`: attempt-local
-  Go compiler caches/temporary files and disposable build outputs.
+- `disposable/go-cache` (historical), `disposable/go-tmp` and `disposable/build`:
+  attempt-local Go temporary files and disposable build outputs.
 
-The launcher always supplies absolute `GOCACHE`, `GOTMPDIR` and
-`FARMBOT_BUILD_ROOT` paths under that attempt. Workers keep these paths instead
-of creating additional job-level caches. An external build-output layout is used
+The launcher supplies absolute `GOCACHE` at the same item's
+`compiler-cache-v1/go-cache`, reusing Go's content-addressed compilation cache only
+after every previous attempt is proved quiescent. It supplies attempt-local
+`GOTMPDIR` and `FARMBOT_BUILD_ROOT`; arbitrary binaries/build trees are not silently
+reused. Item roots never share caches. Go keys compilation by source/toolchain/flags;
+service tests retain `-count=1`, so a warm compile cache is no test-result pass.
+Native/cgo external libraries still require the toolchain's documented invalidation.
+Historical per-attempt caches stay on their existing retention path; the first
+launch adopting the item cache can still compile cold. No old build tree is
+automatically promoted into the new cache.
+Host-controlled path aliases above an item (such as macOS `/var`) remain valid;
+links or junctions in the item directory or either cache directory are refused
+before cache reuse or creation.
+Workers keep these paths instead of creating additional caches. An external build-output layout is used
 only where the repository supports it; Client tests requiring in-tree `bin/obj`
 keep that layout, whose existing worktree retirement remains unchanged. Logs,
 results XML/TRX, screenshots, reports, source snapshots, checkpoints and anything
@@ -511,7 +640,7 @@ needed for recovery must stay outside disposable paths under `state_dir`.
 Credentials, home settings, session history/databases, claims, process evidence,
 ledger history, memory and recovery refs are never retention targets.
 
-For older jobs the sweep also recognizes exactly the earlier controller-managed
+The sweep recognizes `compiler-cache-v1/go-cache` and exactly the earlier controller-managed
 `<runs>/<item>/server-tests/go-cache` and `server-tests/tmp` paths. Every recorded
 attempt in the job must have verified teardown; shared job caches additionally
 wait until the newest teardown is older than the grace period. It does not infer
@@ -571,32 +700,82 @@ profile ownership and controller locking still apply. Rollback stops the new
 sweep but cannot restore regenerable data already deleted; preserved source and
 evidence remain available for rebuild/recovery.
 
-## Server release handoff
+## Server service release
 
-A single worker stays alive while waiting for and using resources. Releasing
-server services, including a combined Client/server lease, is a process handoff:
-the worker first saves a current checkpoint with results, candidate SHAs, report
-paths and the next action in `handoff`. The authenticated release atomically
-releases the reservation and retires the claim, returning `worker_handoff: true`.
-The worker exits; the same issue resumes only after all-attempt teardown and
-server cleanup are verified. Generation, candidates, checkpoint and retry budgets
-remain intact. Unity-only releases do not retire the worker.
+New single-worker server and combined reservations create a claim/generation-bound
+process scope. `run-server-tests --module MODULE` runs the exact package/test/race
+plan from the owned clean server worktree; `run-integration` registers both command
+trees in the same scope. These are worker-side commands under the existing sandbox
+and automatic review. Controllers never execute worker-supplied commands. Managed
+status responses omit usable service environments/ports; only scoped commands get
+them. Do not start ad hoc service clients or reuse old endpoints.
 
-Released services block relaunch of their owner until the pool recycles them;
-this also fences maintenance/retry/restart paths. A cancelled or withdrawn job
-is never requeued by release. Uncertain cleanup remains held for host recovery.
-Idle Unity Editors yield memory only when a configured server slot is available
-to use it. Held or unsettled server slots cannot indefinitely suppress Unity
-warmup or close a healthy idle Editor. Normal memory admission still applies.
+Commands accept at most 256 nonempty literal arguments without NUL, with a total
+limit of 30,000 UTF-16 units including Windows quoting and the terminating NUL.
+Long exact Go test filters are allowed within that bound. Server plans validate
+their generated command before admission; execution checks again with the actual
+configured executable path. Oversized selections are refused with a specific
+command-limit error, without silently broadening or dropping tests.
 
-This adds no schema migration. The durable handoff audit and existing queued
-state survive restart. Settle handoffs and services before rolling back: older
-controllers do not enforce the new released-service relaunch fence. Deploy the
-matching controller, worker CLI and instructions together.
+Argument validation precedes the `starting` record and process creation. A rejected
+command therefore creates no uncertain process entry. The server runner may report
+teardown complete only when the reservation's existing command proofs are also
+quiescent; the run still fails and supplies no test verdict. Once creation is
+attempted, incomplete identity or teardown evidence continues to require recovery.
+This command-validation change adds no schema migration and does not clear existing
+held resources or restart failed jobs. Older code reinstates its per-argument limit.
+
+Every accepted command records `starting` before creation, then its native identity. Windows
+uses a nested, non-breakaway Job assigned while the child is suspended. POSIX uses
+an owned group within the worker session and pins its leader through cleanup.
+Because that group cannot contain children moving to another group, POSIX retains
+the existing whole-worker handoff and session proof; it does not use the fast
+release path. Observed escaped descendants retain uncertain evidence. Shared
+Editors remain outside worker containment. The documented outer POSIX limitation
+for unobserved descendants creating new sessions is unchanged.
+
+On Windows, after saving results and next action in a current checkpoint, release
+seals the process scope atomically with releasing the reservation. It requires all
+registered commands to have successful teardown and fresh native emptiness checks.
+It returns `keep_worker: true`, retaining the main claim, PID and generation. New
+commands cannot enter a sealed scope. The server pool repeats checks for that exact
+released reservation and validates Docker identity/ownership before cleanup. Unity
+quiet-state checks remain independent and mandatory for combined leases.
+
+Missing/incomplete process evidence, a lost runner, failed native queries or an
+unclean release retain recovery evidence and the existing all-worker teardown path.
+POSIX and historical reservations without a process scope return `worker_handoff: true`
+and retire the claim; the owner exits and resumes only after all-attempt teardown
+and service cleanup. Cancellation/withdrawal never becomes an automatic resume.
+Held slots still require the existing guarded recovery. Closing a parent, setting
+an empty flag, or releasing the reservation alone is not quiescence.
+
+The additive `resource_process_scopes` and `resource_commands` tables preserve
+claim fences, identities and completed/uncertain runs. Existing grants are not
+upgraded in place. Deploy matching controller, CLI and instructions after a full
+settled pause. Before rollback, settle all scopes/services and all worker attempts;
+older workers can disclose endpoints and do not register commands, so mixing them
+with active managed scopes is unsupported. Keep journals and the database backup;
+checking out old code does not reverse a migration.
 
 ## Cooperative maintenance pause
 
-Maintenance blocks new worker/resource admission. Existing workers finish or
+`maintenance-pause --except-issue FARM-1` (repeatable for a selected set) requests
+cooperative pause for other issues while the selected claim stays active. Queued
+workers/resources are filtered by this same durable exception set; selected
+workers can keep or request resources within existing capacity. `resource-status`
+renews and returns maintenance, withdrawal and inbox signals in every state,
+including none/queued/preparing. Workers act on those signals before more work.
+This priority mode always reports `ready_to_stop: false`; it is not a deployment
+pause. A different existing maintenance scope cannot silently be overwritten.
+Ordinary `maintenance-resume` ends priority mode while retaining any earlier
+admission restriction, pending teardown and human-input waits. No completion timer
+or automatic resume is created. A subsequent explicit ordinary resume can clear
+an older admission restriction as before. Exceptions are saved in the audit with
+the maintenance request ID; old code conservatively treats this as full pause.
+Settle priority mode and workers before release/rollback.
+
+Ordinary maintenance blocks new worker/resource admission. Existing workers finish or
 collect an in-flight operation, cancel still-queued requests, stop their owned
 test processes and release acquired resources safely. They checkpoint current
 SHAs, report paths and the next action, then acknowledge maintenance and exit.
@@ -618,6 +797,14 @@ another checkout, and still match the saved commit; a missing local branch can
 be recreated, but a moved branch or missing recovery ref requires reconciliation.
 No fetch, reset, history rewrite or automatic main merge is part of restoration.
 Cleanup checks both HEAD and branch before removing the saved worktree.
+
+Each cleanup retry refreshes branch records for repositories successfully preserved
+on that pass. A detached HEAD clears that repository's stale branch name; failed
+preservation and repositories already removed by an earlier partial cleanup retain
+their prior branch evidence. Commits, recovery refs and historical snapshots remain
+recorded across retries. Existing pending cleanup can recover on its normal sweep
+after an authorized release, without editing the ledger or resetting a checkout.
+This changes no schema or record format; rollback loses this stale-branch repair.
 
 These records add no schema migration. Older releases ignore the optional branch
 map and do not register PRs at finish, so rolling back loses these guarantees.
@@ -660,8 +847,8 @@ both pins; uncertain setup holds resources and journals. The controller creates 
 read-only server snapshot during preparation; worker commands only validate it. A
 release never lifts a held server half, which waits for verified `recover-server-slot`,
 and Unity settlement continues meanwhile. Server cleanup still
-requires verified teardown of all worker attempts; the checkpointed release
-handoff retires the continuing worker before reuse. Settle pairs and preserve journals before rollback:
+requires verified reservation-command teardown for managed Windows scopes, or all
+worker attempts for POSIX, historical and uncertain scopes. Settle pairs and preserve journals before rollback:
 older code cannot interpret companion ownership. See [the reference](../references/client-server-integration.md).
 
 The combined hand-over's thread-local server helper inherits the main pool's
@@ -720,6 +907,27 @@ credentials and host paths in ignored private configuration. The selected
 absolute config path is propagated to every worker; settle and restart before
 changing it. Diagnostics use read-only doctor/SQLite snapshots, not a constructed
 production Ledger.
+
+`export-diagnostics --config FILE --output NEW.zip` creates portable, private
+evidence using the existing read-only doctor and SQLite snapshot readers. It
+does not modify configuration, migrate a ledger, contact Linear, start workers
+or change resource ownership. Its output is a new ZIP outside `local_root`;
+read-only SQLite may also create WAL/shared-memory sidecars for a stopped ledger.
+An optional issue/item selection includes bounded history, even for terminal
+jobs; worker log tails additionally require `--include-logs`. Doctor and heartbeat
+remain host-wide. The exporter distinguishes its checkout revision from the
+service revision recorded in the heartbeat and records missing/truncated evidence.
+
+Only allowlisted log filenames from selected local jobs are read, with regular
+file, link/reparse-point, identity and size checks. No config, database, credential
+store, token file, upload or arbitrary checkpoint/report path is copied. Redaction
+occurs before writing; it covers known secrets and common credential formats but
+does not make arbitrary log prose safe for public sharing. Bundles remain private
+and require review before sharing. They are diagnostic evidence, not replayable
+state, process ownership proof or live-test authorization. This command requires
+no schema migration; removing it leaves saved ZIPs untouched. See the
+[export workflow](development-workflow.md#portable-diagnostic-exports) for limits
+and partial-result exit codes.
 
 Local regression fixtures use temporary state, local Git remotes, fake workers
 and stub Linear/Unity/services. They verify flow and safety boundaries but do

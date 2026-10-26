@@ -40,6 +40,22 @@ returns the resume context. Then read [the concise CLI guide](../../references/s
 and relevant repository instructions. Use `execution.python`
 with argument arrays and `--token-file`, never put a token in logs. Renew normally,
 and before expensive operations. Post concise progress when something changes.
+
+The host defaults current work attempts to high reasoning unless explicitly
+configured otherwise. Follow [the reasoning policy](../../references/worker-reasoning.md);
+required verification and approval review remain in force at every effort level.
+
+Use the [bounded polling cadence](../../references/worker-polling.md): wait on
+the existing handle for 30 seconds, then 60 seconds while unchanged. Apply the
+same backoff between read-only status checks. Shorten waits for renewal/control
+deadlines and act immediately on returned changes; never resubmit pending work.
+
+Follow [context/output discipline](../../references/worker-context-output.md):
+reuse the claim's resume context, prefer `issue-context --view resume` for needed
+reads, and use `--if-changed` only with the digest of retained context. Keep live
+authority checks and inspect full evidence when required. Save large command
+logs privately and return focused excerpts with exit status and report paths.
+
 Download issue attachments and the current Project Overview's embedded files/images
 with `download-uploads --out STATE_DIR/uploads`, just as chat does. The helper discovers the
 project from the live issue, handles authentication, safe local names and ZIP
@@ -122,8 +138,9 @@ repository's native toolchain before running a bundled executable: fresh worktre
 may contain an LFS pointer instead of the binary. Preserve version/schema checks.
 
 For Unity, request a slot at the clean committed candidate, stay in this worker,
-and poll `resource-status`. When ready, use `unity-tools` to discover schemas and
-`unity-tool`/`unity-read` to work with the reserved instance. Collect actual test
+and poll `resource-status` with the bounded cadence above. When ready, use
+`unity-tools` to discover schemas and `unity-tool`/`unity-read` to work with the
+reserved instance. Collect actual test
 results and needed UI observations in that same reservation. Reconcile a lost
 test-start response before retrying. Leave tests finished, Edit Mode idle and
 compilation quiet before releasing. Never operate shared Editor processes yourself.
@@ -151,17 +168,16 @@ pass; verify the corrected candidate before delivery.
 
 Use ordinary local commands for tests that need no shared service. Request
 `server_slot` only for tests that need its isolated services, specifying packages,
-tests and race selection. Use the returned loopback environment in your own
-subprocesses; stop them before release. Do not touch live services or administer
-Docker. Server containers remain owned by the host and are recycled only after
-it can establish process quiescence.
-Before releasing server services (including a combined lease), checkpoint the
-actual results, candidate SHAs, report paths and a `handoff` describing the next
-action. Successful release returns `worker_handoff: true` and retires the claim.
-Exit immediately, including during maintenance. The controller verifies all
-attempts exited, cleans the services and automatically resumes the same issue
-and saved progress. Do not renew, finish or request another resource after that
-response. Ordinary Unity-only releases keep the worker alive.
+tests and race selection. Run the reserved plan through `run-server-tests --module
+MODULE` in the owned farm-hive module. `-run` filters test names, not package builds:
+select affected packages explicitly. New leases expose service environments only
+to scoped commands. Do not start ad hoc service clients or reuse old endpoints.
+Docker stays host-owned. Checkpoint results, SHAs, reports and `handoff` before
+release. A normal managed Windows release returns `keep_worker: true`: continue this claim.
+The host verifies reservation-command teardown before recycling services. Only
+POSIX or historical leases returning `worker_handoff: true` retire the claim and require
+immediate exit. Missing/uncertain process proof requires unclean release and the
+existing whole-worker recovery. Ordinary Unity-only release also retains the worker.
 
 If acceptance requires Client and Server candidates online together, follow
 [single Client/game-server verification](../../references/client-server-integration.md).
@@ -250,3 +266,19 @@ merge PRs, deploy or change Linear status.
 On maintenance, collect in-flight work, stop your services, release resources,
 checkpoint a current `handoff`, and `maintenance-handoff` then exit. On withdrawal,
 publish nothing and follow `withdraw`. Recovery reuses source and evidence.
+
+## Current-turn continuation
+
+Read `current_request` separately from historical handoffs. The latest explicit
+human work request sets this turn's scope; a status question does not replace it.
+For conflict-only requests, inspect real PR conflicts, reconcile necessary source
+and generated dependencies, and validate only affected behavior under repository
+requirements. Classify failures individually as merge-introduced, unrelated or
+unresolved; fix introduced regressions and update PRs promptly. Do not inherit an
+old full-feature checklist, merge advancing main, or repeat tests for recovery alone.
+When new attributed input arrives, checkpoint `request_scope` with the actual
+latest `through_message_id` and a concise scope summary before new resource tests
+or finish. Preserve matching evidence and old failures as history. `resource-status`
+renews and returns maintenance, withdrawal and inbox flags even while waiting;
+act on them before another poll/work item. Selected priority-pause workers see no
+maintenance request; others cancel queued resources or stop/settle acquired work.

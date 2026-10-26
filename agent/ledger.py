@@ -662,6 +662,8 @@ class Ledger:
             """)
             self.connection.executescript(RECOVERY_SCHEMA)
             self.connection.executescript(MAINTENANCE_SCHEMA)
+            from .resource_processes import SCHEMA as PROCESS_SCHEMA
+            self.connection.executescript(PROCESS_SCHEMA)
             self.connection.executescript(STARTUP_SCHEMA)
             self.connection.executescript(ISSUE_WORKFLOW_SCHEMA)
             # Columns added after the first ledgers were written; CREATE TABLE IF NOT EXISTS leaves those files as they were.
@@ -757,7 +759,7 @@ class Ledger:
         result["task_request"] = json.loads(row["task_request"]) if row["task_request"] else None
         from .resource_recovery import RecoveryStore
         result['candidate_repair'] = RecoveryStore(self).candidate_context(row['id'], row['generation'])
-        result['maintenance_requested'] = Maintenance(self).requested()
+        result['maintenance_requested'] = Maintenance(self).requested(row['id'])
         return result
 
     def _audit(self, item_id, kind, reason="", details=None):
@@ -1493,6 +1495,12 @@ class Ledger:
             row = self._owned(item_id, token)
             previous = json.loads(row["checkpoint"])
             progress = dict(progress)
+            supplied_scope = 'request_scope' in progress
+            if not supplied_scope and 'request_scope' in previous:
+                progress['request_scope'] = previous['request_scope']
+            if autonomous and supplied_scope:
+                from .request_scope import validate
+                validate(self, item_id, progress['request_scope'])
             # A resume/checkpoint is not confirmation that a human question was
             # answered. Only resolve-question may acknowledge the current round.
             progress.pop(QUESTION_KEY, None)
@@ -2304,7 +2312,7 @@ class Ledger:
         _text(owner, "owner")
         _text(host, "host")
         with self._transaction():
-            if Maintenance(self).requested():
+            if Maintenance(self).blocks_admission():
                 return None
             from .resource_queue import continuation_slot, queued_rows
             row = next(iter(queued_rows(self.connection, kind=kind, single_only=single_only)), None)
@@ -3625,6 +3633,9 @@ class Ledger:
                         self._issue_row(row['issue_id'])['fingerprint'] != row['claimed_fingerprint']):
                     raise LedgerError('issue changed; revalidate before completion preflight')
             if single(row):
+                if outcome == 'delivered':
+                    from .request_scope import require_reviewed
+                    require_reviewed(self, item_id)
                 self.require_no_reservation(item_id)
                 if outcome == 'delivered' and self.human_question(item_id):
                     raise LedgerError('resolve the actual human question before delivery')
@@ -3873,7 +3884,8 @@ class Ledger:
         authority = self._delegation_session(row["issue_id"], row["session_id"])
         owner = _owner(issue, self._owner_delegation(row["issue_id"]))
         from .workflow import task_views
-        return {"issue": issue, "fingerprint": issue_row["fingerprint"], "coordination": coordination,
+        from .request_scope import view as scope_view
+        return {"current_request": scope_view(self, item_id), "issue": issue, "fingerprint": issue_row["fingerprint"], "coordination": coordination,
                 "tasks": task_views(self, item_id) if row["skill"] == "work" or row["parent_id"] else [],
                 "parent_job": self._view(self._row(row["parent_id"])) if row["parent_id"] else None,
                 "predecessor_tasks": task_views(self, row["predecessor_id"]) if row["skill"] == "work" and row["predecessor_id"] else [],

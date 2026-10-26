@@ -24,11 +24,24 @@ APPROVAL_RETRY_AUTHORITY = (
 )
 
 
+def _current_chat(item, skill_path):
+    skill_path = Path(skill_path)
+    return (item.get('skill') == 'chat' and skill_path.parent.name == 'chat'
+            and skill_path.parent.parent.name != 'legacy')
+
+
+def worker_model_settings(*, item, skill_path, overrides=None):
+    """Choose attempt-level effort from the same contract as the launch prompt.
+
+    Host pins take precedence. Issue prose, labels, priority, retry counters and
+    worker checkpoints never select an effort or authorize changing the runtime.
+    """
+    effort = 'medium' if _current_chat(item, skill_path) else 'high' if single(item) else 'xhigh'
+    return {'model': 'latest-sol', 'reasoning_effort': effort, **(overrides or {})}
+
+
 def dispatch_message(**arguments):
-    skill_path = Path(arguments['skill_path'])
-    current_chat = (arguments['item'].get('skill') == 'chat' and skill_path.parent.name == 'chat'
-                    and skill_path.parent.parent.name != 'legacy')
-    if single(arguments['item']) or current_chat:
+    if single(arguments['item']) or _current_chat(arguments['item'], arguments['skill_path']):
         from .worker_dispatch import message, startup_instruction
         return startup_instruction(**arguments) + APPROVAL_RETRY_AUTHORITY + message(**arguments)
     return legacy_dispatch.dispatch_message(**arguments)

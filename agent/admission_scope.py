@@ -77,6 +77,22 @@ def select(ledger, identifier):
         if ledger.connection.execute("SELECT 1 FROM audit WHERE item_id='maintenance' AND kind=? LIMIT 1", (KIND,)).fetchone():
             ledger._audit('maintenance', KIND, 'operator restored all-issue admission', details={'cleared': True})
         return
+    selected = resolve(ledger, identifier)
+    ids = [entry['issue_id'] for entry in selected]
+    marks = ','.join('?' for _ in ids)
+    if (ledger.connection.execute(f"SELECT 1 FROM work_items WHERE issue_id NOT IN ({marks}) AND state IN "
+                                  "('queued','running','awaiting_input','awaiting_resource') "
+                                  "AND (state='running' OR worker_pid IS NOT NULL)",
+                                  ids).fetchone()
+            or ledger.connection.execute("SELECT 1 FROM reservations r JOIN work_items w ON w.id=r.item_id "
+                f"WHERE w.issue_id NOT IN ({marks}) AND r.state IN ('active','cancel_requested')", ids).fetchone()):
+        raise LedgerError('settle other issue workers and active resources before scoped resume')
+    ledger._audit('maintenance', KIND, 'operator selected issue acceptance',
+                  details=selected[0] if len(selected) == 1 else {'issues': selected})
+
+
+def resolve(ledger, identifier):
+    from .ledger import LedgerError
     names = [identifier] if isinstance(identifier, str) else identifier
     if (not isinstance(names, list) or not 1 <= len(names) <= 32
             or any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,19}-[0-9]{1,12}', name)
@@ -89,14 +105,4 @@ def select(ledger, identifier):
         if len(rows) != 1:
             raise LedgerError('issue admission requires exactly one known issue for each identifier')
         selected.append({'issue_id': rows[0]['id'], 'identifier': json.loads(rows[0]['metadata'])['identifier']})
-    ids = [entry['issue_id'] for entry in selected]
-    marks = ','.join('?' for _ in ids)
-    if (ledger.connection.execute(f"SELECT 1 FROM work_items WHERE issue_id NOT IN ({marks}) AND state IN "
-                                  "('queued','running','awaiting_input','awaiting_resource') "
-                                  "AND (state='running' OR worker_pid IS NOT NULL)",
-                                  ids).fetchone()
-            or ledger.connection.execute("SELECT 1 FROM reservations r JOIN work_items w ON w.id=r.item_id "
-                f"WHERE w.issue_id NOT IN ({marks}) AND r.state IN ('active','cancel_requested')", ids).fetchone()):
-        raise LedgerError('settle other issue workers and active resources before scoped resume')
-    ledger._audit('maintenance', KIND, 'operator selected issue acceptance',
-                  details=selected[0] if len(selected) == 1 else {'issues': selected})
+    return selected

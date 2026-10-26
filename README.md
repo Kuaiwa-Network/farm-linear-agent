@@ -45,6 +45,10 @@ configured repositories and resources. [Runtime preparation](docs/codex-runtime.
 covers installing a dedicated Codex runtime. Preserve the native sandbox,
 automatic review, Git trust boundary and owned-process containment.
 
+Codex workers use [selective reasoning defaults](references/worker-reasoning.md):
+current chat uses `medium`, current work uses `high`, and explicit per-skill
+`codex_workers` settings take precedence. Existing `xhigh` pins remain effective.
+
 ```powershell
 python -m agent.service configure
 python -m agent.service serve --config C:\FarmBot\config.json
@@ -62,6 +66,20 @@ every optional tool.
 
 Use read-only `doctor`, Monitor, heartbeat and read-only SQLite snapshots for
 live inspection. Constructing a production Ledger can migrate its database.
+
+For investigation on another Mac or PC, `export-diagnostics` creates a private
+ZIP with redacted diagnostics, revision information and selected job history.
+Add `--include-logs` for bounded worker log tails:
+
+```powershell
+python -m agent.service export-diagnostics --config C:\FarmBot\config.json --issue FARM-1 --include-logs --output C:\FarmBotEvidence\FARM-1.zip
+```
+
+Create the output directory first, outside the instance's state root, and choose
+a new filename. On macOS use `python3` and absolute macOS paths. Review the bundle
+before sharing; free-form logs can retain private content. See
+[portable diagnostic exports](docs/development-workflow.md#portable-diagnostic-exports)
+for contents, limits, exit codes and the local debugging workflow.
 
 ## Maintenance and rollout
 
@@ -82,6 +100,14 @@ Wait for fresh `ready_to_stop: true`. Workers preserve progress and reports,
 release resources safely, acknowledge maintenance and exit. Stale heartbeat,
 HTTP health or a dead parent PID cannot prove quiescence. Never remove a lease,
 kill an unverified process or release a busy shared Editor to force readiness.
+
+To let selected issues finish while others cooperatively pause, use
+`python -m agent.service maintenance-pause --config C:\FarmBot\config.json --reason "finish priority work" --except-issue FARM-1`
+on Windows (`python3` on macOS).
+Repeat `--except-issue` for a selected set. Selected claims remain active; other
+workers receive maintenance in renew/resource-status and safely hand off. This is
+not readiness to stop the service. Ordinary `maintenance-resume` removes this pause
+without changing earlier admission restrictions or human-input waits.
 
 After an authorized complete release, verify the actual running revision,
 configuration, worker source and resource health. A selected settled historical
@@ -126,7 +152,8 @@ removed. The manifest, hashes, review reports and derived images are preserved;
 workers keep reports in `STATE_DIR/reports` and refetch expired inputs as needed.
 Custom historical download directories are not inferred or swept.
 
-New workers receive attempt-local `GOCACHE`, `GOTMPDIR` and `FARMBOT_BUILD_ROOT`.
+New workers reuse item-owned `GOCACHE` after verified prior-attempt teardown;
+`GOTMPDIR` and `FARMBOT_BUILD_ROOT` remain attempt-local.
 Only regenerable build outputs belong there; durable evidence belongs elsewhere
 under `state_dir`. Known Codex download caches and the earlier controller-managed
 `server-tests/go-cache` and `server-tests/tmp` also expire. Other historical build
@@ -138,6 +165,7 @@ not change the running instance.
 
 ## Further references
 
+- [FARM-1693 continuation and measured startup timing](docs/diagnostics/2026-10-23-farm1693-continuation.md)
 - [Go dependency preparation](docs/go-dependency-preparation.md)
 - [Current resource and authority boundaries](docs/operating-contract.md#resource-ownership)
 

@@ -299,8 +299,9 @@ def _resource_waits(db, schema, now, beat_state, beat):
 
 
 def _jobs(rows, times, prs, unity_queue, now, beat_state, beat, renew_seconds, resource_waits=None,
-          maintenance=False, admitted=(), only_issue=None, scope_issue_ids=()):
+          maintenance=False, admitted=(), only_issue=None, scope_issue_ids=(), maintenance_except_issues=()):
     waiting = sorted((row for row in rows if _display_state(row, now) == "queued"
+                      and (not maintenance or row['issue_id'] in maintenance_except_issues)
                       and (only_issue is None or row['issue_id'] in scope_issue_ids)),
                      key=lambda row: (row["priority"] if type(row["priority"]) is int else 0,
                                       _time(row["created_at"]) or 0, row["id"]))
@@ -315,7 +316,8 @@ def _jobs(rows, times, prs, unity_queue, now, beat_state, beat, renew_seconds, r
                        if row['state'] == 'awaiting_resource' or display == 'awaiting_resource' else None)
         if server_wait:
             position = server_wait.get("position") or 1
-        if maintenance and row['state'] in ('queued', 'running', 'awaiting_resource'):
+        if (maintenance and row['issue_id'] not in maintenance_except_issues
+                and row['state'] in ('queued', 'running', 'awaiting_resource')):
             display = ('maintenance_handoff' if row['state'] == 'running' or row['worker_pid'] is not None
                        or row['id'] in admitted else 'maintenance_paused')
             position, server_wait = None, None
@@ -501,7 +503,7 @@ def _read_ledger(db, now, beat_state, beat, renew_seconds):
     for row in rows:
         counts[row["state"]] += 1
     service = {}
-    from .maintenance import request as maintenance_request
+    from .maintenance import request as maintenance_request, exceptions as maintenance_exceptions
     from .admission_scope import read as admission_scope, issue_ids, identifiers
     scope = admission_scope(db)
     maintaining = maintenance_request(db) is not None
@@ -517,7 +519,8 @@ def _read_ledger(db, now, beat_state, beat, renew_seconds):
     jobs = _jobs(rows, _audit_times(db, schema, [row["id"] for row in rows]), prs, queue or [], now,
                  beat_state, beat, renew_seconds, _resource_waits(db, schema, now, beat_state, beat),
                  maintenance=maintaining, admitted=admitted, only_issue=', '.join(identifiers(scope)) if scope else None,
-                 scope_issue_ids=issue_ids(scope) if scope else ())
+                 scope_issue_ids=issue_ids(scope) if scope else (),
+                 maintenance_except_issues=[entry['issue_id'] for entry in maintenance_exceptions(db)])
     sections = {"counts": counts, "active": jobs,
                 "slots": None if slots is None else [{key: slot[key] for key in SLOT_FIELDS} for slot in slots],
                 "unity_queue": None if queue is None else len(queue),
