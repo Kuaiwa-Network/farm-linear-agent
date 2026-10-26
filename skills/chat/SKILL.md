@@ -27,6 +27,12 @@ tools: wait on the existing handle for 30 seconds, then 60 seconds while unchang
 Honor earlier renewal/control deadlines and returned changes; never resubmit the
 claim or another pending command to obtain status. This adds no resource authority.
 
+Follow [context/output discipline](../../references/worker-context-output.md):
+reuse the claim's resume context and use `issue-context --view resume` with
+`--if-changed DIGEST` only while its matching context is retained. Preserve live checks and
+required full reads. Keep large read-only investigation logs under `state_dir/reports`
+and return relevant excerpts and paths; this adds no write authority outside state_dir.
+
 Use `download-uploads --out STATE_DIR/uploads` to read both issue attachments and the
 current Project Overview's embedded files/images. It discovers the project from
 the live issue, authenticates downloads, safely extracts ZIPs and records sources.

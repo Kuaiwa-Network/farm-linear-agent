@@ -46,6 +46,12 @@ the existing handle for 30 seconds, then 60 seconds while unchanged. Apply the
 same backoff between read-only status checks. Shorten waits for renewal/control
 deadlines and act immediately on returned changes; never resubmit pending work.
 
+Follow [context/output discipline](../../references/worker-context-output.md):
+reuse the claim's resume context, prefer `issue-context --view resume` for needed
+reads, and use `--if-changed` only with the digest of retained context. Keep live
+authority checks and inspect full evidence when required. Save large command
+logs privately and return focused excerpts with exit status and report paths.
+
 Download issue attachments and the current Project Overview's embedded files/images
 with `download-uploads --out STATE_DIR/uploads`, just as chat does. The helper discovers the
 project from the live issue, handles authentication, safe local names and ZIP

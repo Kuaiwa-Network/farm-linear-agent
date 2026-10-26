@@ -68,6 +68,8 @@ def parser():
     cmd("revalidate", "--item", "--fingerprint", token=True)
     context = cmd("issue-context", "--item")
     context.add_argument("--view", choices=["full", "resume"], default="full")
+    context.add_argument('--if-changed', metavar='DIGEST',
+                         help='with --view resume, return a small receipt when retained context is unchanged')
     cmd("pop-inbox", "--item", token=True)
     dependency = cmd("prepare-go-dependencies", "--item", "--module", "--commit", token=True)
     dependency.add_argument('--repo', help='repository for a single-worker dependency request')
@@ -757,10 +759,12 @@ def run(args, ledger, api_factory):
     if c == "revalidate":
         return ledger.revalidate(args.item, resolve_token(args), args.fingerprint)
     if c == "issue-context":
+        if args.if_changed is not None and args.view != 'resume':
+            raise LedgerError('--if-changed requires --view resume')
         context = ledger.issue_context(args.item)
         if args.view == 'resume':
             from .resume_context import resume_view
-            return resume_view(context)
+            return resume_view(context, if_changed=args.if_changed)
         return context
     if c == "pop-inbox":
         return ledger.pop_inbox(args.item, resolve_token(args))

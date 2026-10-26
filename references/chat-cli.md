@@ -18,10 +18,14 @@ Follow the [bounded polling cadence](worker-polling.md) for pending tool handles
 30 seconds initially, then 60 seconds while unchanged, shortened for earlier
 renewal/control deadlines. Before a claim succeeds, wait only for that same call.
 
+Follow [context/output discipline](worker-context-output.md): reuse the claim's
+resume context, keep required live/full reads, and retain large logs privately.
+Use `--if-changed` only with the digest of context you still have.
+
 | Command | Other arguments / purpose |
 | --- | --- |
 | `fetch-issue` | No token arguments; current Linear facts. |
-| `issue-context` | No token arguments; `--view resume` or `full`. |
+| `issue-context` | No token arguments; prefer `--view resume`, optionally `--if-changed DIGEST` from retained `context_view.digest`. `--view full` remains available and is the CLI default. |
 | `download-uploads` | Claim token file, `--out STATE_DIR/uploads`, optional repeatable `--url UNSIGNED_UPLOAD_URL`; authenticated issue and current Project Overview attachments for read-only investigation. |
 | `upload-image` | Claim token file, `--file ABSOLUTE_PATH`; upload an inspected PNG/JPEG from this item's `state_dir` for a visual answer. Returns `asset_url`, SHA-256, size, content type and dimensions. |
 | `pop-inbox` | Claim token file; attributed current requests. |

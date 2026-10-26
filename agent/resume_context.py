@@ -1,13 +1,38 @@
 """A navigable resume view; complete evidence remains available in issue-context."""
 import copy
+import hashlib
+import json
+import re
 
 
-def resume_view(context):
+def resume_view(context, *, if_changed=None):
     """Keep current authority/decisions intact, index repeated historical evidence.
 
     This is a read projection, never a new fingerprint or an acceptance verdict.
     Unknown authors are retained in full, just like humans.
     """
+    if if_changed is not None and not re.fullmatch(r'[0-9a-f]{64}', if_changed):
+        raise ValueError('if-changed must be a lowercase SHA-256 context digest')
+    # Hash the complete source, including evidence the resume projection omits.
+    # Issue fingerprints alone exclude some context (for example Project Overview).
+    encoded = json.dumps({'view': 'resume-v1', 'context': context}, sort_keys=True,
+                         separators=(',', ':'), ensure_ascii=True, allow_nan=False)
+    digest = hashlib.sha256(encoded.encode('utf-8')).hexdigest()
+    metadata = {
+        'name': 'resume', 'digest': digest, 'unchanged': digest == if_changed,
+        'complete_view': 'issue-context --item ITEM --view full',
+        'requires_full_view': bool((context.get('handoff') or {}).get('stale')),
+    }
+    if metadata['unchanged']:
+        return {
+            'context_view': {**metadata, 'guidance': (
+                'Reuse only the retained context with this digest. If it is unavailable, read resume '
+                'again without --if-changed. This compares stored context only; it does not fetch live '
+                'issue facts, renew a claim, check maintenance or approve any action.')},
+            'coordination': copy.deepcopy(context.get('coordination')),
+            'fingerprint': context.get('fingerprint'),
+            'inbox_pending': context.get('inbox_pending'),
+        }
     result = copy.deepcopy(context)
     omitted = []
     for index, comment in enumerate(result.get('issue', {}).get('comments', [])):
@@ -27,9 +52,7 @@ def resume_view(context):
                 task['checkpoint_available'] = True
                 omitted.append(f'{group}[{index}].checkpoint')
     result['context_view'] = {
-        'name': 'resume', 'omitted_paths': omitted,
-        'complete_view': 'issue-context --item ITEM --view full',
-        'requires_full_view': bool((result.get('handoff') or {}).get('stale')),
+        **metadata, 'omitted_paths': omitted,
         'guidance': ('Read full context when the handoff is stale, a decision refers to omitted bot text, '
                      'or a needed task/history fact is missing. No omitted field is a passed check. '
                      'Current requirements, human/unknown comments, messages and questions are retained.')}
