@@ -7,7 +7,7 @@ from .attention import QUESTION_KEY, question_notice, questions
 
 
 def prepare(ledger, item_id, token, body, bot_name):
-    """Reserve the round before posting. Retries and partial answers reuse its comment."""
+    """Reserve the round before posting. Changed text gets a durable reply in the original thread."""
     from .ledger import _text
     _text(body, 'question')
     with ledger._transaction():
@@ -24,14 +24,62 @@ def prepare(ledger, item_id, token, body, bot_name):
         elif question['id'].startswith('legacy-'):
             question['id'] = str(uuid4())  # Freeze the legacy reply floor before another park.
         question.setdefault('comment_request_id', 'question-' + hashlib.sha256(question['id'].encode()).hexdigest()[:32])
+        request_ids = [question['comment_request_id'], *question.get('comment_followup_request_ids', [])]
+        if ledger.notice(item_id, request_ids[0]) is None:
+            rendered = question_notice(ledger, ledger._view(row), question['body'], bot_name, comment_thread=True)
+            ledger._prepare_notice(row, 'question', request_ids[0], rendered)
+        if body.strip().replace('\r\n', '\n') != question['body'].strip().replace('\r\n', '\n'):
+            # Chain revisions so a retry reuses its notice, while A -> B -> A is a real new clarification.
+            request_id = 'question-followup-' + hashlib.sha256(
+                (request_ids[-1] + '\n' + body).encode()).hexdigest()[:40]
+            rendered = question_notice(ledger, ledger._view(row), body, bot_name, comment_thread=True)
+            ledger._prepare_notice(row, 'question', request_id, rendered)
+            request_ids.append(request_id)
+            question['comment_followup_request_ids'] = request_ids[1:]
+            question['body'] = body
         checkpoint[QUESTION_KEY] = question
+        checkpoint['pending_question'] = question['body']
+        checkpoint['pending_reason'] = 'question'
         ledger.connection.execute('UPDATE work_items SET checkpoint=?,updated_at=? WHERE id=?',
                                   (json.dumps(checkpoint, ensure_ascii=False), ledger.clock(), item_id))
-    notice = ledger.notice(item_id, question['comment_request_id'])
-    if notice is not None:
-        return notice  # Keep its exact body/mentions when retrying after a changed owner or a partial reply.
-    rendered = question_notice(ledger, ledger.item(item_id), question['body'], bot_name, comment_thread=True)
-    return ledger.prepare_notice(item_id, token, 'question', question['comment_request_id'], rendered)
+        return [ledger.notice(item_id, request_id) for request_id in request_ids]
+
+
+def point_to_question(ledger, api, item_id, token, notice, bot_name):
+    """Keep one session pointer per revision, with a saved ID for ambiguous sends."""
+    from .ledger import LedgerError
+    with ledger._transaction():
+        row = ledger._owned(item_id, token)
+        ledger._refuse_withdrawn(row)
+        if str(row['session_id']).startswith('local-'):
+            return
+        checkpoint = json.loads(row['checkpoint'])
+        question = checkpoint.get(QUESTION_KEY)
+        if not question or notice['request_id'] != (
+                question.get('comment_followup_request_ids') or [question.get('comment_request_id')])[-1]:
+            raise LedgerError('question round changed before session pointer')
+        pointer = question.get('comment_activity')
+        if not pointer or pointer['request_id'] != notice['request_id']:
+            url = ledger.issue(row['issue_id'])['url'] + '#comment-' + notice['remote_id']
+            prefix = '剩余问题已补充到原' if question.get('comment_followup_request_ids') else '问题已发布到'
+            pointer = {'id': str(uuid4()), 'request_id': notice['request_id'], 'sent': False,
+                       'body': f'{prefix} [issue 评论]({url})。各负责人可分别回复问题评论；'
+                               f'大家答完后，由任意一人 @{bot_name} 告知检查并继续，无需汇总到会话。'}
+            question['comment_activity'] = pointer
+            ledger.connection.execute('UPDATE work_items SET checkpoint=?,updated_at=? WHERE id=?',
+                (json.dumps(checkpoint, ensure_ascii=False), ledger.clock(), item_id))
+        if pointer['sent']:
+            return
+    api.create_activity(row['session_id'], {'type': 'elicitation', 'body': pointer['body']},
+                        activity_id=pointer['id'])
+    with ledger._transaction():
+        row = ledger._owned(item_id, token)
+        checkpoint = json.loads(row['checkpoint'])
+        current = checkpoint.get(QUESTION_KEY)
+        if current and (current.get('comment_activity') or {}).get('id') == pointer['id']:
+            current['comment_activity']['sent'] = True
+            ledger.connection.execute('UPDATE work_items SET checkpoint=?,updated_at=? WHERE id=?',
+                (json.dumps(checkpoint, ensure_ascii=False), ledger.clock(), item_id))
 
 
 def _in_thread(comment, root_id, comments):

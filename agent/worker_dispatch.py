@@ -172,6 +172,9 @@ the bot to ask it to review and continue; no collected session answer is needed.
 work. A mention or session reply imports accumulated attributed answers. On resume keep an answered/unanswered list
 and the actual inbox message IDs in the checkpoint. Partial replies do not resolve the entire round: complete
 only authorized independent work, then await-input again for the remainder, reusing the original comment/round.
+In the follow-up text, acknowledge accepted answers, name exactly the remaining required inputs and label optional
+information. Changed text is posted as a reply in the original thread; unchanged retries reuse its notice.
+An "already answered" message means review prior answers; it does not supply missing facts.
 Call resolve-question only when every question in that round has an actual answer, citing replies across resumes.
 Silence, elapsed time and a general instruction to develop never answer an unresolved question. Explicit required
 approval still applies at any confidence; never present your high-confidence assessment as a person's approval.

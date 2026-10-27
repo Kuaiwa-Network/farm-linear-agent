@@ -329,6 +329,16 @@ class LinearAPITests(unittest.TestCase):
         self.assertEqual((sent["id"], sent["agentSessionId"], sent["content"]["type"]), ("ack-1", "session-1", "thought"))
         self.assertEqual(api.create_comment("10000000-0000-4000-8000-000000000001", "已开始处理"), "com-1")
 
+    def test_comment_followup_sets_parent_without_changing_root_comment_payload(self):
+        response = {"data": {"commentCreate": {"success": True, "comment": {"id": "reply"}}}}
+        api = self.api({"FarmBotComment": [response, response]})
+        api.create_comment("issue", "Original question")
+        self.assertEqual(self.http.calls[-1][2]['variables']['input'],
+                         {'issueId': 'issue', 'body': 'Original question'})
+        self.assertEqual(api.create_comment("issue", "Remaining input", parent_id="root"), "reply")
+        self.assertEqual(self.http.calls[-1][2]['variables']['input'],
+                         {'issueId': 'issue', 'body': 'Remaining input', 'parentId': 'root'})
+
     def test_fetch_issue_paginates_and_normalizes(self):
         first = [{"id": "c1", "body": "human text", "createdAt": "2026-09-18T01:00:00.000Z", "updatedAt": "2026-09-18T01:00:00.000Z",
                   "user": {"id": "u1"}, "botActor": None}]
@@ -637,6 +647,14 @@ class LinearAPITests(unittest.TestCase):
 
 
 class StubLinearTests(unittest.TestCase):
+    def test_stub_records_the_parent_of_a_question_followup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            stub = StubLinear(directory)
+            stub.create_comment('issue', 'Only Q2 remains', parent_id='root')
+            call = json.loads((Path(directory) / 'calls.jsonl').read_text(encoding='utf-8'))
+            self.assertEqual(call['parent_id'], 'root')
+            self.assertEqual(call['body'], 'Only Q2 remains')
+
     def test_the_stub_answers_a_session_state_from_its_directory_or_a_closed_thread(self):
         """The offline double (FARMBOT_LINEAR_STUB_DIR) reads a thread's state as it reads the issue: from a file of
         its directory, `session-state.json`, which answers for every thread. Without one a thread reads complete and

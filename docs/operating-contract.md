@@ -397,15 +397,29 @@ This needs a controller release, with no schema migration or automatic rewrite o
 historical stale sessions. Rollback restores the old acknowledgement behavior.
 
 Partial replies preserve the question ID, original comment, reply floor and
-earlier answers across checkpoint/resume/park. The worker records which questions
-remain, and resolves the round only when all have actual answers; receiving a
-comment is not automatic semantic approval. Session replies and comment @mentions
-remain supported. Existing session-only questions stay answerable that way; an
+earlier answers across checkpoint/resume/park. When re-asking, the worker acknowledges
+accepted answers, names exactly the remaining required inputs and labels optional
+information. Changed text is published as a follow-up reply under the original
+comment, with the current question text and its immutable outbox notice saved in
+one transaction. Previously prepared replies are reconciled in order before a newer
+revision; a lost response is recovered by its marker in that same thread. Identical
+retries (ignoring outer whitespace and CRLF/LF) reuse the notice and session pointer;
+an ambiguous pointer send retains its activity ID. The original comment is never
+rewritten, and replies under follow-ups retain the same round and attribution.
+The round resolves only when all questions have actual answers; a generic “already
+answered” request calls for reviewing prior answers and supplies no missing fact.
+Receiving a comment is not automatic semantic approval. Session replies and comment
+@mentions remain supported. Existing session-only questions stay answerable that way; an
 owner re-asking one under this release gives it a comment thread. Chat and staged
 historical jobs keep their existing path. No database migration is required:
 thread and reply references use the existing checkpoint, notices, inbox and audit.
-Older releases do not import these thread answers; rollback preserves the question
-but answers then need to be sent in a session reply or @mention until restored.
+Follow-up revisions and pointer receipts also use that existing storage. This does
+not republish or resume already parked issues automatically; the changed CLI and
+worker guidance require an authorized release and normal continuation. Settle
+pending publication before rollback: older releases can retain this round and its
+replies but cannot publish revised text or complete its pending follow-up notices.
+Releases predating comment-thread support require answers in a session reply or
+@mention until restored.
 
 This review is a worker instruction and reporting requirement, not an automated
 semantic confidence judge. Existing question/claim/delivery fences remain in force;

@@ -37,11 +37,11 @@ class QuestionThreadTests(LedgerBase):
     def checkpoint(self):
         self.ledger.checkpoint(self.item, self.token, {'summary': 'Saved work', 'handoff': 'Continue retained work'})
 
-    def post(self, issue_id, body):
+    def post(self, issue_id, body, *, parent_id=None):
         self.assertEqual(issue_id, ISSUE)
         count = sum(c['id'].startswith('root') for c in self.card['comments'])
         key = f'root-{count + 1}' if count else 'root'
-        self.card['comments'].append(self.comment(key, body, kind='bot', author=None, parent=None))
+        self.card['comments'].append(self.comment(key, body, kind='bot', author=None, parent=parent_id))
         return key
 
     def comment(self, key, body='Q1: daily', *, parent='root', author=OWNER, kind='human', minute=1):
@@ -94,30 +94,48 @@ class QuestionThreadTests(LedgerBase):
         self.assertNotIn('Q1: reset period?', self.api.create_activity.call_args.args[1]['body'])
 
     def test_two_people_answer_separately_without_losing_first_answer(self):
+        self.ledger.push_inbox(self.item, 'Old unrelated approval', author=OWNER)
+        self.ledger.pop_inbox(self.item, self.token)
+        old = self.ledger.issue_context(self.item)['session_messages'][-1]['id']
         self.ask()
         question = self.ledger.human_question(self.item)
+        self.assertEqual(question['after_message_id'], old)
         self.card['comments'].append(self.comment('answer-1'))
         collect_replies(self.ledger, self.api, ISSUE)
         first = self.messages()[-1]
         self.assertEqual(first['author'], OWNER)
         self.assertEqual(self.ledger.item(self.item)['state'], 'awaiting_input')
         self.resume()
-        self.ask('Only Q2 remains: which asset?')
+        root_body = self.card['comments'][0]['body']
+        clarification = 'Q1 accepted: daily. Only Q2 remains: which asset?'
+        self.ask(clarification)
         self.assertEqual(self.ledger.item(self.item)['state'], 'awaiting_input')
         self.assertEqual(self.ledger.human_question(self.item)['id'], question['id'])
         self.assertEqual(self.ledger.human_question(self.item)['after_message_id'], question['after_message_id'])
-        self.api.create_comment.assert_called_once()
-        self.card['comments'].append(self.comment('answer-2', 'Q2: approved asset A', author=DESIGNER))
+        self.assertEqual(self.api.create_comment.call_count, 2)
+        self.assertEqual(self.card['comments'][0]['body'], root_body)
+        followup = self.card['comments'][-1]
+        self.assertEqual(followup['parent_id'], 'root')
+        self.assertIn(clarification, followup['body'])
+        current = self.ledger.human_question(self.item)
+        self.assertEqual(current['body'], clarification)
+        self.assertIn('answer-1', current['comment_reply_versions'])
+        self.assertEqual(current['comment_request_id'], question['comment_request_id'])
+        self.assertIn('#comment-' + followup['id'], self.api.create_activity.call_args.args[1]['body'])
+        self.card['comments'].append(self.comment('answer-2', 'Q2: approved asset A', author=DESIGNER,
+                                                   parent=followup['id']))
         collect_replies(self.ledger, self.api, ISSUE)
         second = self.messages()[-1]
         self.assertEqual(second['author'], DESIGNER)
         self.resume()
         self.assertIsNotNone(self.ledger.human_question(self.item))
+        with self.assertRaisesRegex(LedgerError, 'actual attributed human replies'):
+            self.ledger.resolve_question(self.item, self.token, question['id'], [old])
         self.ledger.resolve_question(self.item, self.token, question['id'], [first['id'], second['id']])
         self.assertIsNone(self.ledger.human_question(self.item))
         self.ask('New question round')
         self.assertNotEqual(self.ledger.human_question(self.item)['id'], question['id'])
-        self.assertEqual(self.api.create_comment.call_count, 2)
+        self.assertEqual(self.api.create_comment.call_count, 3)
         collect_replies(self.ledger, self.api, ISSUE)
         self.assertEqual(self.ledger.item(self.item)['state'], 'awaiting_input')
         self.assertEqual(len(self.messages()), 2)  # Old-thread replies cannot answer this new round.
@@ -165,7 +183,7 @@ class QuestionThreadTests(LedgerBase):
         self.assertEqual(self.ledger.item(self.item)['state'], 'awaiting_input')
 
     def test_reply_between_comment_and_park_is_not_stranded(self):
-        def reply_during_pointer(*_):
+        def reply_during_pointer(*_, **kwargs):
             self.card['comments'].append(self.comment('fast-answer'))
             self.api.create_activity.side_effect = None
             self.trigger()
@@ -320,7 +338,7 @@ class QuestionThreadTests(LedgerBase):
         self.resume()
         self.ledger.resolve_question(self.item, self.token, question['id'], [first['id'], self.messages()[-1]['id']])
         self.assertIsNone(self.ledger.human_question(self.item))
-        self.api.create_comment.assert_called_once()
+        self.assertEqual(self.api.create_comment.call_count, 2)
 
     def test_mention_without_an_answer_does_not_resolve_the_question(self):
         self.ask()
@@ -343,3 +361,221 @@ class QuestionThreadTests(LedgerBase):
         self.trigger()
         self.assertEqual(self.messages(), [])
         self.assertEqual(self.ledger.item(self.item)['state'], 'awaiting_input')
+
+    def test_unchanged_reasks_do_not_repeat_comments_or_session_pointers(self):
+        for body in ('Initial question?', 'Only client build remains; logs are optional.'):
+            self.ask(body)
+            posts = self.api.create_comment.call_count
+            pointers = self.api.create_activity.call_count
+            for repeat in (body, '  ' + body + '\r\n'):
+                self.resume()
+                self.ask(repeat)
+                self.assertEqual(self.api.create_comment.call_count, posts)
+                self.assertEqual(self.api.create_activity.call_count, pointers)
+            self.resume()
+
+    def test_followup_notice_and_question_update_roll_back_together(self):
+        self.ask()
+        self.resume()
+        before = self.ledger.item(self.item)['checkpoint']
+        notices = self.ledger.notices(self.item)
+        original = self.ledger._prepare_notice
+        def failed(*args):
+            original(*args)
+            raise RuntimeError('crash before checkpoint commit')
+        with patch.object(self.ledger, '_prepare_notice', side_effect=failed):
+            with self.assertRaisesRegex(RuntimeError, 'before checkpoint'):
+                self.ask('Only client build remains')
+        self.assertEqual(self.ledger.item(self.item)['checkpoint'], before)
+        self.assertEqual(self.ledger.notices(self.item), notices)
+        self.assertEqual(self.api.create_comment.call_count, 1)
+        self.ask('Only client build remains')
+        self.assertEqual(self.api.create_comment.call_count, 2)
+
+    def test_lost_followup_response_reconciles_after_reopen_without_losing_answers(self):
+        self.ask()
+        self.card['comments'].append(self.comment('answer'))
+        collect_replies(self.ledger, self.api, ISSUE)
+        first = self.messages()[0]
+        self.resume()
+        question = self.ledger.human_question(self.item)
+        def ambiguous(issue_id, body, **kwargs):
+            self.post(issue_id, body, **kwargs)
+            raise TimeoutError('lost follow-up response')
+        self.api.create_comment.side_effect = ambiguous
+        body = 'Q1 accepted: daily. Q2 still needs an asset.'
+        with self.assertRaises(TimeoutError):
+            self.ask(body)
+        self.ledger = self.open_ledger()
+        self.api.create_comment.side_effect = self.post
+        self.ask(body)
+        self.assertEqual(self.api.create_comment.call_count, 2)
+        self.assertEqual(self.ledger.item(self.item)['state'], 'awaiting_input')
+        current = self.ledger.human_question(self.item)
+        for key in ('id', 'after_message_id', 'comment_request_id', 'comment_reply_versions'):
+            self.assertEqual(current[key], question[key])
+        collect_replies(self.ledger, self.api, ISSUE)
+        self.assertEqual(self.messages(), [first])
+        self.assertEqual(self.ledger.item(self.item)['checkpoint']['pending_question'], body)
+
+    def test_prepared_followups_survive_restart_and_a_further_revision(self):
+        self.ask()
+        self.resume()
+        prepare(self.ledger, self.item, self.token, 'Remaining Q2 and Q3', 'TestBot')
+        self.ledger = self.open_ledger()
+        self.ask('Q2 accepted; only Q3 remains')
+        self.assertEqual(self.api.create_comment.call_count, 3)
+        self.assertIn('Remaining Q2 and Q3', self.card['comments'][1]['body'])
+        self.assertIn('Q2 accepted; only Q3 remains', self.card['comments'][2]['body'])
+        self.assertEqual([c['parent_id'] for c in self.card['comments']], [None, 'root', 'root'])
+        self.assertEqual(len(self.ledger.notices(self.item)), 3)
+
+    def test_lost_followup_pointer_response_reuses_saved_activity_id_and_body(self):
+        self.ask()
+        self.resume()
+        self.api.create_activity.side_effect = TimeoutError('lost pointer response')
+        with self.assertRaises(TimeoutError):
+            self.ask('Only Q2 remains')
+        failed = self.api.create_activity.call_args
+        self.ledger = self.open_ledger()
+        self.api.create_activity.side_effect = None
+        with patch('agent.__main__.configured_bot_name', return_value='ChangedBot'):
+            # Direct prepare exercises immutable rendering even if the owner/bot name changed on retry.
+            prepare(self.ledger, self.item, self.token, 'Only Q2 remains', 'ChangedBot')
+        self.ask('Only Q2 remains')
+        self.assertEqual(self.api.create_activity.call_args, failed)
+        self.assertEqual(self.api.create_comment.call_count, 2)
+        self.assertTrue(self.ledger.human_question(self.item)['comment_activity']['sent'])
+
+    def test_crash_after_followup_pointer_before_park_does_not_repeat_it(self):
+        self.ask()
+        self.resume()
+        with patch.object(self.ledger, 'await_input', side_effect=RuntimeError('crash before park')):
+            with self.assertRaises(RuntimeError):
+                self.ask('Only Q2 remains')
+        pointers = self.api.create_activity.call_count
+        self.ledger = self.open_ledger()
+        self.ask('Only Q2 remains')
+        self.assertEqual(self.api.create_activity.call_count, pointers)
+        self.assertEqual(self.api.create_comment.call_count, 2)
+        self.assertEqual(self.ledger.item(self.item)['state'], 'awaiting_input')
+
+    def test_already_answered_message_does_not_supply_missing_client_version(self):
+        self.ask('Q1 server commit? Q2 client build/version?')
+        question = self.ledger.human_question(self.item)
+        self.card['comments'].append(self.comment('server-answer', 'Q1: server commit abc123'))
+        self.trigger()
+        self.resume()
+        self.ledger.push_inbox(self.item, 'Already answered', author=OWNER)
+        self.ledger.pop_inbox(self.item, self.token)
+        self.checkpoint()
+        body = 'Q1 accepted: server commit abc123. Q2: client build/version or explicit unavailability; logs optional.'
+        self.ask(body)
+        current = self.ledger.human_question(self.item)
+        self.assertEqual(current['id'], question['id'])
+        self.assertEqual(current['after_message_id'], question['after_message_id'])
+        self.assertEqual(current['body'], body)
+        self.assertIn(body, self.card['comments'][-1]['body'])
+        self.assertEqual(self.messages()[0]['author'], OWNER)
+        self.assertEqual(self.ledger.item(self.item)['state'], 'awaiting_input')
+        self.assertFalse(self.ledger.connection.execute(
+            "SELECT 1 FROM audit WHERE item_id=? AND kind='question_resolved'", (self.item,)).fetchone())
+
+    def test_missing_original_thread_refuses_followup_and_retains_it_for_retry(self):
+        self.ask()
+        self.resume()
+        root = self.card['comments'].pop()
+        with self.assertRaisesRegex(LedgerError, 'original question comment is missing'):
+            self.ask('Only Q2 remains')
+        self.assertEqual(self.api.create_comment.call_count, 1)
+        self.card['comments'].append(root)
+        self.ask('Only Q2 remains')
+        self.assertEqual(self.api.create_comment.call_count, 2)
+
+    def test_followup_marker_in_other_thread_is_not_confirmed_or_reposted(self):
+        self.ask()
+        self.resume()
+        notice = prepare(self.ledger, self.item, self.token, 'Only Q2 remains', 'TestBot')[-1]
+        self.card['comments'].append(self.comment('wrong-thread', notice['body'], parent=None))
+        with self.assertRaisesRegex(LedgerError, 'outside its original thread'):
+            self.ask('Only Q2 remains')
+        self.assertIsNone(self.ledger.notice(self.item, notice['request_id'])['remote_id'])
+        self.assertEqual(self.api.create_comment.call_count, 1)
+
+    def test_stop_during_followup_publication_read_prevents_new_comment(self):
+        self.ask()
+        self.resume()
+        def stopped(_):
+            self.ledger.cancel(self.item, 'Stopped during follow-up read')
+            return copy.deepcopy(self.card)
+        self.api.fetch_issue.side_effect = stopped
+        with self.assertRaisesRegex(LedgerError, 'running claim'):
+            self.ask('Only Q2 remains')
+        self.assertEqual(self.api.create_comment.call_count, 1)
+        self.assertEqual(self.ledger.item(self.item)['state'], 'cancelled')
+
+    def test_legacy_session_question_freezes_original_reply_floor_when_getting_a_thread(self):
+        self.ledger.push_inbox(self.item, 'Older decision', author=OWNER)
+        self.ledger.pop_inbox(self.item, self.token)
+        old = self.ledger.issue_context(self.item)['session_messages'][-1]['id']
+        self.now += 1
+        self.ledger.await_input(self.item, self.token, 'Q1 server? Q2 client?')
+        self.ledger.connection.execute(
+            "UPDATE work_items SET checkpoint=json_remove(checkpoint,'$.human_question') WHERE id=?", (self.item,))
+        self.now += 1
+        self.resume()
+        legacy = self.ledger.human_question(self.item)
+        self.assertTrue(legacy['id'].startswith('legacy-'))
+        self.assertEqual(legacy['after_message_id'], old)
+        self.ask('Server accepted. Only client remains.')
+        current = self.ledger.human_question(self.item)
+        self.assertFalse(current['id'].startswith('legacy-'))
+        self.assertEqual(current['after_message_id'], old)
+        self.assertIn('Q1 server? Q2 client?', self.card['comments'][0]['body'])
+        self.assertIn('Only client remains', self.card['comments'][1]['body'])
+        self.assertEqual(self.card['comments'][1]['parent_id'], 'root')
+        self.resume()
+        self.ask('Server accepted. Only client remains.')
+        self.assertEqual(self.ledger.human_question(self.item)['id'], current['id'])
+        self.assertEqual(self.api.create_comment.call_count, 2)
+
+    def test_reverting_text_is_a_new_revision_without_replacing_original_thread(self):
+        self.ask('Q1? Q2?')
+        root = self.ledger.human_question(self.item)
+        self.resume()
+        self.ask('Only Q2 remains')
+        self.resume()
+        self.ask('Q1? Q2?')
+        self.assertEqual(self.api.create_comment.call_count, 3)
+        self.assertEqual(self.card['comments'][-1]['parent_id'], 'root')
+        self.assertIn('Q1? Q2?', self.card['comments'][-1]['body'])
+        self.assertEqual(self.ledger.human_question(self.item)['id'], root['id'])
+
+    def test_already_posted_followup_is_recorded_even_if_stop_arrives_during_retry(self):
+        self.ask()
+        self.resume()
+        notice = prepare(self.ledger, self.item, self.token, 'Only Q2 remains', 'TestBot')[-1]
+        remote_id = self.post(ISSUE, notice['body'], parent_id='root')
+        def stopped(_):
+            self.ledger.cancel(self.item, 'Stopped while reconciling a lost response')
+            return copy.deepcopy(self.card)
+        self.api.fetch_issue.side_effect = stopped
+        with self.assertRaisesRegex(LedgerError, 'running claim'):
+            self.ask('Only Q2 remains')
+        self.assertEqual(self.ledger.notice(self.item, notice['request_id'])['remote_id'], remote_id)
+        self.assertEqual(self.api.create_comment.call_count, 1)
+        self.assertEqual(self.ledger.item(self.item)['state'], 'cancelled')
+
+    def test_resolved_round_cannot_publish_an_old_session_pointer(self):
+        from agent.question_threads import point_to_question
+        self.ask()
+        self.resume()
+        question = self.ledger.human_question(self.item)
+        self.ledger.push_inbox(self.item, 'Q1: daily. Q2: asset A.', author=OWNER)
+        mid = self.ledger.issue_context(self.item)['session_messages'][-1]['id']
+        self.ledger.resolve_question(self.item, self.token, question['id'], [mid])
+        notice = self.ledger.notice(self.item, question['comment_request_id'])
+        pointers = self.api.create_activity.call_count
+        with self.assertRaisesRegex(LedgerError, 'question round changed'):
+            point_to_question(self.ledger, self.api, self.item, self.token, notice, 'TestBot')
+        self.assertEqual(self.api.create_activity.call_count, pointers)
