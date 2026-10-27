@@ -19,7 +19,7 @@ STALE_AFTER = 60.0
 # and so can the replace itself. The one retry of such a read, or of serve's final beat, waits this long.
 RETRY_AFTER = 0.1
 MAX_BYTES = 64 * 1024
-LOOPS = ("receive", "schedule", "pool", "lifecycle", "progress", "resource_recovery", "server_pool", "worker_retention", "review")
+LOOPS = ("receive", "schedule", "pool", "lifecycle", "progress", "resource_recovery", "server_pool", "worker_retention", "review", "version_labels")
 PHASES = ("starting", "serving", "stopped")
 OUTCOMES = ("accepted", "duplicate", "ignored", "rejected", "malformed", "failed")
 _ERROR_TYPE = re.compile(r"[A-Za-z_][A-Za-z0-9_.]{0,63}")

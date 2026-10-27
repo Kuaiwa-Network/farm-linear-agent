@@ -85,6 +85,9 @@ contains all of the issue's own table changes; a digest is not that proof.
 
 ## Remaining implementation and rollout limits
 
+- Review currently targets repository default branches. Deliveries targeting a
+  version/release branch use human handoff; the existing version-target publication
+  checks remain in force.
 - `github_queue` is a **shadow-only merge backend**. Squash and rebase remain
   configured with that backend; their native merge-group review/CI attestation and
   promotion integration are not implemented. The ordinary GitHub merge API is not
@@ -263,3 +266,10 @@ the repository's pinned Pillow dependency:
   local documentation links were checked.
 
 No live Linear issues, GitHub PRs, production services or shared Editors were changed.
+
+Before opening the draft PR, the branch was integrated with `main` at `f03370e`.
+The post-integration Windows checks passed: 59 review tests, 53 service tests
+(two platform skips), 276 configuration/dispatch/heartbeat/skills/monitor/single-worker/
+version-target tests (three platform skips), 32 publication tests, and 10 native
+Windows worker tests. Python compilation, JavaScript syntax and whitespace checks
+also passed. The full offline suite was not rerun after this integration.

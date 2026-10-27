@@ -10,9 +10,11 @@ from pathlib import Path
 import re
 import stat
 import subprocess
+import time
 
 from .fgui_approval import source_digest
 from .fgui_export import _package, _RESERVED
+from .fgui_git import run as run_git
 from .fgui_publisher import _environment, _xml
 from .ledger import LedgerError
 from .preview_upload import _plain_path
@@ -22,6 +24,9 @@ from .worktrees import HOOKS_OFF, READ_ONLY_GIT
 MAX_SOURCE_FILES = 20000
 MAX_SOURCE_BYTES = 512 << 20
 MAX_SOURCE_FILE_BYTES = 64 << 20
+HASH_BATCH_FILES = 128
+HASH_BATCH_BYTES = 8 << 20
+HASH_TOTAL_SECONDS = 300
 _POINTER = re.compile(rb"version https://git-lfs.github.com/spec/v1\r?\noid sha256:([0-9a-f]{64})\r?\nsize ([0-9]+)\r?\n?\Z")
 
 
@@ -34,7 +39,11 @@ def _name(name):
     return name
 
 
-def _git(trees, path, args, data=None, *, limit=4 << 20, repo="farmgui"):
+class _GitReadTimeout(LedgerError):
+    """Only a completed timeout cleanup can be retried by the hash batcher."""
+
+
+def _git(trees, path, args, data=None, *, limit=4 << 20, repo="farmgui", timeout=60):
     # Explicit repo identity prevents the worker-controlled .git pointer or
     # commondir from selecting another clone, config or process hook.
     entry = trees.worktree_entry(repo, path)
@@ -43,14 +52,58 @@ def _git(trees, path, args, data=None, *, limit=4 << 20, repo="farmgui"):
            "GIT_NO_LAZY_FETCH": "1", "GIT_NO_REPLACE_OBJECTS": "1", "GIT_CONFIG_COUNT": "0",
            "GIT_TERMINAL_PROMPT": "0", "GIT_LFS_SKIP_SMUDGE": "1"}
     native = ("-c", "core.longpaths=true") if os.name == "nt" else ()
+    command = ["git", *HOOKS_OFF, *native, *READ_ONLY_GIT, *args]
     try:
-        result = subprocess.run(["git", *HOOKS_OFF, *native, *READ_ONLY_GIT, *args], cwd=path, env=env,
-                                input=data, capture_output=True, timeout=60)
-    except (OSError, subprocess.TimeoutExpired):
-        raise LedgerError("UI source Git read is unavailable or timed out") from None
+        if args == ["hash-object", "--stdin-paths"]:
+            result = run_git(command, cwd=path, env=env, data=data, timeout=timeout, limit=limit)
+        else:
+            # These reads are not retried. Keep their existing execution path;
+            # nested Job startup for each small metadata query is expensive.
+            result = subprocess.run(command, cwd=path, env=env, input=data,
+                                    capture_output=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise _GitReadTimeout(f"UI source Git {args[0]} timed out") from None
+    except OSError:
+        raise LedgerError(f"UI source Git {args[0]} is unavailable") from None
     if result.returncode or len(result.stdout) > limit:
         raise LedgerError("UI source Git read failed or exceeded its bounded inventory")
     return result.stdout
+
+
+def _normalized_objects(trees, path, entries, stamps, pointers):
+    # Materialized LFS bytes were already checked against their committed
+    # pointers. Rehashing them with filters disabled produces unused blob IDs.
+    batches, batch, size = [], [], 0
+    for name in sorted(entries):
+        if name in pointers:
+            continue
+        length = stamps[name][2]
+        if batch and (len(batch) >= HASH_BATCH_FILES or size + length > HASH_BATCH_BYTES):
+            batches.append(batch); batch, size = [], 0
+        batch.append(name); size += length
+    if batch:
+        batches.append(batch)
+    deadline = time.monotonic() + HASH_TOTAL_SECONDS
+    for number, names in enumerate(batches, 1):
+        for attempt in range(2):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise LedgerError("UI source Git normalization exceeded its total time budget")
+            try:
+                raw = _git(trees, path, ["hash-object", "--stdin-paths"],
+                           ("\n".join(names) + "\n").encode("utf-8"), timeout=min(60, remaining))
+                break
+            except _GitReadTimeout:
+                if attempt:
+                    raise LedgerError(f"UI source Git hash batch {number}/{len(batches)} timed out after two attempts") from None
+        if time.monotonic() > deadline:
+            raise LedgerError("UI source Git normalization exceeded its total time budget")
+        try:
+            objects = raw.decode("ascii").splitlines()
+        except UnicodeDecodeError:
+            raise LedgerError("UI source Git hash inventory is malformed") from None
+        if len(objects) != len(names) or any(oid != entries[name][1] for name, oid in zip(names, objects)):
+            raise LedgerError("UI source has uncommitted tracked changes or an incomplete Git hash inventory")
 
 
 def _tree(data):
@@ -190,9 +243,7 @@ def owned_source(trees, item_id, branch, packages, *, expected_head):
                 raise LedgerError("UI source materialized LFS input differs from its committed pointer")
     # Disabled LFS process/clean filters leave Git's safe native CRLF/text
     # normalization intact. Unknown filters were refused above, never executed.
-    objects = _git(trees, path, ["hash-object", "--stdin-paths"], ("\n".join(names) + "\n").encode("utf-8")).decode("ascii").splitlines()
-    if len(objects) != len(names) or any(oid != entries[name][1] for name, oid in zip(names, objects) if name not in pointers):
-        raise LedgerError("UI source has uncommitted tracked changes")
+    _normalized_objects(trees, path, entries, stamps, pointers)
     if identity() != entries or _index(_git(trees, path, ["ls-files", "--stage", "-z"])) != entries:
         raise LedgerError("UI source Git identity changed during snapshot")
     if any(_stamp(path / name) != value for name, value in stamps.items()):

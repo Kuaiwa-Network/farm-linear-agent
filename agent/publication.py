@@ -182,6 +182,18 @@ class PublicationVerifier:
 
     def _verify(self, repo, item_id, identifier, branch, suffix_roles=False, require_main=False):
         prefix = issue_branch(identifier, self.issue_prefix)
+        from .version_targets import TargetError, Store
+        target = None
+        ledger = getattr(self.worktrees, 'ledger', None)
+        if ledger is not None:
+            try:
+                saved = Store(ledger).current(item_id)
+                if saved:
+                    target = saved['repositories'].get(repo)
+                    if target is None:
+                        raise TargetError('repository is not part of the saved target')
+            except TargetError as exc:
+                raise PublicationError(str(exc)) from exc
         configured = self.worktrees.remotes.get(repo)
         expected = github_repository(configured)
         root = self.worktrees.worktrees_root.resolve()
@@ -196,7 +208,7 @@ class PublicationVerifier:
 
         def git(*args):
             # The repository named explicitly (plan P10): the controller runs this check at every launch.
-            return self.worktrees.git_in(path, *args)
+            return self.worktrees.git_in(path, *args, env={'GIT_NO_REPLACE_OBJECTS': '1'})
 
         actual_branch = git('branch', '--show-current')
         branch = actual_branch if branch is None else branch
@@ -228,12 +240,23 @@ class PublicationVerifier:
                 or metadata.get('private') is not True
                 or metadata['permissions'].get('push') is not True):
             raise PublicationError('GitHub did not verify the configured private repository and write access')
-        if branch == metadata['default_branch']:
-            raise PublicationError('publishing to the default branch is not authorized')
+        base_branch = target['branch'] if target else metadata['default_branch']
+        if branch in (metadata['default_branch'], base_branch):
+            raise PublicationError('publishing to the default branch or selected base branch is not authorized')
         # Ignore rules do not protect reports that a worker has force-added or that
         # an earlier commit already tracks. Check the outgoing branch, not the file
         # system, so a pre-existing report on the base branch is not a false alarm.
-        base_ref = f"refs/remotes/origin/{metadata['default_branch']}"
+        if target:
+            try:
+                self.worktrees.verify_target(repo, path, target)
+                current_base = self.worktrees.resolve_target(repo, base_branch)
+                missing = self.worktrees.git_in(path, 'rev-list', '--max-count=1', target['commit'], '--not',
+                    current_base['commit'], env={'GIT_NO_REPLACE_OBJECTS': '1'})
+                if missing:
+                    raise TargetError('target branch history changed; reconcile before publication')
+            except TargetError as exc:
+                raise PublicationError(str(exc)) from exc
+        base_ref = current_base['commit'] if target else f"refs/remotes/origin/{metadata['default_branch']}"
         if (git('diff', '--name-only', f'{base_ref}...HEAD', '--', 'reports')
                 or git('diff', '--cached', '--name-only', '--', 'reports')):
             raise PublicationError('run report changes must stay in private state, not the published branch')
@@ -244,8 +267,10 @@ class PublicationVerifier:
         head = self.worktrees.head(path)
         result = {'status': 'verified', 'repository': metadata['full_name'], 'url': metadata['html_url'],
                 'push_url': push_urls[0], 'push_remote': 'origin', 'branch': branch, 'head': head,
-                'base_branch': metadata['default_branch'], 'private': True, 'write_access': True,
+                'base_branch': base_branch, 'private': True, 'write_access': True,
                 'verified_at': datetime.now(timezone.utc).isoformat()}
+        if target:
+            result['base_commit'] = target['commit']
         # A command description, never execution or a reusable authorization. Use the
         # verified remote name so Git's configured rewriting remains in force.
         result['push_argv'] = ['git', 'push', 'origin', f'HEAD:refs/heads/{branch}']
@@ -287,6 +312,11 @@ class PublicationVerifier:
                 repo, path, head, default_branch=metadata['default_branch'], **options)
             if verification_pair:
                 result['verification_pair'] = verification_pair
+        if ledger is not None:
+            try:
+                Store(ledger).current(item_id)
+            except TargetError as exc:
+                raise PublicationError(str(exc)) from exc
         return result
 
     def scope(self, *, item, issue, paths, delegated, suffix_roles=False):

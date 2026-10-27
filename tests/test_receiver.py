@@ -40,6 +40,11 @@ APP = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
 IDENTITY = {"oauthClientId": "client", "appUserId": APP, "organizationId": "org"}
 
 
+def forwarded_response(body, session="session-1", pin=""):
+    return {"type": "response", "body": body + "\n\n请在[原任务会话](https://linear.app/x/agent-session/"
+            + session + ")查看后续进展、问题和结果。" + pin}
+
+
 def _raise(exc):
     def raiser(*args, **kwargs):
         raise exc
@@ -253,7 +258,8 @@ class ReceiverTests(ReceiverBase):
         self.receive(other); self.receiver.process_one()
         self.assertEqual(self.ledger.items_for_session("session-3"), [])
         self.assertEqual(self.ledger.issue_context(item["id"])["inbox_pending"], 1)
-        self.assertEqual(self.activities()[-1]["type"], "thought")
+        self.assertEqual(self.activities()[-1]["type"], "response")
+        self.assertIn("https://linear.app/x/agent-session/session-1", self.activities()[-1]["body"])
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
         self.assertEqual(self.ledger.pop_inbox(item["id"], token), ["@FarmBot 安卓上也能复现"])
 
@@ -1209,7 +1215,7 @@ class BotRoutingReceiverTests(ReceiverBase):
         # The mention's acknowledgement, then the note in the resumed job's own thread (silent-delegation design A2).
         resumed = {"type": "thought", "body": RESUMED_ELSEWHERE}
         self.assertEqual(self.sent()[-2:], [
-            ("session-9", {"type": "thought", "body": "收到回复，原工作项已恢复，worker 会先读取你的回答。"}),
+            ("session-9", forwarded_response("收到回复，原工作项已恢复，worker 会先读取你的回答。")),
             ("session-1", resumed)])
         self.assertEqual((heads, self.ledger.session("session-9")["target"]), ([], None))
         self.ledger.cancel(feature["id"], "next case")
@@ -1219,8 +1225,8 @@ class BotRoutingReceiverTests(ReceiverBase):
         self.mention_in("session-8", "@FarmBot 公共测试服")
         # The target line belongs to the session that was pinned, the mention's: the note carries none.
         self.assertEqual(self.sent()[-2:], [
-            ("session-8", {"type": "thought", "body": "收到回复，原工作项已恢复，worker 会先读取你的回答。"
-                                                     "\n目标已锁定：Farm-Client@ccccccc（公共测试服）。"}),
+            ("session-8", forwarded_response("收到回复，原工作项已恢复，worker 会先读取你的回答。",
+                                               session="session-2", pin="\n目标已锁定：Farm-Client@ccccccc（公共测试服）。")),
             ("session-2", resumed)])
         self.assertEqual(heads, ["Farm-Client", "Farm-Client"])
 
@@ -1251,7 +1257,7 @@ class BotRoutingReceiverTests(ReceiverBase):
         self.paused(item, "配置发布了吗？", reason="waiting")
         self.mention_in("session-9", "@FarmBot 配置已经发布")
         self.assertEqual(self.sent()[-2:], [
-            ("session-9", {"type": "thought", "body": "收到回复，原工作项已恢复，worker 会先读取你的回答。"}),
+            ("session-9", forwarded_response("收到回复，原工作项已恢复，worker 会先读取你的回答。")),
             ("session-1", {"type": "thought", "body": RESUMED_ELSEWHERE})])
         self.assertEqual(self.allowances(item["id"]), ("queued", (0, 0, 0, 0)))
 
@@ -1389,7 +1395,8 @@ class WithdrawnWorkReceiverTests(ReceiverBase):
         fix = self.waiting_fix("session-1")
         self.mention_in("session-9", "@FarmBot 公共测试服")
         self.assertEqual(self.ledger.item(fix["id"])["state"], "queued")
-        self.assertEqual(self.said_in("session-9", "thought"), ["收到回复，原工作项已恢复，worker 会先读取你的回答。"])
+        self.assertEqual(self.said_in("session-9"),
+                         [forwarded_response("收到回复，原工作项已恢复，worker 会先读取你的回答。")["body"]])
         self.assertEqual(self.ledger.connection.execute("SELECT forwarded_item FROM sessions WHERE session_id=?",
                                                         ("session-9",)).fetchone()[0], fix["id"])
         self.assertEqual(self.stop_in("session-9"),
@@ -1590,14 +1597,14 @@ class WithdrawnWorkReceiverTests(ReceiverBase):
         self.assertEqual(self.ledger.item(fix["id"])["state"], "awaiting_input")
         self.assertEqual(self.ledger.issue_context(fix["id"])["inbox_pending"], 1)
         self.assertEqual(self.activities()[-1],
-                         {"type": "thought", "body": FORWARD_PARKED_UNDELEGATED.format(bot="FarmBot", skill="fix")})
+                         forwarded_response(FORWARD_PARKED_UNDELEGATED.format(bot="FarmBot", skill="fix")))
 
     def test_a_mention_to_a_withdrawing_worker_says_the_work_is_stopping(self):
         fix, token = self.claimed_fix_elsewhere("session-1")
         self.ledger.flag_withdrawal(fix["id"], "undelegated", time.time() + 1200)
         self.undelegated(("Bug", "修改"), CHANGE)
         self.mention_in("session-9", "@FarmBot 还要改吗？")
-        self.assertEqual(self.activities()[-1], {"type": "thought", "body": FORWARD_WITHDRAWING})
+        self.assertEqual(self.activities()[-1], forwarded_response(FORWARD_WITHDRAWING))
         self.assertEqual(self.ledger.pop_inbox(fix["id"], token), ["@FarmBot 还要改吗？"])
 
     def test_d2_stop_in_the_latest_delegation_session_stops_work_elsewhere(self):
@@ -1885,11 +1892,10 @@ class OwnThreadReceiverTests(ReceiverBase):
         fix = self.waiting_fix("session-1")
         self.mention_in("session-9", "@FarmBot 公共测试服")
         self.assertEqual(self.ledger.item(fix["id"])["state"], "queued")
-        self.assertEqual(self.sent()[-2:], [("session-9", {"type": "thought", "body": self.RESUMED}),
+        self.assertEqual(self.sent()[-2:], [("session-9", forwarded_response(self.RESUMED)),
                                             ("session-1", {"type": "thought", "body": RESUMED_ELSEWHERE})])
         self.mention_in("session-8", "@FarmBot 还有一点")
-        self.assertEqual(self.sent()[-1], ("session-8", {"type": "thought",
-                                                         "body": "该 issue 正在处理中，你的消息已转给正在处理的 worker。"}))
+        self.assertEqual(self.sent()[-1], ("session-8", forwarded_response(self.FORWARDED)))
         self.assertEqual(self.said_in("session-1", "thought").count(RESUMED_ELSEWHERE), 1)
 
     def test_a_resume_note_linear_refuses_changes_nothing_else(self):
@@ -1898,9 +1904,91 @@ class OwnThreadReceiverTests(ReceiverBase):
         self.refusing("session-1")
         self.mention_in("session-9", "@FarmBot 公共测试服")
         self.assertEqual(self.ledger.item(fix["id"])["state"], "queued")
-        self.assertEqual(self.sent()[-2:], [("session-9", {"type": "thought", "body": self.RESUMED}),
+        self.assertEqual(self.sent()[-2:], [("session-9", forwarded_response(self.RESUMED)),
                                             ("session-1", {"type": "thought", "body": RESUMED_ELSEWHERE})])
         self.assertEqual(self.receiver.results()[-1]["status"], "done")
+
+    def test_completed_forwarding_session_accepts_followups_without_duplicate_work(self):
+        fix, token = self.claimed_fix_elsewhere("session-1")
+        event = self.event(agentSession={"id": "session-9", "issue": {"id": ISSUE},
+                           "creator": DESIGNER, "sourceComment": {"body": "@FarmBot 安卓上也有"}})
+        self.assertEqual(self.receive(event), (200, "accepted"))
+        self.receiver.process_one()
+        self.assertEqual(self.said_in("session-9"), [forwarded_response(self.FORWARDED)["body"]])
+        self.assertEqual(self.receive(event), (200, "duplicate"))
+        self.assertFalse(self.receiver.process_one())
+        self.reply_in("session-9", "补充复现步骤", activity="followup", author=DESIGNER)
+        self.assertEqual(self.ledger.pop_inbox(fix["id"], token), ["@FarmBot 安卓上也有", "补充复现步骤"])
+        self.assertEqual(self.ledger.items_for_session("session-9"), [])
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "running")
+        self.assertEqual(len(self.said_in("session-9")), 2)
+        self.assertEqual(self.said_in("session-9", "thought"), [])
+        self.assertEqual(self.ledger.stop_target("session-9")[0]["id"], fix["id"])
+
+    def test_steering_handed_over_work_closes_only_the_conversation(self):
+        fix = self.hand_over(*self.conversation_about_to_hand_over("session-9"))
+        self.api.create_activity.reset_mock()
+        self.reply_in("session-9", "补充复现步骤", author=DESIGNER)
+        self.assertEqual(self.sent(), [("session-9", forwarded_response(
+            "已转给正在处理的 worker，会在下一次检查点读取。"))])
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "queued")
+        self.reply_in("session-1", "原会话的补充", activity="owner-followup", author=DESIGNER)
+        self.assertEqual(self.sent()[-1], ("session-1", {"type": "thought",
+            "body": "已转给正在处理的 worker，会在下一次检查点读取。"}))
+
+    def test_failed_forward_does_not_send_a_successful_closing_response(self):
+        fix = self.waiting_fix("session-1")
+        with patch.object(self.receiver.ledger, "push_inbox", side_effect=LedgerError("storage unavailable")):
+            self.mention_in("session-9", "@FarmBot 公共测试服")
+        self.assertEqual(self.said_in("session-9"), [])
+        self.assertEqual(self.activities()[-1]["type"], "error")
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "awaiting_input")
+        self.assertIsNone(self.ledger.connection.execute(
+            "SELECT forwarded_item FROM sessions WHERE session_id='session-9'").fetchone()[0])
+
+    def test_handoff_during_delivery_links_to_the_actual_owner(self):
+        chat, token, message = self.conversation_about_to_hand_over("session-9")
+        push = self.receiver.ledger.push_inbox
+        resumed = []
+
+        def hand_over_then_deliver(*args, **kwargs):
+            resumed.append(self.hand_over(chat, token, message))
+            return push(*args, **kwargs)
+
+        with patch.object(self.receiver.ledger, "push_inbox", side_effect=hand_over_then_deliver):
+            self.reply_in("session-9", "交接期间的补充", author=DESIGNER)
+        self.assertEqual(self.sent()[-1], ("session-9", forwarded_response(
+            "已转给正在处理的 worker，会在下一次检查点读取。")))
+        self.assertEqual(self.ledger.issue_context(resumed[0]["id"])["session_messages"][-1]["body"],
+                         "交接期间的补充")
+
+    def test_failed_forward_response_still_notifies_the_resumed_owner(self):
+        fix = self.waiting_fix("session-1")
+        self.refusing("session-9")
+        self.mention_in("session-9", "@FarmBot 公共测试服")
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "queued")
+        self.assertEqual(self.said_in("session-1", "thought").count(RESUMED_ELSEWHERE), 1)
+        self.assertEqual(self.receiver.results()[-1]["status"], "uncertain")
+        self.assertEqual(self.ledger.issue_context(fix["id"])["inbox_pending"], 1)
+
+    def test_work_link_uses_workspace_and_handles_local_and_historical_inputs(self):
+        self.assertEqual(Receiver._work_link(
+            "https://linear.app/team-name/issue/FARM-1/公会竞赛?view=activity#comment-123", "owner-session"),
+            "[原任务会话](https://linear.app/team-name/agent-session/owner-session)")
+        self.assertEqual(Receiver._work_link("https://linear.app/team-name/issue/FARM-1/公会竞赛", "local-job"),
+            "[原任务（issue）](https://linear.app/team-name/issue/FARM-1)")
+        for url in ("u", "http://linear.app/team/issue/FARM-1", "https://linear.app.evil/team/issue/FARM-1",
+                    "https://linear.app@evil/team/issue/FARM-1", "https://linear.app/team/issue/", "https://["):
+            with self.subTest(url=url):
+                self.assertIsNone(Receiver._work_link(url, "owner-session"))
+
+    def test_malformed_historical_url_does_not_strand_forwarding_session(self):
+        fix, token = self.claimed_fix_elsewhere("session-1")
+        self.api.fetch_issue.return_value["url"] = "old-local-placeholder"
+        self.mention_in("session-9", "@FarmBot 进展如何？")
+        self.assertEqual(self.activities()[-1], {"type": "response", "body": self.FORWARDED +
+            "\n\n请在本 issue 中的原任务查看后续进展、问题和结果。"})
+        self.assertEqual(self.ledger.pop_inbox(fix["id"], token), ["@FarmBot 进展如何？"])
 
     def test_a_forward_that_resumes_an_operators_job_posts_no_note_for_it(self):
         """A2: an operator's `local-` job has no Linear thread, so nothing waits there and nothing is posted for it."""
@@ -1911,7 +1999,8 @@ class OwnThreadReceiverTests(ReceiverBase):
         self.paused(local, "哪个服？")
         self.mention_in("session-9", "@FarmBot 公共测试服")
         self.assertEqual(self.ledger.item(local["id"])["state"], "queued")
-        self.assertEqual(self.sent(), [("session-9", {"type": "thought", "body": self.RESUMED})])
+        self.assertEqual(self.sent(), [("session-9", {"type": "response", "body": self.RESUMED +
+            "\n\n请在[原任务（issue）](https://linear.app/x/issue/FARM-1)查看后续进展、问题和结果。"})])
         self.api.create_comment.assert_not_called()
 
     def test_a_reply_that_resumes_a_handed_over_job_notes_the_jobs_thread(self):
@@ -1922,7 +2011,7 @@ class OwnThreadReceiverTests(ReceiverBase):
         self.paused(fix, "哪个服？")
         self.reply_in("session-9", "公共测试服")
         self.assertEqual(self.ledger.item(fix["id"])["state"], "queued")
-        self.assertEqual(self.sent()[-2:], [("session-9", {"type": "thought", "body": "收到回复，继续处理。"}),
+        self.assertEqual(self.sent()[-2:], [("session-9", forwarded_response("收到回复，继续处理。")),
                                             ("session-1", {"type": "thought", "body": RESUMED_ELSEWHERE})])
         self.paused(fix, "哪个包？")
         self.reply_in("session-1", "安卓包", activity="act-2")
@@ -1938,8 +2027,7 @@ class OwnThreadReceiverTests(ReceiverBase):
         self.undelegated(["Bug", "修改"], CHANGE)
         self.reply_in("session-9", "公共测试服")
         self.assertEqual(self.ledger.item(fix["id"])["state"], "awaiting_input")
-        self.assertEqual(self.sent()[-1], ("session-9", {"type": "thought",
-                                                         "body": RESUME_UNDELEGATED.format(bot="FarmBot")}))
+        self.assertEqual(self.sent()[-1], ("session-9", forwarded_response(RESUME_UNDELEGATED.format(bot="FarmBot"))))
         self.assertEqual(self.said_in("session-1", "thought").count(RESUMED_ELSEWHERE), 0)
 
     def test_a_resume_note_is_not_posted_for_work_that_ended_during_the_acknowledgement(self):
@@ -1956,7 +2044,7 @@ class OwnThreadReceiverTests(ReceiverBase):
         self.mention_in("session-9", "@FarmBot 公共测试服")
         self.assertEqual(self.ledger.item(fix["id"])["state"], "failed")
         self.assertEqual(self.sent()[-2:], [
-            ("session-9", {"type": "thought", "body": self.RESUMED}),
+            ("session-9", forwarded_response(self.RESUMED)),
             ("session-1", {"type": "error",
                            "body": "FarmBot 无法启动工作进程（RuntimeError），工作项已标记失败；可回复「重试」。"})])
         self.assertEqual(self.receiver.results()[-1]["status"], "done")
@@ -1973,7 +2061,7 @@ class OwnThreadReceiverTests(ReceiverBase):
         self.answered_slowly(asks_again)
         self.mention_in("session-9", "@FarmBot 公共测试服")
         self.assertEqual(self.ledger.item(fix["id"])["state"], "awaiting_input")
-        self.assertEqual(self.sent()[-2:], [("session-9", {"type": "thought", "body": self.RESUMED}),
+        self.assertEqual(self.sent()[-2:], [("session-9", forwarded_response(self.RESUMED)),
                                             ("session-1", {"type": "elicitation", "body": "哪个包？"})])
 
     def test_the_old_thread_is_told_even_when_the_acknowledgement_fails(self):
@@ -2194,7 +2282,7 @@ class OwnThreadReceiverTests(ReceiverBase):
         self.failed_message_in("session-0")  # while Linear still refuses the thread
         self.assertEqual(self.owed(), closing)
         self.reply_in("session-0", "进展如何？", activity="act-3")
-        self.assertEqual(self.sent()[-1], ("session-0", {"type": "thought", "body": self.FORWARDED}))
+        self.assertEqual(self.sent()[-1], ("session-0", forwarded_response(self.FORWARDED)))
         self.assertEqual(self.owed(), closing)
         posted = len(self.sent())
         self.ledger.clock = lambda: time.time() + 61
@@ -3265,10 +3353,9 @@ class SilentDelegationReceiverTests(ReceiverBase):
                 self.assertEqual(self.states_read(), ["session-1"])
                 self.assertEqual(self.owed(), [])
 
-    def test_a_thread_that_forwards_to_the_work_or_has_an_event_waiting_is_left_open(self):
-        """§3.5, P5: a thread with no job of its own is not closed while its messages are forwarded to the card's
-        work, since a Stop there must keep reaching that work, nor while an event of it is still to be handled. Such
-        a thread is not even read. A thread with neither is closed."""
+    def test_settle_leaves_forwarding_threads_and_pending_events_alone(self):
+        """The forwarding response already closed its thread; settle must not post another ending.
+        Forward/Stop routing survives completion. Pending events are left to their own handler."""
         self.running("feature")
         fix, _ = self.claimed_fix_elsewhere("session-0")
         self.mention_in("session-9", "@FarmBot 进展如何？")  # forwarded to the running fix

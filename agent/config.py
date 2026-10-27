@@ -116,6 +116,7 @@ class Config:
     worker_retention: dict = field(default_factory=dict)
     # Opt-in review: a separate pool; never reduces the existing general-worker budget.
     auto_merge: dict = field(default_factory=dict)
+    version_targets: dict = field(default_factory=dict)
     # Names of the skills this instance runs (spec §9.11); None runs every skill in the checkout's skills/ but the
     # opt-in ones (Phase B plan, P1).
     enabled_skills: list | None = None
@@ -188,6 +189,8 @@ class Config:
         retention_settings(self.worker_retention)
         from .review_policy import settings as review_settings
         review_settings(self.auto_merge, self.repos)
+        from .version_targets import settings as version_settings
+        version_settings(self.version_targets, self.repos)
         if self.lark_cli.get("secret_env") and self.lark_cli["secret_env"] == self.kw_ops.get("token_env"):
             raise ValueError("lark_cli secret_env must differ from kw_ops token_env")
         if self.enabled_skills is not None and (
@@ -297,6 +300,11 @@ class StubLinear:
         per_issue = self.directory / f"issue-{issue_ref}.json"
         source = per_issue if per_issue.is_file() else self.directory / "issue.json"
         return json.loads(source.read_text(encoding="utf-8"))
+
+    def sync_target_versions(self, versions):
+        self._record('sync_target_versions', versions=versions)
+        (self.directory / 'target-versions.json').write_text(json.dumps(versions), encoding='utf-8')
+        return {'available': sorted(versions)}
 
     def issue_status(self, issue_id):
         raw = self.fetch_issue(issue_id)

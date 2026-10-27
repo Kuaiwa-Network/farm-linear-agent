@@ -257,7 +257,7 @@ class RecoveryStore:
         """Only a live current owner can offer a new, authenticated Unity pin."""
         from .admission_scope import allows
         from .maintenance import Maintenance
-        if Maintenance(self.ledger).requested():
+        if Maintenance(self.ledger).requested(recovery['item_id']):
             return None
         for row in self.db.execute("""SELECT q.* FROM reservations q JOIN work_items w ON w.id=q.item_id
             WHERE q.item_id=? AND q.kind='unity_slot' AND q.mode='interactive' AND q.state='queued'

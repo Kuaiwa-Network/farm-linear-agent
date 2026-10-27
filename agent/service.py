@@ -100,6 +100,9 @@ def build(config, runtime_override=None, *, replay_legacy=False):
         finally:
             current.close()
     scheduler.preflight = preflight
+    if not replay_legacy:
+        from .version_targets import TargetController
+        scheduler.version_targets = TargetController(ledger, worktrees, config.version_targets)
     receiver = Receiver(paths.ledger, config.webhook_secret,
                         {"oauthClientId": config.client_id, "appUserId": identity["viewer"]["id"],
                          "organizationId": identity["organization"]["id"]},
@@ -311,9 +314,13 @@ def _serve(components):
     heartbeat_path = Paths(components.config).heartbeat
     components.scheduler.maintenance_epoch = heartbeat.started_at
     components.scheduler.maintenance_resources = getattr(components.pool, 'maintenance_blockers', None)
+    version_sync = None
     def maintenance_busy():
-        return (heartbeat.unsettled_loops(('pool', 'server_pool', 'resource_recovery', 'go_dependencies', 'worker_retention', 'review'))
+        busy = (heartbeat.unsettled_loops(('pool', 'server_pool', 'resource_recovery', 'go_dependencies', 'worker_retention', 'review'))
                 + (components.review.workers.blockers() if components.review else []))
+        if version_sync is not None and version_sync.busy:
+            busy.append('version_labels')
+        return busy
     components.scheduler.maintenance_busy = maintenance_busy
     # The receiver's handler counts each /webhook outcome into it (receiver.make_server).
     components.server.heartbeat = heartbeat
@@ -343,7 +350,7 @@ def _serve(components):
         while not beat_stop.wait(HEARTBEAT_INTERVAL):
             beat()
 
-    def guarded(name, work):
+    def guarded(name, work, *, error_pause=1.0):
         """One loop iteration never kills its thread: log the kind of failure and back off.
 
         `work` returns how long to pause before the next iteration. The heartbeat times the work and not the
@@ -356,7 +363,7 @@ def _serve(components):
                 except Exception as exc:
                     heartbeat.loop_failed(name, exc)
                     print(json.dumps({"event": "loop_error", "loop": name, "error": type(exc).__name__}), flush=True)
-                    pause = 1.0
+                    pause = error_pause
                 else:
                     heartbeat.loop_finished(name)
                 stop.wait(pause)
@@ -384,6 +391,14 @@ def _serve(components):
             components.review.tick()
             return components.review.policy['poll_seconds']
         threads.append(threading.Thread(target=guarded('review', review_once), daemon=True))
+    from .version_targets import LabelSync
+    if components.config.version_targets.get('sync_labels', False):
+        version_sync = LabelSync(components.worktrees, components.api, components.config.version_targets)
+        def version_sync_once():
+            version_sync.tick()
+            return max(0.1, version_sync.next_at - version_sync.clock())
+        threads.append(threading.Thread(target=guarded('version_labels', version_sync_once,
+            error_pause=version_sync.policy['sync_seconds']), daemon=True))
     from .worker_retention import Controller as RetentionController
     retention = RetentionController(components.launcher, components.config.worker_retention)
     if retention.policy['enabled']:
@@ -407,7 +422,7 @@ def _serve(components):
         components.go_dependencies.stop = stop.is_set
         def dependencies_once():
             from .maintenance import Maintenance
-            if Maintenance(components.go_dependencies.ledger).requested():
+            if Maintenance(components.go_dependencies.ledger).blocks_admission():
                 return 2.0
             return .1 if components.go_dependencies.tick() else 2.0
         threads.append(threading.Thread(target=guarded('go_dependencies', dependencies_once), daemon=True))
@@ -507,32 +522,51 @@ def _serve(components):
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="python3 -m agent.service")
     parser.add_argument("command", choices=["configure", "serve", "status", "seed-clones", "install-launchd",
-                                            "enqueue", "slots", "doctor", "recover-worker-cleanup", "monitor",
+                                            "enqueue", "slots", "doctor", "export-diagnostics", "recover-worker-cleanup", "monitor",
                                             "recover-server-slot", "maintenance-pause", "maintenance-status",
                                             "review-status", "review-pause", "review-resume", "review-incident",
                                             "maintenance-resume", "adopt-single-worker", "resume-ui-scope", "resume-ui-source", "resume-comparison", "resume-server-evidence"])
     parser.add_argument("--config")
     parser.add_argument("--from", dest="source_root", help="directory holding local checkouts to seed from")
-    parser.add_argument("--issue", help="Linear issue id or identifier to enqueue work for")
+    parser.add_argument("--issue", help="Linear issue id or identifier for enqueue or export-diagnostics")
+    parser.add_argument("--except-issue", action="append", help="maintenance-pause: keep selected issues active while others drain")
     parser.add_argument("--only-issue", action='append', help="maintenance-resume only: allow this known issue; repeat for a selected group")
     parser.add_argument("--skill", default="work")
     parser.add_argument("--commit", help="pin this commit instead of resolving the default branch")
-    parser.add_argument("--item", help="work item selected for an explicit host recovery command")
+    parser.add_argument("--item", help="work item selected for recovery or export-diagnostics")
     parser.add_argument("--slot", help="held server slot to reconcile through verified Docker cleanup")
     parser.add_argument("--reason", help="operator explanation for maintenance or recovery")
     parser.add_argument('--review-run', help='review run selected for an attributed incident')
     parser.add_argument('--event-id', help='stable deduplication identity for an incident')
     parser.add_argument('--incident-kind', choices=('revert', 'reopen'))
     parser.add_argument("--evidence-manifest", help="host-reviewed retained server evidence manifest")
+    parser.add_argument("--output", help="export-diagnostics: new ZIP outside the instance state root")
+    parser.add_argument("--include-logs", action="store_true",
+                        help="export-diagnostics: include redacted worker log tails for --issue or --item")
     args = parser.parse_args(argv)
+    if args.except_issue is not None and args.command != 'maintenance-pause':
+        parser.error('--except-issue requires maintenance-pause')
+    if (args.output is not None or args.include_logs) and args.command != 'export-diagnostics':
+        parser.error('--output and --include-logs require export-diagnostics')
+    if args.only_issue is not None and args.command != 'maintenance-resume':
+        parser.error('--only-issue requires maintenance-resume')
     if args.command.startswith('review-'):
         from .review_operator import control
         print(json.dumps(control(load_config(args.config, secure_permissions=args.command != 'review-status'),
             args.command, reason=args.reason, run=args.review_run, event=args.event_id, kind=args.incident_kind),
             ensure_ascii=False, indent=2))
         return 0
-    if args.only_issue is not None and args.command != 'maintenance-resume':
-        parser.error('--only-issue requires maintenance-resume')
+    if args.command == 'export-diagnostics':
+        if not args.config or not args.output:
+            parser.error('export-diagnostics requires --config and --output')
+        from .diagnostics import ExportError, run
+        try:
+            result = run(args.config, args.output, issue=args.issue, item=args.item, include_logs=args.include_logs)
+        except ExportError as exc:
+            print(json.dumps({'status': 'error', 'error': str(exc)}))
+            return 1
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 2 if result['status'] == 'partial' else 0
     if args.command == 'adopt-single-worker':
         if not args.item or not args.reason:
             parser.error('adopt-single-worker requires --item and --reason')
@@ -577,7 +611,7 @@ def main(argv=None):
             ledger = Ledger(Paths(config).ledger)
             try:
                 if args.command == 'maintenance-pause':
-                    Maintenance(ledger).pause(args.reason)
+                    Maintenance(ledger).pause(args.reason, except_issues=args.except_issue)
                 else:
                     selected = args.only_issue
                     Maintenance(ledger).resume(only_issue=selected[0] if selected and len(selected) == 1 else selected)

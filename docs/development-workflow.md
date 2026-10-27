@@ -23,6 +23,82 @@ process, sandbox, Unity and installation changes require the relevant platform
 checks. Record skips honestly. Windows success does not certify macOS, or vice versa.
 Preserve path/identity/publication security checks when correcting test fixtures.
 
+## Portable diagnostic exports
+
+Run `export-diagnostics` on the host that owns the instance, from a checkout
+containing the command, using that host's configured interpreter and an explicit
+config path. It reads the existing state and never constructs `Ledger`, migrates
+the database, changes config permissions, claims work or restarts the service.
+Using a development checkout for this read does not require deploying it.
+As with `doctor`, SQLite may create WAL/shared-memory sidecars beside a stopped
+database; the logical data and schema remain unchanged.
+
+Create a private output directory outside the instance's `local_root` and outside
+your source checkout. The directory must already exist; the ZIP filename must be
+new. Paths may contain spaces and Unicode. For example:
+
+```powershell
+# Windows: use the configured Python executable; substitute the intended paths.
+python -m agent.service export-diagnostics --config C:\FarmBot\config.json --issue FARM-1 --include-logs --output C:\FarmBotEvidence\FARM-1.zip
+```
+
+```sh
+# macOS: use the configured Python 3 interpreter and absolute host paths.
+python3 -m agent.service export-diagnostics --config /absolute/private/config.json --issue FARM-1 --include-logs --output /absolute/evidence/FARM-1.zip
+```
+
+Select either `--issue` (identifier or UUID) or `--item` (one work item UUID).
+An issue selection includes its latest 10 stored jobs, including terminal jobs.
+Omit both for host diagnostics alone. `--include-logs` requires a selection;
+without it, no worker log content is read. No live Linear request is made.
+
+The ZIP contains UTF-8 JSON/text that can be inspected on either platform:
+
+- `manifest.json`: schema version, UTC collection time, scope, omissions/limits,
+  and SHA-256/byte count of each exported payload file.
+- `host.json`: exporting checkout's full commit and dirty flag, OS, architecture,
+  Python version and instance/runtime identity.
+- `heartbeat.json`: validated recorded service revision, dirty flag and freshness.
+  This can differ from the exporting checkout. Neither a stale heartbeat nor a
+  clean Git revision proves which uncommitted sources an existing worker loaded.
+- `doctor.json`: the existing read-only, **host-wide** diagnostic report; selecting
+  an issue limits job details/logs, not the host report or heartbeat.
+- `jobs.json`: selected job state, target and candidate commits, checkpoint summary
+  and next action, plus the latest 200 audit event names/timestamps per job.
+- `logs/`, when requested: tails of `stdout.log`, `stderr.log` and
+  `last_message.txt` from the latest 5 attempts per selected job on this host.
+- `README.md`: interpretation and local debugging instructions.
+
+Worker log reads are capped at 256 KiB per file and the sanitized payload budget
+is 8 MiB, excluding the small manifest and ZIP overhead. A cut first line is
+dropped. Missing, unsafe, non-UTF-8, oversized or omitted evidence is recorded in
+the manifest. Log sources must be regular files with no symlinks, junctions or
+hard links. Only the fixed filenames are collected; paths in checkpoint reports
+and logs are never followed. Reads occur at different times while the service
+may continue running, so this is evidence rather than a consistent runtime backup.
+
+The exporter excludes config/database copies, claim/token files, worker homes,
+prompts, issue bodies, audit details, uploads, arbitrary reports and global service
+logs. It redacts known configured/environment credentials, sensitive JSON fields,
+common credential patterns, authentication headers, URL userinfo/query/fragment
+and known state/source/home paths before writing any bundle bytes. Redaction of
+free-form text cannot recognize every secret or private fact: review before
+sharing, keep bundles private and do not commit them. Ordinary exception text is
+not included when a source cannot be read.
+
+The CLI prints a JSON result with the output path. Exit `0` means the requested
+evidence was collected, not that the bot is healthy or tests passed. Exit `2`
+means a usable **partial** bundle was written; inspect `manifest.json`. Exit `1`
+means export failed. Invalid CLI syntax also uses argparse's exit `2`, without an
+output result. Unknown selections fail rather than silently exporting other jobs.
+
+On your own computer, clone FarmBot and check out the relevant revision. Obtain
+any dirty-source changes separately, then translate the failure into a regression
+test using the existing temporary-state fixtures. Run affected checks locally,
+submit a PR and verify both platforms in CI. Do not restore the bundle as a state
+root, probe recorded PIDs on your laptop, or replay real issue payloads. Native
+process and Unity behavior still need checks on the appropriate host.
+
 ## Authorized live tests
 
 Use TestBot, a second Linear app in the same Kuaiwa AI workspace, on real issues

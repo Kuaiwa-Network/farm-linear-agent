@@ -24,6 +24,16 @@ ambiguous outcome, inspect the process/claim result; never blindly claim again.
 Use `--db DATABASE` before the command and `--item ITEM --token-file STATE_DIR/token`
 for authenticated commands. The token itself must never appear in logs.
 
+Use the [bounded polling cadence](worker-polling.md) for pending tool handles and
+unchanged resource/dependency/test status: 30 seconds initially, then 60 seconds,
+subject to earlier renewal, control and operation deadlines. Reuse the pending
+handle; never relaunch an operation to obtain status.
+
+Follow [context/output discipline](worker-context-output.md): reuse the claim's
+resume context and prefer resume for later reads. `--if-changed DIGEST` returns a
+small receipt only when the complete stored context matches a retained response.
+Keep live checks and required full reads; store large logs privately with exit status.
+
 The main worker may use native Codex subagents for bounded work within the same
 permissions. Helpers report to the main worker; they do not claim this issue or
 call its lifecycle/resource/publication commands. The main worker coordinates
@@ -33,7 +43,7 @@ parking or finish, and checkpoints their work. No FarmBot child task is created.
 | Command | Additional arguments and purpose |
 | --- | --- |
 | `fetch-issue` | No token arguments. Read live issue facts before delivery or after a new request. |
-| `issue-context` | No token arguments; `--view resume` or `full` includes history, questions, reports and inputs. |
+| `issue-context` | No token arguments; prefer `--view resume`, optionally `--if-changed DIGEST` from retained `context_view.digest`. `--view full` keeps all evidence and remains the CLI default. |
 | `download-uploads` | `--out STATE_DIR/uploads`, optional repeatable `--url UNSIGNED_UPLOAD_URL`: authenticated download of issue and current Project Overview attachments, with a local manifest. Reuse intact files; never fetch private upload URLs anonymously. |
 | `renew` | Read maintenance/withdrawal flags; keep the current claim alive. |
 | `checkpoint` | `--input FILE`: bounded JSON progress, candidate SHAs, report paths and next action. |
@@ -43,15 +53,16 @@ parking or finish, and checkpoints their work. No FarmBot child task is created.
 | `await-input` | `--question TEXT --reason question\|waiting`: save a checkpoint and release resources first; then exit. Work questions are posted as issue comments; partial answers reuse the same comment and round. |
 | `resolve-question` | `--question-id ID --message-id ID` (repeatable), actual attributed replies only. |
 | `await-resource` | `--resource unity_slot --mode interactive --commit SHA`, or `server_slot --mode batch --commit SHA --server-test-plan FILE`. Stay in this worker. |
+| `run-server-tests` | `--module MODULE`: run the reserved exact Go plan in the owned farm-hive module; retain JSON output and native command teardown proof. |
 | `run-integration` | `--client-command FILE`: JSON argv exercising reserved Unity against one isolated game server. Request an atomic pair with `await-resource --resource unity_slot --mode interactive --commit CLIENT_SHA --integration-plan FILE`; see [combined verification](client-server-integration.md). |
-| `resource-status` | Same claim. Returns queued/preparing/ready/held/settled state, precise capacity reason, commit and reservation token-file path. |
+| `resource-status` | Same claim. Renews and returns maintenance/withdrawal/inbox flags in every state, plus capacity, commit and reservation token-file path. Managed services are accessed only by the scoped run commands. |
 | `cancel-resource` | `--reservation ID`: cancels only this claim's still-queued request. An acquired resource must settle normally. |
 | `unity-tools` | List actual MCP tool schemas after Unity is ready. |
 | `unity-tool` | `--name NAME --input FILE`: JSON object arguments, bound to the reserved instance; raw MCP result. |
 | `unity-test-result` | `--job-id ID`: read a retained test report in the owned instance, including failed jobs whose normal response has `result=null`. Save stdout privately. No test launch or release. |
 | `unity-read` | `--uri URI`: read a resource from the reserved Unity instance. |
-| `release-resource` | **Use the reservation token file returned by resource-status**, not the claim token. `--outcome quiescent\|unclean`. Before server/combined release, save a current checkpoint with results and `handoff`; exit immediately on `worker_handoff: true`. The controller cleans services after verified teardown and resumes the same issue. |
-| `publish-ui` | `--packages FILE`: JSON package name/ID map; native export into private staging, no Client installation. |
+| `release-resource` | **Use the reservation token file returned by resource-status**, not the claim token. `--outcome quiescent\|unclean`. Before server/combined release, save a current checkpoint with results and `handoff`; exit immediately on `worker_handoff: true`. Managed Windows leases return `keep_worker: true`; retain the claim. POSIX and historical leases require exit and automatic resume after teardown. |
+| `publish-ui` | `--packages FILE`: JSON package name/ID map; repeat `--component PACKAGE/RESOURCE_ID` for scoped source/export layout checks. Native export into private staging, no Client installation. |
 | `prepare-go-dependencies` | `--repo REPO --module MODULE --commit SHA`; inspect `go-dependencies --request-id ID`. |
 | `verify-publication` | `--repo REPO`: fresh exact destination/branch/private-repository check before publishing. |
 | `retry-approval` | `--error-file FILE`: complete UTF-8 approval-review capacity error that explicitly confirms no action executed. Checkpoint, settle helpers and release resources first; then exit on `retry_queued` or `retry_exhausted`. |
@@ -65,6 +76,14 @@ Use `COMMAND --help` for exact syntax. The large parser retains historical
 commands for old state inspection and offline replay; repository handoff,
 presentation subtasks, mandatory baseline comparison, UI receipts and semantic
 closing checks are refused for this contract.
+
+For UI appearance/layout work, follow [UI verification](ui-verification.md) and
+select affected components on `publish-ui`. `layout-check.json` reports checked
+roots/dependencies and precise failures; failures retain staging and refuse a
+successful export result. Omitted selections remain compatible for non-layout
+exports but report `not_requested`. These serialized checks do not certify visual
+agreement or SafeArea; the owner verifies final native assets through the actual
+Client UI lifecycle and records relevant dimensions, insets and states.
 
 For work questions, teammates reply directly under the question comment with
 question numbers. After everyone is finished, any teammate @mentions the bot to
@@ -116,6 +135,12 @@ seconds. Stop using the old token and exit for either result. On resume recheck
 requests/authority and run normal approval again; publication also needs a fresh
 `verify-publication`. Other denials or ambiguous execution outcomes do not qualify.
 
+A new attributed request requires a `request_scope` checkpoint before new resource
+tests or delivered finish. Read `current_request` in `issue-context`, then save
+`{"request_scope":{"through_message_id":123,"summary":"Resolve only actual PR conflicts; validate affected inputs; report unrelated failures"}}`.
+Use the actual latest message ID, interpret status questions in context, and keep
+historical reports. This records scope in the existing checkpoint, not an approval.
+
 A typical checkpoint is ordinary JSON:
 
 ```json
@@ -127,6 +152,14 @@ A delivered finish uses:
 ```json
 {"summary":"What changed","verification":"Actual checks, results and remaining limitations","prs":["https://github.com/OWNER/REPO/pull/123"],"comment_action_id":"CONFIRMED_DELIVERY_ACTION"}
 ```
+
+`branch_target` in the job context is the controller's saved per-repository base
+branch, starting commit and remote identity. It survives retries and continuations.
+`verify-publication` returns `base_branch`; pass it explicitly when creating the PR.
+An issue target change cannot be accepted through `revalidate`, a checkpoint or PR
+retargeting. Restore the original target or use a new linked issue, retaining the
+existing work and reports. Historical jobs without a saved target retain default-
+branch behavior and cannot acquire an explicit target implicitly.
 
 Each listed PR is checked on GitHub: this issue's branch in its owned worktree,
 head at that worktree's current HEAD, and open (draft or marked ready) or merged.
@@ -141,7 +174,12 @@ needed. A finish is FarmBot delivery, not a merge, deployment or Linear Done.
 
 Server plans contain exactly `packages` (module-local paths), `tests` (exact
 Test names, or an empty list for all selected package tests) and `race` (boolean),
-for example `{"packages":["./breeding"],"tests":[],"race":false}`. Request services
+for example `{"packages":["./breeding"],"tests":[],"race":false}`. The generated
+command must fit the 30,000 UTF-16-unit total command-line bound; long individual
+test filters are supported. An oversized plan is rejected before service admission.
+Split an oversized selection into separate verified runs while preserving required
+coverage, or select all tests in the same affected packages when appropriate.
+Request services
 only when needed. Test commands still run in the worker. Resource
 readiness never certifies a test result. A lost Unity mutation response must be
 reconciled by observing the Editor/test job, not automatically retried.

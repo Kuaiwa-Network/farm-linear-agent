@@ -13,7 +13,8 @@ def context(args, ledger, config, token):
     item = ledger.item(args.item)
     if not single(item):
         raise LedgerError('this tool requires a single-worker job')
-    ledger._refuse_withdrawn(ledger._row(args.item))
+    if getattr(args, 'command', 'resource-status') != 'resource-status':
+        ledger._refuse_withdrawn(ledger._row(args.item))
     paths = Paths(config)
     if Path(args.db).resolve() != paths.ledger.resolve():
         raise LedgerError('resource tools require the configured host ledger')
@@ -22,6 +23,8 @@ def context(args, ledger, config, token):
 
 def request(args, ledger, config, token):
     item, paths = context(args, ledger, config, token)
+    from .version_targets import require_current
+    require_current(ledger, item['id'])
     if any(getattr(args, key, None) for key in ('baseline', 'reuse_candidate_reservation',
             'resume_baseline_reservation', 'repair_candidate_reservation')):
         raise LedgerError('single-worker requests select an explicit commit; staged comparison flags are retired')
@@ -36,6 +39,9 @@ def request(args, ledger, config, token):
     # Clean exact HEAD and owned issue branch, without current-main merge or a
     # baseline/candidate result gate. Source validity belongs to repository tests.
     trees.verification_commit(repo, item['id'], args.commit)
+    target = item.get('branch_target')
+    if target:
+        trees.verify_target(repo, paths.worktrees / item['id'] / repo, target['repositories'][repo])
     from .ledger import plan_issue_branches
     branch = trees.git_in(paths.worktrees / item['id'] / repo, 'branch', '--show-current')
     plan_issue_branches({'prs': {repo: [{'role': 'issue', 'branch': branch}]}},
@@ -54,6 +60,8 @@ def request(args, ledger, config, token):
             raise LedgerError('integration needs budget for one Unity Editor plus one full server lease')
         integration_plan = validate_plan(json.loads(Path(args.integration_plan).read_text(encoding='utf-8')))
         trees.verification_commit('farm-hive', item['id'], integration_plan['server_commit'])
+        if target:
+            trees.verify_target('farm-hive', paths.worktrees / item['id'] / 'farm-hive', target['repositories']['farm-hive'])
         branch = trees.git_in(paths.worktrees / item['id'] / 'farm-hive', 'branch', '--show-current')
         plan_issue_branches({'prs': {'farm-hive':[{'role':'issue','branch':branch}]}},
                             ledger.issue(item['issue_id'])['identifier'], config.issue_prefix, reserved=True)
@@ -83,6 +91,13 @@ def status(args, ledger, config, token):
                 source = trees.read_candidate('farm-hive', item['id'], reservation['commit_sha'], create=False)
                 result['integration'] = {**read_resource(ledger.slot(reservation['resource']), reservation, paths.server_slots),
                                          'plan':reservation['integration']['plan'], 'source':str(source)}
+    from .resource_processes import scope as process_scope
+    if result.get('reservation_id') and process_scope(ledger, result['reservation_id']):
+        for key in ('services', 'integration'):
+            if key in result:
+                for field in ('environment', 'ports', 'game_port'):
+                    result[key].pop(field, None)
+                result[key]['run_command'] = 'run-server-tests' if key == 'services' else 'run-integration'
     return result
 
 

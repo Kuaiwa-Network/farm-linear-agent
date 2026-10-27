@@ -1,5 +1,7 @@
 """Exclusive, non-printing claim-token storage for one worker startup."""
 import os
+import sqlite3
+import time
 from pathlib import Path
 
 from .config import Paths
@@ -7,6 +9,7 @@ from .ledger import LedgerError
 
 
 def claim_to_file(ledger, item_id, worker_id, destination, config):
+    command_entered_at = time.time()
     ledger.item(item_id)  # Refuse unknown/traversing IDs before creating any file.
     paths = Paths(config)
     root = paths.runs / item_id
@@ -27,4 +30,11 @@ def claim_to_file(ledger, item_id, worker_id, destination, config):
         # Do not retry a possibly successful claim, overwrite or unlink evidence.
         # The normal launcher archives this file when starting a later attempt.
         raise LedgerError('claim token storage failed; stop and preserve the file, do not claim again') from exc
-    return {**result, 'token_file': str(path)}
+    timing = {'command_entered_at': command_entered_at, 'claim_completed_at': time.time()}
+    try:
+        ledger.note(item_id, 'worker_claim_timing', details=timing)
+    except sqlite3.Error:
+        # The claim and private token are already durable. Optional timing must
+        # not turn that successful claim into an ambiguous startup failure.
+        timing['audit_recorded'] = False
+    return {**result, 'startup_timing': timing, 'token_file': str(path)}

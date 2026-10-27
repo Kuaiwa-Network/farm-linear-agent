@@ -15,6 +15,7 @@ import threading
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import quote, urlsplit
 
 from .ledger import ACTIVE_STATES, TERMINAL_STATUS_TYPES, LedgerError, StaleRouting
 from .lifecycle import UNREACHABLE_READS, UNREACHABLE_SECONDS
@@ -429,6 +430,18 @@ class Receiver:
             `await-input`, which parks its job (silent-delegation design A9, P9)."""
             self._send(session_id, ack_id, {"type": kind, "body": body + pin})
 
+        def acknowledge_delivery(delivered, body):
+            # A forwarding thread has no worker to finish it. Close only this
+            # message's session; progress and questions stay with the owner.
+            item = self.ledger.item(delivered["item_id"])
+            if item["session_id"] == session_id:
+                acknowledge("thought", body)
+                return
+            target = self._work_link(issue["url"], item["session_id"])
+            pointer = (f"请在{target}查看后续进展、问题和结果。" if target else
+                       "请在本 issue 中的原任务查看后续进展、问题和结果。")
+            acknowledge("response", body + "\n\n" + pointer)
+
         def take_over(decision, elsewhere, feature_work):
             """This delegation session owns the card, whose work is `elsewhere`, in another session (design P4)."""
             skill = decision.skill if decision.kind == "work" else "chat"
@@ -506,9 +519,11 @@ class Receiver:
                     notice = FORWARDED
                 if decision.text and decision.text != text:
                     notice = decision.text + "\n" + notice
-                acknowledge("thought", notice)
-                if resumed:
-                    self._note_resumed(delivered["item_id"], session_id)
+                try:
+                    acknowledge_delivery(delivered, notice)
+                finally:
+                    if resumed:
+                        self._note_resumed(delivered["item_id"], session_id)
                 return
             if decision.kind == "work":
                 if decision.skill in WRITE_SKILLS and not is_delegation:
@@ -529,8 +544,8 @@ class Receiver:
                 acknowledge("thought", self._opening(decision, text))
             elif decision.kind == "steer":
                 collect_answers(active)
-                self.ledger.push_inbox(active["id"], decision.text, author=author, received_at=received_at)
-                acknowledge("thought", "已转给正在处理的 worker，会在下一次检查点读取。")
+                delivered = self.ledger.push_inbox(active["id"], decision.text, author=author, received_at=received_at)
+                acknowledge_delivery(delivered, "已转给正在处理的 worker，会在下一次检查点读取。")
             elif decision.kind == "resume":
                 collect_answers(active)
                 # `active` is this session's work, or the job its conversation handed over to, which lives and asked
@@ -539,14 +554,16 @@ class Receiver:
                     # An answer on a card no longer delegated here goes on without the delegation (design P1, A2).
                     delivered = self.ledger.push_inbox(active["id"], decision.text, resume_waiting=True, author=author,
                                                        received_at=received_at, demote_to_mention=not delegated)
-                    acknowledge("thought", "收到回复，继续处理。")
+                    notice = "收到回复，继续处理。"
                 else:
                     delivered = self.ledger.push_inbox(active["id"], decision.text, resume_waiting=delegated,
                                                        author=author, received_at=received_at)
-                    acknowledge("thought", "收到回复，继续处理。" if delegated
-                                else RESUME_UNDELEGATED.format(bot=self.bot_name))
-                if active["state"] == "awaiting_input" and delivered["state"] == "queued":
-                    self._note_resumed(delivered["item_id"], session_id)
+                    notice = "收到回复，继续处理。" if delegated else RESUME_UNDELEGATED.format(bot=self.bot_name)
+                try:
+                    acknowledge_delivery(delivered, notice)
+                finally:
+                    if active["state"] == "awaiting_input" and delivered["state"] == "queued":
+                        self._note_resumed(delivered["item_id"], session_id)
             else:
                 # The router gives a session event work, chat, steer or resume. Any other decision would post nothing
                 # and leave the person's message unanswered, so the event fails and its error reply says so; a question
@@ -564,6 +581,29 @@ class Receiver:
                 if attempt == REROUTES:
                     raise
                 routed = routing()
+
+    @staticmethod
+    def _work_link(issue_url, session_id):
+        """Link to the owning Linear session, or the issue for operator work.
+
+        Linear's session route shares the issue's workspace slug. Derive it
+        locally so acknowledging a delivered message needs no extra API read.
+        Old malformed issue URLs must not prevent the forwarding session closing.
+        """
+        try:
+            parsed = urlsplit(issue_url)
+        except (TypeError, ValueError):
+            return None
+        parts = parsed.path.split("/")
+        if (parsed.scheme != "https" or parsed.netloc != "linear.app" or len(parts) < 4
+                or not parts[1] or parts[2] != "issue" or not parts[3]):
+            return None
+        workspace = quote(parts[1], safe="-")
+        if session_id.startswith("local-"):
+            url = f"https://linear.app/{workspace}/issue/{quote(parts[3], safe='-')}"
+            return f"[原任务（issue）]({url})"
+        url = f"https://linear.app/{workspace}/agent-session/{quote(session_id, safe='-')}"
+        return f"[原任务会话]({url})"
 
     def _opening(self, decision, text):
         """The acknowledgement of new work: its job's, or a conversation's: the first message of a card without a Bot

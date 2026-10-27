@@ -132,7 +132,8 @@ class SingleWorkerTests(LedgerBase):
         self.assertIn('![description](asset_url)', prompt)
         self.assertIn('Image replies need no', prompt)
         self.assertIn('Never upload credentials or unrelated private files', prompt)
-        self.assertIn('GOCACHE and GOTMPDIR', prompt.split('\n\n', 1)[0])
+        self.assertIn('content-addressed GOCACHE', prompt.split('\n\n', 1)[0])
+        self.assertIn('attempt-local GOTMPDIR', prompt.split('\n\n', 1)[0])
         self.assertIn('recovery under state_dir outside these disposable paths', prompt)
 
     def test_queued_request_cancels_on_maintenance_without_losing_claim(self):
@@ -263,6 +264,20 @@ class SingleWorkerTests(LedgerBase):
         return Scheduler(self.ledger, self.launcher, SKILLS, self.trees, skill_root=ROOT / 'skills',
             db_path=self.path, runtime_name='fake', host='test', enabled_skills={'work', 'chat'})
 
+    def test_bad_branch_target_holds_queue_without_starting_or_discarding_work(self):
+        from agent.version_targets import TargetError
+        self.owner()
+        scheduler = self.scheduler()
+        scheduler.version_targets = Mock()
+        scheduler.version_targets.prepare.side_effect = TargetError('common: release/1.0 does not exist')
+        result = scheduler.tick()
+        self.assertEqual(result['launched'], 0)
+        self.assertEqual(self.launcher.spawned, [])
+        item = self.ledger.item(self.key)
+        self.assertEqual(item['state'], 'queued')
+        self.assertEqual(item['stage'], 'waiting-target-selection')
+        self.assertGreater(item['retry_not_before'], self.now)
+
     def reservation(self):
         self.ledger.ensure_slot('unity:1', kind='unity_slot', host='test', folder='/slot',
                                 instance='instance-one', mcp_address='http://127.0.0.1:8080/mcp')
@@ -331,7 +346,8 @@ class SingleWorkerTests(LedgerBase):
         self.assertIn('Settle helpers before parking', prompt)
         self.assertIn('Draft/update contracts yourself when requirements are clear', prompt)
         self.assertIn('Normal resource queueing is not a human question', prompt)
-        self.assertIn('GOCACHE and GOTMPDIR', prompt.split('\n\n', 1)[0])
+        self.assertIn('content-addressed GOCACHE', prompt.split('\n\n', 1)[0])
+        self.assertIn('attempt-local GOTMPDIR', prompt.split('\n\n', 1)[0])
         self.assertIn('FARMBOT_BUILD_ROOT', prompt)
         self.assertIn('Keep required in-tree bin/obj', prompt)
         self.assertIn('recovery under state_dir outside these disposable paths', prompt)
@@ -354,6 +370,11 @@ class SingleWorkerTests(LedgerBase):
         payload = json.loads(payload)
         authority = ' '.join(authority.split())
         skill = ' '.join(Path(payload['skill']).read_text(encoding='utf-8').split())
+        for text in (authority, skill):
+            for requirement in ('references/ui-verification.md', '--component PACKAGE/RESOURCE_ID',
+                                'layout-check.json', 'production UI lifecycle', 'nonzero SafeArea insets',
+                                'rendered content bounds', 'not-enrolled states', 'runtime screenshots'):
+                self.assertIn(requirement, text)
         # These are model instructions, not a controller confidence classifier. Pin the
         # decision boundaries in the actual launch and skill the worker receives.
         for requirement in (
@@ -631,6 +652,9 @@ class SingleWorkerTests(LedgerBase):
         self.assertEqual(self.ledger.human_question(self.key)['id'], question['id'])
         self.ledger.push_inbox(self.key, 'Continue development.', author=OWNER, resume_waiting=True)
         self.token = self.ledger.claim(self.key, worker_id='resumed-owner')['token']
+        self.ledger.checkpoint(self.key, self.token, {'request_scope': {
+            'through_message_id': self.ledger.issue_context(self.key)['current_request']['latest_message_id'],
+            'summary': 'Continue original candidate; reset-period decision remains unanswered'}})
         action = self.ledger.prepare_comment(self.key, self.token, 'delivery', 'Delivered ' + PR)
         self.ledger.confirm_comment(action['action_id'], 'remote-comment')
         report = {'summary': 'Daily reset implemented', 'verification': 'Affected tests pass',
@@ -640,6 +664,8 @@ class SingleWorkerTests(LedgerBase):
         self.ledger.push_inbox(self.key, 'Daily.', author=OWNER)
         mid = self.ledger.issue_context(self.key)['session_messages'][-1]['id']
         self.ledger.resolve_question(self.key, self.token, question['id'], [mid])
+        self.ledger.checkpoint(self.key, self.token, {'request_scope': {
+            'through_message_id': mid, 'summary': 'Implement the agreed daily reset and affected checks'}})
         self.assertEqual(self.ledger.finish(self.key, self.token, 'delivered', report, verified_prs=[PR])['state'], 'delivered')
 
     def test_stop_during_preparation_revokes_readiness_and_preserves_evidence(self):

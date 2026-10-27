@@ -19,6 +19,7 @@ import xml.etree.ElementTree as ET
 
 from .fgui_approval import source_digest
 from .fgui_export import _package, snapshot_export
+from .fgui_layout import check as check_layout, selections
 from .ledger import LedgerError
 from .preview_upload import _plain_path
 from .uploads import _read_regular
@@ -356,15 +357,17 @@ class PublishResult:
     tool_pins: tuple
     process: tuple
     log_sha256: str
+    layout_json: str = '{"status":"not_requested"}'
 
     def evidence(self):
         return {"format": "farmbot-fgui-publish-v1", "source_head": self.source_head,
                 "source_digest": self.source_digest, "tools": dict(self.tool_pins),
                 "process": dict(self.process), "log_sha256": self.log_sha256,
-                "export": self.snapshot.evidence()}
+                "export": self.snapshot.evidence(), "layout": json.loads(self.layout_json)}
 
 
-def publish(project, packages, executable, tool_pins, run, *, fence, verify_source, timeout=MAX_TIMEOUT):
+def publish(project, packages, executable, tool_pins, run, *, fence, verify_source, timeout=MAX_TIMEOUT,
+            components=None):
     """Export once to new private staging; retain every failure for investigation.
 
     `verify_source` must revalidate an owned clean full commit, hydrated scoped
@@ -388,6 +391,7 @@ def publish(project, packages, executable, tool_pins, run, *, fence, verify_sour
     fence()
     required = _source(project, packages)
     source = _source_evidence(verify_source, required)
+    selections(components, packages)
     fence()
     run.mkdir(exist_ok=False)
     staging = run / "staging"; staging.mkdir()
@@ -412,10 +416,19 @@ def publish(project, packages, executable, tool_pins, run, *, fence, verify_sour
         if any(marker in text.lower() for marker in failures) or text.lower().count("publish completed") != len(packages):
             raise LedgerError("publisher log does not establish completion of the selected package set")
         snapshot = snapshot_export(staging, packages)
-        fence()
         digest = source_digest(source["files"])
+        layout = check_layout(project, packages, components, source["files"], snapshot)
+        layout.update({"source_head": source["head"], "source_digest": digest,
+                       "descriptors": [a.evidence() for a in snapshot.artifacts if a.kind == "descriptor"]})
+        _record(run, layout, "layout-check.json")
+        if layout["status"] == "failed":
+            first = layout["issues"][0]
+            raise LedgerError(f"UI layout check failed: {first['file']} / {first['node']}: {first['detail']} "
+                              f"See {run / 'layout-check.json'} for all findings.")
+        fence()
         result = PublishResult(snapshot, source["head"], digest, tuple(sorted(tool_pins.items())),
-                               tuple(sorted(process.items())), hashlib.sha256(log).hexdigest())
+                               tuple(sorted(process.items())), hashlib.sha256(log).hexdigest(),
+                               json.dumps(layout, sort_keys=True))
         evidence.update({"state": "complete", "result": result.evidence()}); _record(run, evidence)
         return result
     except BaseException as exc:
