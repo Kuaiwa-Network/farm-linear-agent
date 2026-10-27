@@ -7,6 +7,14 @@ requirement for new work.
 
 ## Issue workflow status
 
+Publication and delivery verification refresh Git objects without pruning refs,
+writing FETCH_HEAD or running automatic Git maintenance. These checks run inside
+the worker's existing object/ref write grants; pruning belongs to the trusted
+controller because it may lock `packed-refs` in the protected clone root. Remote
+branch identity and ancestry are still verified against the current remote heads.
+This changes no schema or worker permissions. After deploying the fix, an owner
+parked on this Git permission error can resume with its saved PRs and evidence.
+
 The controller moves a delegated issue to **In Progress** after successfully starting
 its first issue-work worker, and to **In Review** after the root job passes its
 existing delivery checks and records `delivered`. This covers the current single-worker `work` owner and retained legacy root write jobs. Queue admission, chat replies, internal

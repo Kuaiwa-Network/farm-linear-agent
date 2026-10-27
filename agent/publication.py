@@ -249,7 +249,9 @@ class PublicationVerifier:
         if target:
             try:
                 self.worktrees.verify_target(repo, path, target)
-                current_base = self.worktrees.resolve_target(repo, base_branch)
+                # This verifier also runs inside the worker sandbox. Refresh objects
+                # without clone-root maintenance; identity still comes from ls-remote.
+                current_base = self.worktrees.resolve_target(repo, base_branch, prune=False)
                 missing = self.worktrees.git_in(path, 'rev-list', '--max-count=1', target['commit'], '--not',
                     current_base['commit'], env={'GIT_NO_REPLACE_OBJECTS': '1'})
                 if missing:

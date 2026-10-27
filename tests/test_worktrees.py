@@ -1461,6 +1461,42 @@ class FetchRaceTests(unittest.TestCase):
         self.assertEqual(self.tracking(), head)
         self.assertFalse(fetch_head.exists())
 
+    def test_verification_fetch_preserves_deleted_packed_refs_and_protected_root(self):
+        git('branch', 'gone', cwd=self.origin)
+        self.trees.fetch('Farm-Client')
+        git('pack-refs', '--all', cwd=self.clone)
+        git('branch', '-D', 'gone', cwd=self.origin)
+        packed = (self.clone / 'packed-refs').read_bytes()
+        lock = self.clone / 'packed-refs.lock'
+        lock.mkdir()  # Cross-platform simulation of the protected clone root.
+        fetch_head = self.clone / 'FETCH_HEAD'
+        fetch_head.unlink(missing_ok=True)
+        fetch_head.mkdir()
+        head = self.advance('new target.txt')
+        config = ('-c', 'fetch.prune=true', '-c', 'fetch.pruneTags=true',
+                  '-c', 'fetch.writeCommitGraph=true', '-c', 'gc.auto=1')
+        self.trees.fetch('Farm-Client', prune=False, config=config)
+        self.assertEqual(self.tracking(), head)
+        self.assertEqual((self.clone / 'packed-refs').read_bytes(), packed)
+        self.assertTrue(lock.is_dir())
+        self.assertTrue(fetch_head.is_dir())
+        self.assertFalse((self.clone / 'objects' / 'info' / 'commit-graph').exists())
+        self.assertIn('refs/remotes/origin/gone', git('show-ref', cwd=self.clone))
+        lock.rmdir()
+        fetch_head.rmdir()
+        self.trees.fetch('Farm-Client')  # Trusted controller still removes stale refs.
+        self.assertNotIn('refs/remotes/origin/gone', git('show-ref', cwd=self.clone))
+
+    def test_nonpruning_fetch_does_not_suppress_controller_cleanup_in_same_scope(self):
+        git('branch', 'gone', cwd=self.origin)
+        self.trees.fetch('Farm-Client')
+        git('branch', '-D', 'gone', cwd=self.origin)
+        with self.trees.one_fetch_per_clone():
+            self.trees.fetch('Farm-Client', prune=False)
+            self.assertIn('refs/remotes/origin/gone', git('show-ref', cwd=self.clone))
+            self.trees.fetch('Farm-Client')
+        self.assertNotIn('refs/remotes/origin/gone', git('show-ref', cwd=self.clone))
+
     def test_a_fetch_that_loses_the_ref_lock_race_is_retried_once(self):
         head = self.advance("later.txt")
         patched, envs = self.fetches(lost_race())
