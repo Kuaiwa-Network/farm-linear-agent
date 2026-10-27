@@ -3598,6 +3598,12 @@ class Ledger:
         The same id and body return the recorded notice, posted or not, which is how a retried attempt
         reuses it; the same id with other words is refused rather than silently kept or replaced.
         """
+        with self._transaction():
+            row = self._owned(item_id, token)
+            return self._prepare_notice(row, kind, request_id, body)
+
+    def _prepare_notice(self, row, kind, request_id, body):
+        """Prepare inside the caller's transaction, including question/checkpoint updates."""
         if kind not in NOTICE_KINDS:
             raise LedgerError(f"notice kind must be one of {', '.join(NOTICE_KINDS)}")
         if not isinstance(request_id, str) or not REQUEST_ID.fullmatch(request_id):
@@ -3605,22 +3611,20 @@ class Ledger:
         _text(body, "notice body")
         clean_body = _without_markers(body)
         _text(clean_body, "notice body")
-        with self._transaction():
-            row = self._owned(item_id, token)
-            if not _in_scope(json.loads(self._issue_row(row["issue_id"])["metadata"])):
-                raise LedgerError("issue left scope; do not post a new notice")
-            action_id = hashlib.sha256(f"notice:{row['id']}:{request_id}".encode("utf-8")).hexdigest()
-            marker = f"[farmbot:{action_id}]"
-            full_body = f"{clean_body}\n\n{marker}"
-            existing = self.notice(row["id"], request_id)
-            if existing is None:
-                self.connection.execute("""INSERT INTO notices(item_id,request_id,issue_id,kind,marker,body,created_at)
-                    VALUES(?,?,?,?,?,?,?)""", (row["id"], request_id, row["issue_id"], kind, marker, full_body, self.clock()))
-                self._audit(row["id"], "prepare_notice", kind, {"request_id": request_id})
-            elif existing["kind"] != kind or existing["body"] != full_body:
-                raise LedgerError(f"request id {request_id} already holds a different notice; "
-                                  "post that one or choose a new request id")
-            return self.notice(row["id"], request_id)
+        if not _in_scope(json.loads(self._issue_row(row["issue_id"])["metadata"])):
+            raise LedgerError("issue left scope; do not post a new notice")
+        action_id = hashlib.sha256(f"notice:{row['id']}:{request_id}".encode("utf-8")).hexdigest()
+        marker = f"[farmbot:{action_id}]"
+        full_body = f"{clean_body}\n\n{marker}"
+        existing = self.notice(row["id"], request_id)
+        if existing is None:
+            self.connection.execute("""INSERT INTO notices(item_id,request_id,issue_id,kind,marker,body,created_at)
+                VALUES(?,?,?,?,?,?,?)""", (row["id"], request_id, row["issue_id"], kind, marker, full_body, self.clock()))
+            self._audit(row["id"], "prepare_notice", kind, {"request_id": request_id})
+        elif existing["kind"] != kind or existing["body"] != full_body:
+            raise LedgerError(f"request id {request_id} already holds a different notice; "
+                              "post that one or choose a new request id")
+        return self.notice(row["id"], request_id)
 
     def confirm_notice(self, item_id, request_id, remote_id):
         """Record the comment a notice became, once: the caller's readback, as for confirm_comment."""

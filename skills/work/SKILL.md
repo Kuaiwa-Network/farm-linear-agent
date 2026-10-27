@@ -110,8 +110,12 @@ Maintain an answered/unanswered list with actual inbox message IDs and authors
 in the checkpoint. A reply can answer just one question; retain earlier answers
 across resumes and never ask someone to collect everyone else's answers. Complete
 only work supported by the answers so far, then checkpoint and use `await-input`
-again for the remaining questions. This reuses the existing question comment and
-round. Call `resolve-question` only after all questions in that round are answered,
+again for the remaining questions. In the follow-up text, acknowledge accepted answers,
+name exactly the remaining required inputs and label optional information. Changed
+text is posted as a reply in the original thread; unchanged retries reuse its notice.
+The original question comment and round stay intact. An "already answered" message
+means review prior answers; it does not supply missing facts. Call `resolve-question`
+only after all questions in that round are answered,
 citing the relevant message IDs from all respondents. Resolve that round before
 opening a new one; do not silently replace its questions with different decisions.
 Explicit repository approval requirements apply at every confidence level;

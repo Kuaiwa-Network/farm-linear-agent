@@ -381,6 +381,11 @@ class SingleWorkerTests(LedgerBase):
                                 'layout-check.json', 'production UI lifecycle', 'nonzero SafeArea insets',
                                 'rendered content bounds', 'not-enrolled states', 'runtime screenshots'):
                 self.assertIn(requirement, text)
+        for text in (authority, skill):
+            for requirement in ('acknowledge accepted answers', 'remaining required inputs and label optional',
+                                'reply in the original thread', 'unchanged retries reuse its notice',
+                                'it does not supply missing facts'):
+                self.assertIn(requirement, text)
         # These are model instructions, not a controller confidence classifier. Pin the
         # decision boundaries in the actual launch and skill the worker receives.
         for requirement in (

@@ -50,7 +50,7 @@ parking or finish, and checkpoints their work. No FarmBot child task is created.
 | `pop-inbox` | Read attributed requests. Reuse actual existing answers. |
 | `revalidate` | `--fingerprint VALUE`, only after reviewing changed inputs; compact receipt retains old/new fingerprints. Optional `--view full`. |
 | `activity` | `--type thought --body-file FILE`: non-blocking progress or already-decided/high-confidence contract decision summary. Questions use `await-input`. |
-| `await-input` | `--question TEXT --reason question\|waiting`: save a checkpoint and release resources first; then exit. Work questions are posted as issue comments; partial answers reuse the same comment and round. |
+| `await-input` | `--question TEXT --reason question\|waiting`: save a checkpoint and release resources first; then exit. Work questions are posted as issue comments; partial answers keep the same thread and round; changed text is posted as a follow-up reply. |
 | `resolve-question` | `--question-id ID --message-id ID` (repeatable), actual attributed replies only. |
 | `await-resource` | `--resource unity_slot --mode interactive --commit SHA`, or `server_slot --mode batch --commit SHA --server-test-plan FILE`. Stay in this worker. |
 | `run-server-tests` | `--module MODULE`: run the reserved exact Go plan in the owned farm-hive module; retain JSON output and native command teardown proof. |
@@ -97,10 +97,16 @@ answers with their authors; there is no periodic question-thread polling and
 ordinary replies do not wake work. A session reply can also trigger that check.
 No combined session answer is needed. The session points to the issue comments.
 On partial answers keep the original round and all answer message IDs in the
-checkpoint, then `await-input` again for the remainder. `resolve-question` still
-requires the actual attributed replies for the complete round. A retry reconciles
-the question comment's marker before posting, preventing a duplicate after a lost
-response. Plain chat and historical staged jobs retain their existing question path.
+checkpoint, then `await-input` again with a brief acknowledgment of accepted answers
+and exactly the remaining required inputs; label optional information separately.
+Changed text becomes a follow-up reply under the original question comment;
+unchanged text reuses the existing notice and pointer. `resolve-question` still
+requires the actual attributed replies for the complete round. “Already answered”
+means review the prior answers, not infer missing facts. A retry reconciles each
+saved revision's marker in the original thread before posting, preventing a duplicate
+after a lost response. Prepared revisions survive restart and publish in order;
+the session links the latest clarification with a saved activity ID. Plain chat and
+historical staged jobs retain their existing question path.
 
 Before contract behavior or protocol semantics change, follow the
 [decision review in the work skill](../skills/work/SKILL.md). Publish decisions,

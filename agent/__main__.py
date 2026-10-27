@@ -543,17 +543,34 @@ def owned_notice(ledger, item_id, request_id, token):
     return notice
 
 
-def post_notice(ledger, api, notice):
+def post_notice(ledger, api, notice, *, token=None):
     """Reconcile the marker against live comments before ever creating one, exactly as post_comment does; an
     issue that has left scope gets no new notice, though one already posted is still recorded."""
     if notice["remote_id"]:
         return notice
+    parent_id = None
+    question = ledger.human_question(notice['item_id'])
+    if question and notice['request_id'] in question.get('comment_followup_request_ids', []):
+        root = ledger.notice(notice['item_id'], question['comment_request_id'])
+        if not root or not root['remote_id']:
+            raise LedgerError('publish the original question before its follow-up')
+        parent_id = root['remote_id']
     issue = api.fetch_issue(notice["issue_id"])
     if issue['id'] != notice['issue_id']:
         raise LedgerError('notice response identifies a different issue')
     observed = ledger.observe_issue(issue)
-    remote_id = next((c["id"] for c in issue["comments"] if notice["marker"] in c["body"]), None)
+    matches = [c for c in issue['comments'] if notice['marker'] in c['body']]
+    if parent_id and any(c.get('parent_id') != parent_id for c in matches):
+        raise LedgerError('question follow-up marker is outside its original thread')
+    remote_id = next((c['id'] for c in matches), None)
     if remote_id is None:
+        if token is not None:
+            row = ledger._owned(notice['item_id'], token)
+            ledger._refuse_withdrawn(row)
+            current = ledger.human_question(notice['item_id'])
+            if not current or notice['request_id'] not in [
+                    current.get('comment_request_id'), *current.get('comment_followup_request_ids', [])]:
+                raise LedgerError('question round changed before publication')
         if not observed["in_scope"]:
             raise LedgerError("issue left scope; the notice was not posted")
         item = ledger.item(notice['item_id'])
@@ -561,7 +578,12 @@ def post_notice(ledger, api, notice):
             refuse_withdrawn(item)
             if item['authority'] == 'delegation' and (not api.app_user_id or issue.get('delegate_id') != api.app_user_id):
                 raise LedgerError(Ledger.WITHDRAWN)
-        remote_id = api.create_comment(notice["issue_id"], notice["body"])
+        if parent_id:
+            if not any(c['id'] == parent_id for c in issue['comments']):
+                raise LedgerError('original question comment is missing; cannot publish a follow-up')
+            remote_id = api.create_comment(notice['issue_id'], notice['body'], parent_id=parent_id)
+        else:
+            remote_id = api.create_comment(notice["issue_id"], notice["body"])
     return ledger.confirm_notice(notice["item_id"], notice["request_id"], remote_id)
 
 
@@ -870,14 +892,11 @@ def run(args, ledger, api_factory):
             if api.awaiting_reply(item["issue_id"]) is not False:
                 mark_reply_label(ledger, item["id"])
         if args.reason == "question" and single(item) and item['skill'] == 'work':
-            from .question_threads import prepare
-            notice = prepare(ledger, args.item, token, args.question, configured_bot_name())
-            post_notice(ledger, api, notice)
-            if not str(item['session_id']).startswith('local-'):
-                url = ledger.issue(item['issue_id'])['url']
-                api.create_activity(item['session_id'], {'type': 'elicitation', 'body':
-                    f'问题已发布到 [issue 评论]({url})。各负责人可分别回复问题评论；'
-                    f'大家答完后，由任意一人 @{configured_bot_name()} 告知检查并继续，无需汇总到会话。'})
+            from .question_threads import prepare, point_to_question
+            notices = prepare(ledger, args.item, token, args.question, configured_bot_name())
+            for notice in notices:
+                notice = post_notice(ledger, api, notice, token=token)
+            point_to_question(ledger, api, args.item, token, notice, configured_bot_name())
             try:
                 return ledger.await_input(args.item, token, args.question, reason=args.reason)
             except LedgerError:

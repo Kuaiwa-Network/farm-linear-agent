@@ -400,9 +400,12 @@ class LinearAPI:
             raise RuntimeError("Linear recovery session context mismatch")
         return session
 
-    def create_comment(self, issue_id, body):
+    def create_comment(self, issue_id, body, *, parent_id=None):
+        comment = {"issueId": issue_id, "body": body}
+        if parent_id is not None:
+            comment['parentId'] = parent_id
         result = self.graphql("""mutation FarmBotComment($input: CommentCreateInput!) {
-            commentCreate(input: $input) { success comment { id } } }""", {"input": {"issueId": issue_id, "body": body}})["commentCreate"]
+            commentCreate(input: $input) { success comment { id } } }""", {"input": comment})["commentCreate"]
         if result.get("success") is not True or not result.get("comment", {}).get("id"):
             raise RuntimeError("Linear did not confirm comment creation")
         return result["comment"]["id"]

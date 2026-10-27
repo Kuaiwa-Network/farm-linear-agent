@@ -322,11 +322,11 @@ class StubLinear:
         source.write_text(json.dumps(raw, ensure_ascii=False), encoding='utf-8')
         return True
 
-    def create_comment(self, issue_id, body):
+    def create_comment(self, issue_id, body, *, parent_id=None):
         number = len(list(self.directory.glob("comment-*.txt"))) + 1
         remote_id = f"stub-comment-{number}"
         (self.directory / f"comment-{number}.txt").write_text(body, encoding="utf-8")
-        self._record("create_comment", issue_id=issue_id, body=body, remote_id=remote_id)
+        self._record("create_comment", issue_id=issue_id, body=body, remote_id=remote_id, parent_id=parent_id)
         return remote_id
 
     def create_activity(self, session_id, content, activity_id=None):
