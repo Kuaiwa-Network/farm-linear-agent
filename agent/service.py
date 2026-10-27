@@ -3,6 +3,7 @@ from collections import namedtuple
 from datetime import datetime, timezone
 import argparse
 import json
+import os
 import shutil
 import signal
 import threading
@@ -32,8 +33,8 @@ from .worktrees import Worktrees
 from .unity import editor_holds_project
 
 Components = namedtuple("Components",
-                        "config paths api ledger skills worktrees launcher scheduler receiver server pool lifecycle progress recovery server_pool go_dependencies",
-                        defaults=(None, None, None, None, None))
+                        "config paths api ledger skills worktrees launcher scheduler receiver server pool lifecycle progress recovery server_pool go_dependencies review",
+                        defaults=(None, None, None, None, None, None))
 
 
 def build(config, runtime_override=None, *, replay_legacy=False):
@@ -44,14 +45,17 @@ def build(config, runtime_override=None, *, replay_legacy=False):
     if config.go_dependencies:
         from .go_dependencies import ensure as ensure_dependencies
         ensure_dependencies(config)
-    skills = load_skills(ROOT / "skills", replay_legacy=replay_legacy)
+    skills = load_skills(ROOT / "skills", replay_legacy=replay_legacy, include_internal=True)
     # spec §9.11, before any client or state exists: a name the checkout lacks, or a skill the dispatch cannot
     # brief, stops startup.
-    enabled = enabled_skills(skills, config.enabled_skills, authority=SKILL_AUTHORITY)
+    enabled = enabled_skills(skills, config.enabled_skills, authority={**SKILL_AUTHORITY, 'review': 'internal delivery trigger'})
     if replay_legacy:
         require_lark_cli(config, enabled)
-    elif set(enabled) - {'work', 'chat'}:
+    elif set(enabled) - {'work', 'chat', 'review'}:
         raise ValueError('retired execution profiles: configure enabled_skills as [chat, work]; adopt settled historical jobs explicitly')
+    # Delivery is an internal trigger, never an intake route or ordinary worker.
+    enabled.pop('review', None)
+    skills.pop('review', None)
     paths = Paths(config)
     api = linear_api(config)
     identity = api.identity()
@@ -158,9 +162,28 @@ def build(config, runtime_override=None, *, replay_legacy=False):
     if config.go_dependencies:
         from .go_dependencies import Controller as DependencyController
         dependencies = DependencyController(Ledger(paths.ledger, check_same_thread=False), worktrees, config)
+    review = None
+    from .review_policy import settings as review_settings
+    review_policy = review_settings(config.auto_merge, config.repos)
+    if review_policy['mode'] != 'off' or ledger.connection.execute("SELECT 1 FROM review_attempts WHERE state IN "
+            "('queued','running','submitted','stopping') LIMIT 1").fetchone():
+        from .review_controller import Controller as ReviewController
+        from .review_git import CandidateGit
+        from .review_github import GitHub as ReviewGitHub, StubGitHub as ReviewStubGitHub
+        from .review_store import ReviewStore
+        from .review_workers import ReviewWorkers
+        review_ledger = Ledger(paths.ledger, check_same_thread=False)
+        review_launcher = Launcher(paths.runs / 'review', runtime, config.host, token_env=token_env,
+            lark_cli=config.lark_cli, codex_windows_sandbox=config.codex_windows_sandbox)
+        candidate_git = CandidateGit(worktrees)
+        review_workers = ReviewWorkers(ReviewStore(review_ledger), review_launcher, candidate_git, config, review_policy,
+                                       author_launcher=launcher)
+        stub = os.environ.get('FARMBOT_REVIEW_GITHUB_STUB_DIR')
+        review_github = ReviewStubGitHub(config.repos, stub) if stub else ReviewGitHub(config.repos)
+        review = ReviewController(review_ledger, config, api, review_github, candidate_git, review_workers)
     # `skills` is the enabled set the ready line reports, not every manifest the checkout loads.
     return Components(config, paths, api, ledger, set(enabled), worktrees, launcher, scheduler, receiver, server, pool,
-                      lifecycle, progress, recovery, server_pool, dependencies)
+                      lifecycle, progress, recovery, server_pool, dependencies, review)
 
 
 def seed_clones(config, source_root=None):
@@ -275,9 +298,12 @@ def _serve(components):
     # The beats' own event, set only once the loop threads have joined. Draining can take minutes, and beats that
     # stopped with the loops would age into 无响应 on the monitor during a clean shutdown.
     beat_stop = threading.Event()
+    def workers():
+        return {**components.launcher.running(), **(components.review.workers.launcher.running() if components.review else {})}
     heartbeat = Heartbeat(runtime=components.launcher.runtime.name, revision=source_revision(ROOT),
-                          workers=components.launcher.running,
+                          workers=workers,
                           capacity={"max_workers": components.config.max_concurrent,
+                                    **({'review_workers': components.review.policy['workers']} if components.review else {}),
                                     "unity_slots": (components.config.unity_pool.get("editors")
                                                     or len(components.config.slots)),
                                     "server_slots": components.config.server_slots.get("count", 0),
@@ -286,7 +312,8 @@ def _serve(components):
     components.scheduler.maintenance_epoch = heartbeat.started_at
     components.scheduler.maintenance_resources = getattr(components.pool, 'maintenance_blockers', None)
     def maintenance_busy():
-        return heartbeat.unsettled_loops(('pool', 'server_pool', 'resource_recovery', 'go_dependencies', 'worker_retention'))
+        return (heartbeat.unsettled_loops(('pool', 'server_pool', 'resource_recovery', 'go_dependencies', 'worker_retention', 'review'))
+                + (components.review.workers.blockers() if components.review else []))
     components.scheduler.maintenance_busy = maintenance_busy
     # The receiver's handler counts each /webhook outcome into it (receiver.make_server).
     components.server.heartbeat = heartbeat
@@ -352,6 +379,11 @@ def _serve(components):
     threads = [threading.Thread(target=guarded("receive", receive_once), daemon=True),
                threading.Thread(target=guarded("schedule", schedule_once), daemon=True),
                threading.Thread(target=guarded("pool", pool_once), daemon=True)]
+    if components.review is not None:
+        def review_once():
+            components.review.tick()
+            return components.review.policy['poll_seconds']
+        threads.append(threading.Thread(target=guarded('review', review_once), daemon=True))
     from .worker_retention import Controller as RetentionController
     retention = RetentionController(components.launcher, components.config.worker_retention)
     if retention.policy['enabled']:
@@ -436,6 +468,8 @@ def _serve(components):
                     # mutations have stopped, even when an operation drains slowly.
                     thread.join()
             retention.close()
+            if components.review is not None:
+                components.review.close()
             # Batch executions have separate connections and outlive a pool tick.
             # Drain them while the root lock and serving heartbeat still belong to
             # this controller, after the launcher has fenced all further spawns.
@@ -475,6 +509,7 @@ def main(argv=None):
     parser.add_argument("command", choices=["configure", "serve", "status", "seed-clones", "install-launchd",
                                             "enqueue", "slots", "doctor", "recover-worker-cleanup", "monitor",
                                             "recover-server-slot", "maintenance-pause", "maintenance-status",
+                                            "review-status", "review-pause", "review-resume", "review-incident",
                                             "maintenance-resume", "adopt-single-worker", "resume-ui-scope", "resume-ui-source", "resume-comparison", "resume-server-evidence"])
     parser.add_argument("--config")
     parser.add_argument("--from", dest="source_root", help="directory holding local checkouts to seed from")
@@ -485,8 +520,17 @@ def main(argv=None):
     parser.add_argument("--item", help="work item selected for an explicit host recovery command")
     parser.add_argument("--slot", help="held server slot to reconcile through verified Docker cleanup")
     parser.add_argument("--reason", help="operator explanation for maintenance or recovery")
+    parser.add_argument('--review-run', help='review run selected for an attributed incident')
+    parser.add_argument('--event-id', help='stable deduplication identity for an incident')
+    parser.add_argument('--incident-kind', choices=('revert', 'reopen'))
     parser.add_argument("--evidence-manifest", help="host-reviewed retained server evidence manifest")
     args = parser.parse_args(argv)
+    if args.command.startswith('review-'):
+        from .review_operator import control
+        print(json.dumps(control(load_config(args.config, secure_permissions=args.command != 'review-status'),
+            args.command, reason=args.reason, run=args.review_run, event=args.event_id, kind=args.incident_kind),
+            ensure_ascii=False, indent=2))
+        return 0
     if args.only_issue is not None and args.command != 'maintenance-resume':
         parser.error('--only-issue requires maintenance-resume')
     if args.command == 'adopt-single-worker':

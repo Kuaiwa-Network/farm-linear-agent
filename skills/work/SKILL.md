@@ -229,6 +229,12 @@ listed PR is this issue's open or merged PR at your worktree's current HEAD, and
 the confirmed delivery comment, not a second semantic acceptance matrix. Do not
 merge PRs, deploy or change Linear status.
 
+After successful delivery, settle helpers and exit. An enabled internal review
+controller owns later conflict/CI repairs, independent review and supported merges;
+do not reserve your worker slot to wait for it. Its human handoff is completed bot
+work: humans own further review and merge. A human approval or green CI alone is
+not a new request to resume this implementation owner.
+
 On maintenance, collect in-flight work, stop your services, release resources,
 checkpoint a current `handoff`, and `maintenance-handoff` then exit. On withdrawal,
 publish nothing and follow `withdraw`. Recovery reuses source and evidence.

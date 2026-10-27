@@ -18,7 +18,7 @@ def git(*args, cwd, allow_failure=False):
     """allow_failure lets a caller read the stdout of a command whose non-zero exit is the answer, such as
     `symbolic-ref -q HEAD` on a detached head, which exits 1 and prints nothing."""
     return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=cwd,
-                          check=not allow_failure, capture_output=True, text=True).stdout.strip()
+                          check=not allow_failure, capture_output=True, text=True, encoding='utf-8').stdout.strip()
 
 
 class WorktreeTests(unittest.TestCase):

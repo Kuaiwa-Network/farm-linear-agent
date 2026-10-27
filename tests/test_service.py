@@ -168,6 +168,23 @@ class ServeTests(unittest.TestCase):
             self.addCleanup(close)
         if components.go_dependencies is not None:
             self.addCleanup(components.go_dependencies.ledger.close)
+        if components.review is not None:
+            self.addCleanup(components.review.close)
+
+    def test_review_uses_a_separate_connection_launcher_and_capacity_without_becoming_intake(self):
+        from dataclasses import replace
+        config = replace(self.c.config, max_concurrent=8,
+                         auto_merge={'mode': 'shadow', 'authority': 'designated-controller'})
+        with patch('agent.review_github.GitHub'):
+            components = build(config)
+        self.close_later(components)
+        self.assertEqual(components.scheduler.max_concurrent, 8)
+        self.assertEqual(components.review.policy['workers'], 3)
+        self.assertIsNot(components.review.ledger.connection, components.ledger.connection)
+        self.assertIsNot(components.review.workers.launcher, components.launcher)
+        self.assertEqual(components.review.workers.launcher.runs_root, components.paths.runs / 'review')
+        self.assertNotIn('review', components.skills)
+        self.assertNotIn('review', components.scheduler.skills)
 
     def test_combined_helper_keeps_verified_docker_identity_on_its_own_connection(self):
         from dataclasses import replace
@@ -680,7 +697,8 @@ class ServeTests(unittest.TestCase):
         self.addCleanup(self.c.server.shutdown)
         self.wait_for_beat(path, lambda beat: beat["phase"] == "serving")
         deadline = time.time() + 20
-        while set(LOOPS) - set(self.c.server.heartbeat.payload()["loops"]) and time.time() < deadline:
+        expected_loops = set(LOOPS) - {'server_pool', 'review'}  # Both optional pools are disabled in this fixture.
+        while expected_loops - set(self.c.server.heartbeat.payload()["loops"]) and time.time() < deadline:
             time.sleep(0.05)
         self.c.server.shutdown()
         thread.join(timeout=20)
@@ -689,7 +707,7 @@ class ServeTests(unittest.TestCase):
         state, beat = read(path, now=time.time())
         self.assertEqual((state, beat["phase"]), ("fresh", "stopped"))
         self.assertIsNotNone(beat["stopped_at"])
-        self.assertEqual(set(beat["loops"]), set(LOOPS) - {"server_pool"})
+        self.assertEqual(set(beat["loops"]), expected_loops)
         self.assertEqual(beat["workers"], {})  # the launcher's own list: this fixture launched no worker
         self.assertEqual(beat["capacity"], {"max_workers": components.config.max_concurrent,
                                             "unity_slots": len(components.config.slots),

@@ -74,10 +74,10 @@ class RehearsalTests(unittest.TestCase):
         return item, res["reservation_id"]
 
     def check(self, *extra, items=None):
-        command = [sys.executable, "-B", str(CHECKER), "--db", str(self.db), "--runs", str(self.runs)]
+        command = [sys.executable, "-B", "-X", "utf8", str(CHECKER), "--db", str(self.db), "--runs", str(self.runs)]
         for item in self.items if items is None else items:
             command += ["--item", item]
-        return subprocess.run([*command, *extra], cwd=self.root, capture_output=True, text=True, timeout=15)
+        return subprocess.run([*command, *extra], cwd=self.root, capture_output=True, text=True, encoding='utf-8', timeout=15)
 
     def test_rejects_missing_reservation_transition_even_when_final_rows_look_good(self):
         item, res = self.item()

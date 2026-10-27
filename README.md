@@ -8,6 +8,9 @@ The worker stays alive while waiting for Unity or server services. It tests the
 candidate first; baseline testing is optional diagnosis. There are no compulsory
 repository handoffs, presentation subtasks or semantic closeout approvals.
 Independent issues share the configured `max_concurrent` worker limit.
+An optional [review and merge stage](docs/review-automation.md) adds separate review
+capacity and parks workers during GitHub CI. It is disabled by default; its document
+lists supported merge behavior and the remaining rollout limits.
 The main worker chooses when
 native Codex subagents help and remains responsible for integration and delivery.
 

@@ -19,7 +19,7 @@ STALE_AFTER = 60.0
 # and so can the replace itself. The one retry of such a read, or of serve's final beat, waits this long.
 RETRY_AFTER = 0.1
 MAX_BYTES = 64 * 1024
-LOOPS = ("receive", "schedule", "pool", "lifecycle", "progress", "resource_recovery", "server_pool", "worker_retention")
+LOOPS = ("receive", "schedule", "pool", "lifecycle", "progress", "resource_recovery", "server_pool", "worker_retention", "review")
 PHASES = ("starting", "serving", "stopped")
 OUTCOMES = ("accepted", "duplicate", "ignored", "rejected", "malformed", "failed")
 _ERROR_TYPE = re.compile(r"[A-Za-z_][A-Za-z0-9_.]{0,63}")
@@ -223,6 +223,8 @@ def _capacity(raw):
               "enabled_skills": sorted(names)}
     if "server_slots" in raw:
         result["server_slots"] = _count(raw["server_slots"])
+    if "review_workers" in raw:
+        result['review_workers'] = _count(raw['review_workers'])
     return result
 
 

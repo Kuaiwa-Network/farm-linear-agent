@@ -381,11 +381,18 @@ def verify_delivered_prs(ledger, args, token, item, urls):
     identifier = ledger.issue(item['issue_id'])['identifier']
     verifier = PublicationVerifier(JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger),
                                    api=github_reader(config), issue_prefix=config.issue_prefix)
+    from .review_policy import settings as review_settings
+    capture = review_settings(config.auto_merge, config.repos)['mode'] != 'off'
+    proofs = []
     for url in urls:
         repo = repository(url)
-        verify_with_retries(lambda: verifier.verify_pr(repo, args.item, identifier, url, delivered=True),
-                            lambda: ledger.renew(args.item, token))
+        options = {'proof': True} if capture else {}
+        proof = verify_with_retries(lambda: verifier.verify_pr(repo, args.item, identifier, url, delivered=True, **options),
+                                    lambda: ledger.renew(args.item, token))
+        if capture:
+            proofs.append(proof)
     ledger.renew(args.item, token)  # network checks cannot outlive cancellation or the claim
+    return proofs
 
 
 def verify_late_prs(ledger, args, token, progress):
@@ -1422,8 +1429,9 @@ def run(args, ledger, api_factory):
                     'maintenance_requested': item['maintenance_requested'],
                     'next': 'Complete live gates and confirmed delivery, then run finish without --check-input.'}
         verified_prs = ()
+        review_inputs = ()
         if single(item) and item['skill'] in WRITE_SKILLS and args.outcome == 'delivered' and evidence.get('prs'):
-            verify_delivered_prs(ledger, args, token, item, evidence['prs'])
+            review_inputs = verify_delivered_prs(ledger, args, token, item, evidence['prs']) or ()
             verified_prs = tuple(evidence['prs'])
         if item['skill'] == 'work' and args.outcome == 'delivered' and not single(item):
             from .presentation_artifacts import verify_parent_head
@@ -1466,7 +1474,7 @@ def run(args, ledger, api_factory):
                 raise LedgerError("UI no-change delivery must use the configured host ledger")
             evidence["ui_no_change_id"] = verify_no_change(ledger, args.item, token, config, api_factory,
                                                           evidence["no_change"])["delivery_id"]
-        view = ledger.finish(args.item, token, args.outcome, evidence, verified_prs=verified_prs)
+        view = ledger.finish(args.item, token, args.outcome, evidence, verified_prs=verified_prs, review_inputs=review_inputs)
         if item.get("parent_id") and view["state"] in ("delivered", "blocked"):
             task_progress(ledger, api_factory, view,
                           f"[{item['task_key']}] {evidence['summary']}；本 issue 的整体验证和交付由主任务继续。")

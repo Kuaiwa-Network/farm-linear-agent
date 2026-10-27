@@ -34,6 +34,20 @@ out older code neither reverses Linear status changes nor removes saved requests
 
 ## One issue, one main worker
 
+The optional [review and merge controller](review-automation.md) starts from verified
+single-worker delivery. It keeps the general-worker budget and adds a separate
+three-attempt review/repair budget. GitHub CI waits release AI capacity. Candidates
+speculate in repository order and are invalidated when predecessors change. Human
+handoff is terminal delivered work; humans own subsequent review and merge.
+
+The feature defaults to off. The implemented `git_ff` backend uses controller-only,
+atomic, ancestry-checked source/target compare-and-swap updates to publish the exact
+reviewed merge commit; it refuses protected targets. Workers cannot invoke it.
+Squash/rebase native queue attestation, forwarding from independent instances, and
+shared Unity/server admission for review repair workers remain unimplemented; see
+the linked limits before enabling any host. Production deployment and live TestBot
+validation require separate operational authorization.
+
 Unlaunched jobs start by the latest observed Linear priority: urgent, high,
 normal, low, then no priority. Ties use the original job creation time and ID.
 Issue update webhooks request a fresh read; the regular lifecycle status read

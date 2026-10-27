@@ -114,6 +114,8 @@ class Config:
     go_dependencies: dict = field(default_factory=dict)
     # Only allowlisted regenerable attempt data; logs/recovery have no expiry.
     worker_retention: dict = field(default_factory=dict)
+    # Opt-in review: a separate pool; never reduces the existing general-worker budget.
+    auto_merge: dict = field(default_factory=dict)
     # Names of the skills this instance runs (spec §9.11); None runs every skill in the checkout's skills/ but the
     # opt-in ones (Phase B plan, P1).
     enabled_skills: list | None = None
@@ -184,6 +186,8 @@ class Config:
         validate_go_dependencies(self.go_dependencies, self.local_root, self.repos)
         from .worker_retention import settings as retention_settings
         retention_settings(self.worker_retention)
+        from .review_policy import settings as review_settings
+        review_settings(self.auto_merge, self.repos)
         if self.lark_cli.get("secret_env") and self.lark_cli["secret_env"] == self.kw_ops.get("token_env"):
             raise ValueError("lark_cli secret_env must differ from kw_ops token_env")
         if self.enabled_skills is not None and (
@@ -191,6 +195,8 @@ class Config:
                 or any(not isinstance(name, str) or not name.strip() for name in self.enabled_skills)
                 or len(set(self.enabled_skills)) != len(self.enabled_skills)):
             raise ValueError("enabled_skills must be a list of distinct skill names")
+        if self.enabled_skills and 'review' in self.enabled_skills:
+            raise ValueError('review is an internal delivery stage; enable it through auto_merge, not enabled_skills')
 
 
 def monitor_settings(config):

@@ -151,12 +151,15 @@ class PublicationTests(unittest.TestCase):
         url = 'https://github.com/Kuaiwa-Network/farmgui/pull/113'
         metadata = {'html_url': url, 'state': 'open', 'draft': True,
                     'head': {'ref': self.branch, 'sha': self.trees.head(self.path), 'repo': self.repo},
-                    'base': {'ref': 'main', 'repo': self.repo}}
+                    'base': {'ref': 'main', 'repo': self.repo, 'sha': 'b' * 40}}
         api = self.verifier.api
         current = copy.deepcopy(metadata)
         self.verifier.api = lambda endpoint, **kwargs: (current if endpoint.endswith('/pulls/113')
                                                         else api(endpoint, **kwargs))
         self.assertEqual(self.verifier.verify_pr('farmgui', 'job', 'FARM-1248', url), url)
+        proof = self.verifier.verify_pr('farmgui', 'job', 'FARM-1248', url, delivered=True, proof=True)
+        self.assertEqual(proof, {'repo': 'farmgui', 'url': url, 'head': self.trees.head(self.path),
+                                'branch': self.branch, 'base_branch': 'main', 'base': 'b' * 40})
         for key, value in [('draft', False), ('state', 'closed'), ('html_url', url + '0'),
                            ('head', {**metadata['head'], 'sha': '0' * 40}),
                            ('head', {**metadata['head'], 'ref': 'farmbot/farm-1249'}),

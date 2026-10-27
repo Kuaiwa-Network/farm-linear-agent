@@ -664,8 +664,12 @@ class Ledger:
             self.connection.executescript(MAINTENANCE_SCHEMA)
             self.connection.executescript(STARTUP_SCHEMA)
             self.connection.executescript(ISSUE_WORKFLOW_SCHEMA)
+            from .review_store import SCHEMA as REVIEW_SCHEMA
+            self.connection.executescript(REVIEW_SCHEMA)
             # Columns added after the first ledgers were written; CREATE TABLE IF NOT EXISTS leaves those files as they were.
-            for table, column, declaration in (("reservations", "server_test_plan", "TEXT"),
+            for table, column, declaration in (("review_candidates", "review_inputs", "TEXT"),
+                                                ("review_attempts", "review_inputs", "TEXT"),
+                                                ("reservations", "server_test_plan", "TEXT"),
                                                 ("reservations", "wait_detail", "TEXT"),
                                                 ("resource_recovery_notices", "generation", "INTEGER NOT NULL DEFAULT 0"),
                                                 ("resource_recoveries", "recovery_kind", "TEXT NOT NULL DEFAULT 'execution'"),
@@ -3608,7 +3612,7 @@ class Ledger:
         if evidence.get('comment_action_id') is not None:
             _text(evidence['comment_action_id'], 'comment_action_id')
 
-    def finish(self, item_id, token, outcome, evidence, *, check_only=False, verified_prs=()):
+    def finish(self, item_id, token, outcome, evidence, *, check_only=False, verified_prs=(), review_inputs=()):
         if outcome not in ("blocked", "delivered"):
             raise LedgerError("outcome must be blocked or delivered")
         if not isinstance(evidence, dict):
@@ -3796,6 +3800,12 @@ class Ledger:
                     fingerprint = _fingerprint(issue, self._own_bodies(row['issue_id']), known | set(evidence['prs']))
                     self.connection.execute('UPDATE issues SET fingerprint=? WHERE id=?', (fingerprint, row['issue_id']))
                 request_workflow_update(self, self._row(row['id']), 'In Review')
+                if single(row) and review_inputs:
+                    if {value['url'] for value in review_inputs} != set(verified_prs):
+                        raise LedgerError('review inputs must match verified delivered PRs')
+                    from .review_store import record_delivery
+                    fingerprint = self._issue_row(row['issue_id'])['fingerprint']
+                    record_delivery(self, row, review_inputs, fingerprint)
             return self._view(self._row(row["id"]))
 
     @staticmethod
