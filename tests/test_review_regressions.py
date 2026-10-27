@@ -143,7 +143,8 @@ class RegressionTests(ReviewFixture):
         self.controller.tick()
         attempt = self.workers.launched[-1]
         snapshot = json.loads(self.store.row('review_candidates', attempt['candidate_id'])['snapshot'])
-        self.workers.finish(attempt, self.verdict(snapshot, risk='high', reasons=['migration risk']))
+        self.workers.finish(attempt, self.verdict(snapshot, risk='high', reasons=[
+            '改动：migration.py:10 删除存档；风险：玩家数据不可恢复；依据：无备份路径；需人工：确认迁移恢复方案。']))
         self.github.states[snapshot['commit']] = 'failed'
         self.controller.tick()
         self.assertEqual(self.store.row('review_runs', run['id'])['disposition'], 'human_handoff')
@@ -194,7 +195,7 @@ class RegressionTests(ReviewFixture):
         self.assertEqual(self.store.row('review_runs', run['id'])['notified'], 1)
         self.github.reverts.assert_called_once()
         self.assertEqual(self.store.db.execute('SELECT kind FROM review_incidents').fetchone()[0], 'revert')
-        self.assertIn('merged', self.controller.linear_notice.call_args.args[1])
+        self.assertIn('已合并', self.controller.linear_notice.call_args.args[1])
 
     def test_historical_merged_candidates_are_not_scanned_for_active_review(self):
         _, pr = self.delivery()

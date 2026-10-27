@@ -6,7 +6,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from agent.ledger import Ledger
-from agent.review_policy import ReviewError, digest, risk, settings
+from agent.review_policy import ReviewError, digest, evidence_policy, review_focus, risk, settings, validate_verdict
 from agent.review_store import ReviewStore, summary
 from test_ledger import issue
 
@@ -174,6 +174,45 @@ class PolicyTests(unittest.TestCase):
         p = policy()['repositories']['common']
         p['generated'] = ['*']
         self.assertTrue(risk([{'filename': 'ordinary.py', 'previous_filename': '.github/workflows/test.yml'}], p))
+
+    def test_configured_sensitive_paths_are_focus_even_when_renamed_or_generated(self):
+        p = policy()['repositories']['common']
+        p.update(sensitive=['Core/UI/*'], generated=['*'])
+        files = [{'filename': 'ordinary.cs', 'previous_filename': 'Core/UI/MessageBox.cs', 'additions': 2000}]
+        self.assertEqual(risk(files, p), [])
+        self.assertEqual(review_focus(files, p), [{'file': 'ordinary.cs', 'matched_path': 'Core/UI/MessageBox.cs',
+                                                  'rule': 'Core/UI/*'}])
+
+    def test_aot_and_automation_gates_name_the_file_rule_and_consequence_in_chinese(self):
+        p = policy()['repositories']['common']
+        p.update(aot=['Runtime/*'], generated=['*'], sensitive=['*'])
+        for name, rule, explanation in (('Runtime/Login.cs', 'Runtime/*', '无法通过热更新修复'),
+                                        ('.github/workflows/test.yml', '.github/*', '自动化的权限与验证规则')):
+            with self.subTest(name=name):
+                reasons = risk([{'filename': 'moved.cs', 'previous_filename': name}], p)
+                self.assertEqual(len(reasons), 1)
+                for text in (name, rule, explanation, 'moved.cs'):
+                    self.assertIn(text, reasons[0])
+
+    def test_size_gate_reports_actual_count_and_limit(self):
+        p = policy()['repositories']['common']
+        reason, = risk([{'filename': 'ordinary.py', 'additions': 1500, 'deletions': 2}], p)
+        self.assertIn('1502 行', reason)
+        self.assertIn('上限 1500 行', reason)
+        self.assertIn('并非已确认存在缺陷', reason)
+
+    def test_new_risk_semantics_invalidate_old_policy_evidence(self):
+        p = policy()
+        old = digest({'version': 2, 'repositories': p['repositories']})
+        self.assertNotEqual(evidence_policy(p, ['common']), old)
+
+    def test_high_risk_cannot_use_a_blank_reason(self):
+        for reasons in ([], [''], ['   '], ['sensitive path: Core/UI/MessageBox.cs'], ['高风险'],
+                        ['改动：file.cs:10；风险：；依据：源码；需人工：确认。'],
+                        ['改动：file.cs:10；风险：data loss；依据：delete；需人工：review data.']):
+            with self.subTest(reasons=reasons), self.assertRaises(ReviewError):
+                validate_verdict({'snapshot': 'id', 'risk': 'high', 'reasons': reasons,
+                                  'findings': [], 'summary': '需人工确认'}, {'id': 'id'})
 
     def test_exact_commit_backend_does_not_silently_replace_squash(self):
         with self.assertRaises(ReviewError):

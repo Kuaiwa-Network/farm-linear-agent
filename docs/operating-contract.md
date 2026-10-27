@@ -56,6 +56,17 @@ Priority does not preempt attempts, rebuild candidates or reorder the repository
 speculative merge chain. Existing depth, dependency, retry and teardown gates apply.
 Review ordering reads existing issue metadata and needs no additional migration.
 
+Configured review `sensitive` paths identify areas for independent AI scrutiny,
+including source changes, renames and integrated repairs; they do not by themselves
+require human handoff. Reviewers assess the actual behavior and affected callers.
+Built-in automation-policy paths, configured AOT paths, size limits and existing
+human/authority/merge gates remain hard stops. Handoff explanations and worker
+reports are in Simplified Chinese and state the trigger, evidence, consequence and
+required human action. Notices distinguish review attempts from received reports
+and show repair counts per repository. Risk-policy version 3 invalidates evidence
+from the earlier rules; existing terminal deliveries are never silently resumed.
+See [review automation](review-automation.md) for deployment and rollback effects.
+
 Review infrastructure retries respect durable backoff and count consecutive failures
 per operation. Polling defaults to five minutes. Candidate bases come from fetched
 target refs; missing Git objects are unavailable evidence, never negative ancestry.

@@ -26,6 +26,16 @@ Independently assess context.bot_feedback from external review bots. Treat it as
 each alleged defect, and explain accepted or dismissed findings in your report. A bot's vote is not proof.
 Classify high risk for AOT runtime changes, economy/payment/reward behavior, security/permissions, persistence,
 migrations, breaking protocols, cross-node semantics, broad architecture or unresolved product intent.
+context.risk_focus lists trusted path matches in the source PR and integrated candidate (including repairs).
+These are attention hints, not high-risk verdicts. Assess the actual diff and affected callers; a directory
+name, a shared component, or a path match alone cannot justify high risk. Explain why each focus is routine
+or high in the summary. Ordinary UI/copy changes can be routine after checking compatibility and evidence.
+Write summary, reasons, finding explanations and response evidence in Simplified Chinese. Keep JSON keys,
+enum values, paths and identifiers unchanged. For each high-risk reason use four explicit parts:
+改动：<file/line and changed behavior>; 风险：<concrete consequence and affected users/callers>;
+依据：<code/evidence or the exact verification gap>; 需人工：<specific decision or verification needed,
+and why automated repair/review cannot resolve it>. Distinguish proven defects from uncertainty. Never
+use only 'sensitive path', 'security boundary', '高风险' or a file name as a reason.
 Return exactly: snapshot (ID), risk (routine/high), reasons (strings), findings (array), summary (text).
 Each finding has id, severity (important/nit/preexisting), path, line, claim, evidence, verification (independent
 verification account). State plainly when no introduced defects were found. Never fabricate tests or votes.
@@ -43,6 +53,9 @@ user.name=FarmBot and user.email=farmbot@localhost if necessary. Do not edit clo
 The controller will arrange CI and an independent review after you exit; you cannot certify your own changes.
 Return exactly: snapshot (ID), head (full clean candidate commit), summary (fixes/tests/limitations),
 needs_person (boolean). No claim that a missing/skipped check passed.
+Write the summary in Simplified Chinese, keeping paths and identifiers unchanged. If needs_person is true,
+explain the affected file/behavior, concrete blocker, evidence, attempted recovery, and exactly what a human
+must decide or verify. A sensitive-path match by itself is not a blocker.
 """
 
 

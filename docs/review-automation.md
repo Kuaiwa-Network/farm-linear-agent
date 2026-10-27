@@ -79,6 +79,35 @@ Unknown thread authorship is treated as a blocker. A high-risk verdict hands off
 before CI failure can launch repairs. Drafts are marked ready only at the merge
 frontier after the delivery's review and configured CI have passed.
 
+Configured `sensitive` paths are attention hints for the independent reviewer,
+not an automatic high-risk verdict. The controller supplies the matched file,
+original path on renames, and rule for both the source PR and integrated candidate.
+This includes paths introduced by conflict resolution or repairs. Generated files
+still receive this scrutiny. A shared UI component can proceed through ordinary
+review, repair, CI and merge when its actual change is routine; a path match alone
+does not justify human handoff. The reviewer explains the actual behavior, affected
+callers, evidence and remaining uncertainty before judging risk.
+
+Hard gates remain for the built-in CI/deployment/agent-policy paths, configured
+`aot` paths, the handwritten-diff size limit, human holds and the existing identity,
+dependency and merge protections. Their Chinese handoff reasons identify the
+trigger, file/rule or limit and required human action. Review and repair workers
+write human-facing reasons, summaries and evidence in Simplified Chinese. A
+high-risk reason states the change, concrete consequence, evidence or verification
+gap, and exactly what requires a human decision or verification. Submission rejects
+high-risk reasons missing the ordered `改动：`, `风险：`, `依据：`, `需人工：` sections
+or Chinese risk/action explanations; the evidence still requires independent review.
+Notifications
+distinguish attempts from received reports, show each repository's repair count,
+and do not imply that a pre-review policy gate found a defect.
+
+This changes the meaning of existing `sensitive` configuration; inspect those
+patterns before deployment. Evidence policy version 3 fences reports created with
+the earlier instructions. Active runs with the old policy receive terminal handoff
+and require a new explicit delivery; already delivered runs stay terminal. There
+is no schema migration or automatic replay. Rolling back restores the old path
+gates for new work; it does not undo merges, notifications or delivered handoffs.
+
 ## Exact merge backend
 
 `git_ff` supports **merge commits**, including common's commit-ancestry pins. It

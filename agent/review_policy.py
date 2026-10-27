@@ -140,21 +140,39 @@ def evidence_policy(policy, repositories):
         row = policy['repositories'].get(name)
         selected[name] = ({**row, 'dependencies': sorted(names.intersection(row['dependencies']))}
                           if row else None)
-    return digest({'version': 2, 'repositories': selected})
+    # v3 makes configured sensitive paths review focus, not automatic handoff.
+    # Never reuse a verdict produced under the old risk instructions.
+    return digest({'version': 3, 'repositories': selected})
+
+
+def path_matches(entry, patterns):
+    for path in dict.fromkeys((entry['filename'], entry.get('previous_filename', entry['filename']))):
+        for pattern in patterns:
+            if fnmatch.fnmatchcase(path, pattern):
+                yield {'file': entry['filename'], 'matched_path': path, 'rule': pattern}
+
+
+def review_focus(files, policy):
+    """Trusted attention hints; a match alone is not evidence of high risk."""
+    return [match for entry in files for match in path_matches(entry, policy['sensitive'])]
 
 
 def risk(files, policy):
-    """Only trusted patterns exclude generated files from SIZE, never risk checks."""
+    """Hard gates only. Generated exclusions affect SIZE, never path gates."""
     reasons, size = [], 0
     for entry in files:
         paths = [entry['filename'], entry.get('previous_filename', entry['filename'])]
-        if any(fnmatch.fnmatchcase(p, pattern) for p in paths
-               for pattern in (*DEFAULT_SENSITIVE, *policy['sensitive'], *policy['aot'])):
-            reasons.append('sensitive path: ' + entry['filename'])
+        for patterns, explanation in (
+                (DEFAULT_SENSITIVE, '涉及 CI、部署或代理审查指令，必须由人工确认自动化的权限与验证规则'),
+                (policy['aot'], '涉及客户端 AOT 代码，无法通过热更新修复，必须由人工确认发版风险')):
+            for match in path_matches(entry, patterns):
+                reasons.append(f"硬性路径门禁：{explanation}。文件：`{match['file']}`；"
+                               f"命中路径：`{match['matched_path']}`；规则：`{match['rule']}`。")
         if not all(any(fnmatch.fnmatchcase(p, g) for g in policy['generated']) for p in paths):
             size += entry.get('additions', 0) + entry.get('deletions', 0)
     if size > policy['max_lines']:
-        reasons.append('hand-written diff exceeds size limit')
+        reasons.append(f"硬性规模门禁：非生成代码改动共 {size} 行，超过配置上限 {policy['max_lines']} 行；"
+                       '需人工审查改动范围及验证覆盖。这是范围限制，并非已确认存在缺陷。')
     return reasons
 
 
@@ -166,10 +184,24 @@ def validate_verdict(value, snapshot):
         raise ReviewError('verdict snapshot or risk mismatch')
     if not isinstance(value['summary'], str) or not value['summary'].strip():
         raise ReviewError('verdict needs a summary')
-    if not isinstance(value['reasons'], list) or any(not isinstance(v, str) for v in value['reasons']):
+    if not isinstance(value['reasons'], list) or any(not isinstance(v, str) or not v.strip() for v in value['reasons']):
         raise ReviewError('invalid verdict reasons')
     if value['risk'] == 'high' and not value['reasons']:
         raise ReviewError('high risk needs a reason')
+    if value['risk'] == 'high':
+        for reason in value['reasons']:
+            # Require a reviewable explanation, not just a path/category label.
+            remainder = reason.strip()
+            for label, following in (('改动：', '风险：'), ('风险：', '依据：'),
+                                     ('依据：', '需人工：'), ('需人工：', None)):
+                if not remainder.startswith(label):
+                    raise ReviewError('高风险原因须依次说明：改动、风险、依据、需人工。')
+                detail, separator, tail = remainder[len(label):].partition(following or '\0')
+                if not detail.strip(' \t\r\n;；') or (following and not separator):
+                    raise ReviewError('高风险原因的每一项都必须填写具体说明。')
+                if label in ('风险：', '需人工：') and not re.search(r'[\u3400-\u9fff]', detail):
+                    raise ReviewError('风险与需人工事项须用中文说明。')
+                remainder = (separator + tail).lstrip()
     if not isinstance(value['findings'], list) or len(value['findings']) > 100:
         raise ReviewError('invalid findings')
     seen = set()
