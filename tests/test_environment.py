@@ -58,6 +58,17 @@ class EnvironmentTests(unittest.TestCase):
                             linear_api(config)
                     self.assertFalse(self.root.exists())
 
+    def test_live_profile_refuses_review_github_stub_before_network_or_ledger(self):
+        from agent.service import build
+        for environment in ('development', 'production'):
+            with self.subTest(environment=environment), \
+                    patch.dict(os.environ, {'FARMBOT_REVIEW_GITHUB_STUB_DIR': '/test/fixture', 'FARMBOT_LINEAR_STUB_DIR': ''}), \
+                    patch('agent.service.Ledger', side_effect=AssertionError('ledger opened')), \
+                    patch('urllib.request.urlopen', side_effect=AssertionError('network reached')):
+                with self.assertRaisesRegex(ValueError, 'stub'):
+                    build(self.config(environment=environment))
+                self.assertFalse(self.root.exists())
+
     def test_api_factory_passes_identity_pins_and_dev_name(self):
         http = FakeHTTP({'FarmBotIdentity': [{'data': {
             'viewer': {'id': 'dev-app', 'name': 'FarmBot Dev'},

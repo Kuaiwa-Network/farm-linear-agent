@@ -184,6 +184,8 @@ def build(config, runtime_override=None, *, replay_legacy=False):
         stub = os.environ.get('FARMBOT_REVIEW_GITHUB_STUB_DIR')
         review_github = ReviewStubGitHub(config.repos, stub) if stub else ReviewGitHub(config.repos)
         review = ReviewController(review_ledger, config, api, review_github, candidate_git, review_workers)
+        from .review_retention import Retention as ReviewRetention
+        review.retention = ReviewRetention(review, config.worker_retention)
     # `skills` is the enabled set the ready line reports, not every manifest the checkout loads.
     return Components(config, paths, api, ledger, set(enabled), worktrees, launcher, scheduler, receiver, server, pool,
                       lifecycle, progress, recovery, server_pool, dependencies, review)

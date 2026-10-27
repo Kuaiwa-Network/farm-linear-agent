@@ -30,8 +30,19 @@ a slot: the worker and its descendants must finish. Once settled, GitHub CI wait
 occupy no AI slot. Failed code checks and Important findings queue repairs ahead
 of new reviews. Three repair cycles are allowed per PR by default; a successful
 third cycle can merge. Infrastructure retries and speculative rebuilds have separate
-bounded counters. Missing/running checks remain waiting; cancelled, skipped, neutral
-and unavailable checks cannot pass and use infrastructure recovery, not code edits.
+bounded counters. Missing/running checks wait without an AI slot until the durable
+`ci_timeout_seconds` deadline (24 hours by default), then hand off with a configuration
+diagnostic. Cancelled, skipped, neutral and unavailable checks never pass. The
+controller journals and reruns only GitHub Actions workflows verified against the
+required check suite and exact SHA, with a five-minute minimum cooldown and bounded
+attempts. External checks without a recoverable workflow hand off. CI infrastructure
+recovery never spends a code-repair round.
+
+The default polling interval is five minutes. Authority reads are cached for five
+minutes during polling and repeated before promotion; failed authority reads block
+writes while reconciliation and terminal reports can continue. Infrastructure
+backoff survives restart and counts consecutive failures of each operation separately.
+Successful metadata refresh does not erase an unresolved merge or worker failure.
 
 Free worker slots admit eligible repairs before reviews. Within each role, the
 latest observed Linear issue priority wins: urgent, high, normal, low, then no
@@ -55,12 +66,18 @@ A related repair fences in-flight reports and makes prior verdicts stale. Unchan
 repositories retain their exact-commit CI but require a fresh compatibility review;
 prior Important findings remain available for explicit, independently checked responses.
 
-Human hold labels, unresolved GitHub review threads, changes requested, high risk,
-changed source heads, changed issue inputs, withdrawal and exhausted recovery stop
+Human hold labels, unresolved GitHub threads with human participation, human changes
+requested, high risk, changed source heads, changed issue inputs, withdrawal and exhausted recovery stop
 automatic eligibility. Human handoff is terminal `delivered / human_handoff`, with
 PR/Linear reports and `needs-person` on unmerged PRs. The issue stays In Review.
 Humans own subsequent review, edits and merge. Green checks, human approvals and
 removing a hold cannot resume that run. A new explicit request uses normal intake.
+
+External bot review findings become independent-review input. Changed bot feedback
+fences earlier reports without rebuilding the candidate or discarding same-SHA CI.
+Unknown thread authorship is treated as a blocker. A high-risk verdict hands off
+before CI failure can launch repairs. Drafts are marked ready only at the merge
+frontier after the delivery's review and configured CI have passed.
 
 ## Exact merge backend
 
@@ -100,10 +117,12 @@ contains all of the issue's own table changes; a digest is not that proof.
   configured with that backend; their native merge-group review/CI attestation and
   promotion integration are not implemented. The ordinary GitHub merge API is not
   used as a substitute because its source-head check does not fence the target.
-  A multi-repository delivery containing such a backend cannot partially auto-merge
-  its otherwise eligible repositories.
+  In merge mode, any delivery containing this backend receives a terminal human
+  handoff before any repository can partially auto-merge. Shadow/observe mode can
+  still evaluate it without publishing.
 - One designated controller owns a repository queue. An atomic GitHub tag-ref
-  creation records its instance/app and an opaque host/state identity. Competing
+  creation records its instance/app and a durable random identity stored in the
+  ledger. Network hostname changes do not affect it. Competing
   hosts or state roots fail closed; the existing controller root lock prevents
   duplicate processes in one state root. Automatic forwarding of deliveries from
   another independent instance to this authority is not implemented. Other instances
@@ -143,7 +162,8 @@ with the verified App ID for the repository):
     "repair_limit": 3,
     "retry_limit": 3,
     "worker_seconds": 2700,
-    "poll_seconds": 30,
+    "poll_seconds": 300,
+    "ci_timeout_seconds": 86400,
     "repositories": {
       "common": {
         "method": "merge",
@@ -190,8 +210,11 @@ Use the actual key from that repository. Default merge order is Farm-Contract,
 common, farm-hive, farmgui, Farm-Client among configured repositories. Explicit
 `dependencies` can customize it; a pin always adds its repository as a dependency.
 Do not depend on config object order. Restart a settled service after
-editing config so controller and workers read the same policy. Changed policy hashes
-terminate old review runs rather than accepting evidence under a new policy silently.
+editing config so controller and workers read the same policy. Each run hashes only
+its repositories' merge/check/risk settings and applicable delivery dependencies.
+Changing that evidence policy terminates the old run; tuning capacity, polling,
+retry limits, hold labels or circuits does not. Hold labels are always checked live.
+Adding an unrelated repository does not invalidate existing delivery evidence.
 
 ## Diagnostics and controls
 
@@ -208,22 +231,40 @@ python -m agent.service review-incident --config C:\private\farmbot.json --revie
 ```
 
 On macOS use `python3` and the host's own config path. `review-status` is read-only.
-The default circuit threshold is two distinct auto-merged deliveries with regressions
+The default circuit threshold is two distinct deliveries with confirmed auto-merges and regressions
 in seven days. Duplicate signals do not count twice. Resume clears the pause, not
 terminal human handoffs. Maintenance also stops new review admission and merging,
 and holds drain readiness until review attempts prove quiescent. Unverifiable process
 ownership retains capacity and evidence; never free slots by deleting run records.
+Superseded deliveries are also reported, including the inventory of any partial
+merges. Confirmed merges remain eligible for incident observation after a handoff or
+supersession. Incident polling processes at most ten due deliveries per tick.
+
+Review retention follows `worker_retention` (24 hours by default). After terminal
+delivery, the grace period and verified teardown of all attempts for that delivery,
+it preserves candidate
+objects under `refs/farmbot/review/<snapshot>` and repair work under the existing
+recovery refs before removing disposable read/repair checkouts and repair branches.
+Remote `farmbot-review/*` refs are deleted only with an exact-SHA lease and repository
+authority. Dirty repairs are preserved first; changed remote refs, unknown processes
+and pending merge intents hold cleanup. Audit records, reports and process evidence
+remain; only disposable runtime caches under `runs/review` are swept. In shadow
+mode local sources can retire, but existing remote refs require merge authority.
+Unrelated active deliveries do not delay cleanup of terminal deliveries.
 
 ## Migration and recovery
 
 The migration adds `review_deliveries`, `review_runs`, `review_prs`,
 `review_candidates`, `review_edges`, `review_attempts`, `review_merges`,
-`review_control`, `review_incidents` and `review_observations`. Existing work item
+`review_control`, `review_incidents`, `review_observations`, `review_identity`,
+`review_recovery`, `review_ci_recovery` and `review_cleanup`. Existing work item
 states are not converted. Claims and secrets are never stored in reports; attempt
 tokens live in their private state directories and hashes in the ledger.
 The candidate and attempt records include `review_inputs` bindings; upgrading an
 intermediate development database adds these nullable columns, and verdicts without
-the bindings cannot authorize a merge.
+the bindings cannot authorize a merge. PR rows also gain `bot_feedback`; new review
+bindings include its digest. Old bindings require fresh review. Earlier development
+versions' whole-config policy hashes cannot authorize current evidence and hand off.
 
 Before rollback: stop new intake, pause review, drain both worker pools through
 verified containment, reconcile every pending merge against Git and GitHub, and
@@ -232,8 +273,10 @@ review reports, merge journals and process teardown evidence. Older code ignores
 these tables but cannot safely resume active runs. Checking out older code does not
 undo the migration or remote ref changes. Do not delete/transfer the repository's
 `farmbot-review-authority` tag until the old authority's queue and uncertain merges
-have been reconciled by an operator. Moving the state root intentionally changes
-authority identity and requires that recovery procedure.
+have been reconciled by an operator. An earlier hostname-based authority marker
+does not match the new durable identity and requires that explicit reconciliation;
+it is never silently adopted or overwritten. Never clone the ledger into a second
+live controller: it would copy the queue identity along with the private state.
 
 Offline coverage uses temporary SQLite databases, fake APIs/workers and local Git
 remotes, including spaces/Unicode Windows paths, source/target races, invalidation,
@@ -288,3 +331,14 @@ regressions cover every priority level, FIFO ties, live updates, stale responses
 repairs before urgent reviews, retry eligibility, non-preemption and preserved
 merge order. Commands: `python -m unittest discover -s tests -p 'test_review*.py' -q`
 and `python -m unittest discover -s tests -p 'test_priority_scheduling.py' -q`.
+
+The review-feedback validation ran 287 focused tests on native Windows / Python 3.13:
+284 passed and three platform-specific cases were skipped. This comprises 88 review
+tests, 12 environment tests, 32 publication tests, 53 service tests (two skips), and
+102 configuration, dispatch, priority, Windows-worker and worker-retention tests
+(one skip). Commands used `python -m unittest discover -s tests -p PATTERN -q` with
+`test_review*.py`, `test_environment.py`, `test_publication.py`, `test_service.py`,
+`test_config*.py`, `test_dispatch.py`, `test_priority_scheduling.py`,
+`test_windows_workers.py` and `test_worker_retention.py`; the last five patterns were
+combined in one unittest suite. Compilation and `git diff --check` passed. The full
+offline suite was not repeated for these fixes, and no live rollout was performed.

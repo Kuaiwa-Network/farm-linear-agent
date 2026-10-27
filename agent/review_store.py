@@ -58,6 +58,23 @@ CREATE TABLE IF NOT EXISTS review_observations (
  run_id TEXT PRIMARY KEY REFERENCES review_runs(id), completed_seen INTEGER NOT NULL DEFAULT 0,
  checked_at REAL NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS review_identity (
+ singleton INTEGER PRIMARY KEY CHECK(singleton=1), identity TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS review_recovery (
+ pr_id TEXT NOT NULL REFERENCES review_prs(id), phase TEXT NOT NULL,
+ failures INTEGER NOT NULL, retry_at REAL NOT NULL, PRIMARY KEY(pr_id,phase)
+);
+CREATE TABLE IF NOT EXISTS review_ci_recovery (
+ candidate_id TEXT NOT NULL REFERENCES review_candidates(id), sha TEXT NOT NULL,
+ started_at REAL NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+ retry_at REAL NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '',
+ PRIMARY KEY(candidate_id,sha)
+);
+CREATE TABLE IF NOT EXISTS review_cleanup (
+ candidate_id TEXT PRIMARY KEY REFERENCES review_candidates(id), completed_at REAL,
+ retry_at REAL NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT ''
+);
 """
 
 
@@ -87,6 +104,11 @@ def summary(connection):
 class ReviewStore:
     def __init__(self, ledger):
         self.ledger, self.db = ledger, ledger.connection
+
+    def identity(self):
+        with self.ledger._transaction():
+            self.db.execute('INSERT OR IGNORE INTO review_identity VALUES(1,?)', (str(uuid4()),))
+        return self.db.execute('SELECT identity FROM review_identity WHERE singleton=1').fetchone()[0]
 
     def row(self, table, identity):
         if table not in ('review_runs', 'review_prs', 'review_candidates', 'review_attempts'):
@@ -203,7 +225,7 @@ class ReviewStore:
             candidate = self.row('review_candidates', pr['candidate_id'])
             if candidate['state'] == 'stale' or json.loads(candidate['snapshot'])['conflicts']:
                 return None
-            result[pr['id']] = candidate['id']
+            result[pr['id']] = {'candidate': candidate['id'], 'bot_feedback': digest(json.loads(pr['bot_feedback']))}
         return result or None
 
     def inputs_current(self, run_id, inputs):
@@ -272,7 +294,9 @@ class ReviewStore:
     def incident(self, event_id, run_id, kind, policy):
         with self.ledger._transaction():
             run = self.row('review_runs', run_id)
-            if run['disposition'] != 'auto_merged' or kind not in ('revert', 'reopen'):
+            confirmed = self.db.execute('SELECT 1 FROM review_merges m JOIN review_candidates c ON c.id=m.candidate_id '
+                "JOIN review_prs p ON p.id=c.pr_id WHERE p.run_id=? AND m.state='confirmed' LIMIT 1", (run_id,)).fetchone()
+            if (run['disposition'] != 'auto_merged' and not confirmed) or kind not in ('revert', 'reopen'):
                 raise ReviewError('incident must identify auto-merged work')
             inserted = self.db.execute('INSERT OR IGNORE INTO review_incidents VALUES(?,?,?,?)',
                                       (event_id, run_id, kind, self.ledger.clock())).rowcount

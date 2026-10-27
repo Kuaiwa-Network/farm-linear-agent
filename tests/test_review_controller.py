@@ -35,6 +35,12 @@ class GitHub:
     def blockers(self, pr):
         return pr['url'] in self.blocked
 
+    def bot_feedback(self, pr):
+        return []
+
+    def rerun(self, repo, sha, ci):
+        self.calls.append(('rerun', sha))
+
     def files(self, pr):
         return [{'filename': 'feature.py', 'additions': 5, 'deletions': 1}]
 
@@ -76,11 +82,12 @@ class Git:
     def prepare(self, pr, metadata, predecessor=None):
         self.counter += 1
         sha = f'{self.counter:040x}'
-        prefix = predecessor['commit'] if predecessor else metadata['base']['sha']
+        base = self.github.target(pr)
+        prefix = predecessor['commit'] if predecessor else base
         self.parents[sha] = [prefix, pr['source_head']]
         self.snapshots[sha] = pr['url']
         return {'repository': pr['repository'], 'url': pr['url'], 'target': pr['target'],
-                'head': pr['source_head'], 'base': metadata['base']['sha'], 'prefix': prefix,
+                'head': pr['source_head'], 'base': base, 'prefix': prefix,
                 'commit': sha, 'tree': 'd' * 40, 'conflicts': pr['url'] in self.conflicts}
 
     def files(self, snapshot):
@@ -154,7 +161,7 @@ class ControllerTests(ReviewFixture):
 
     def delivery(self, number=1, **changes):
         run, pr = super().delivery(number, **changes)
-        self.store.db.execute('UPDATE review_runs SET policy=? WHERE id=?', (self.controller.policy_hash, run['id']))
+        self.store.db.execute('UPDATE review_runs SET policy=? WHERE id=?', (self.controller.run_policy(run['id']), run['id']))
         return self.store.row('review_runs', run['id']), pr
 
     def good(self, attempt=None):
@@ -224,6 +231,8 @@ class ControllerTests(ReviewFixture):
         _, high_repair = self.delivery(3, priority=2)
         for repo, pr in (('one', low_repair), ('two', high_repair)):
             self.store.db.execute('UPDATE review_prs SET repository=? WHERE id=?', (repo, pr['id']))
+            self.store.db.execute('UPDATE review_runs SET policy=? WHERE id=?',
+                                  (self.controller.run_policy(pr['run_id']), pr['run_id']))
             self.git.conflicts.add(pr['url'])
         self.workers.capacity = 1
         self.controller.tick()
@@ -363,6 +372,7 @@ class ControllerTests(ReviewFixture):
         self.github.states[snapshot['commit']] = 'passed'
         self.git.lose_response = True
         self.controller.tick()
+        self.now += 60
         self.controller.tick()
         self.assertEqual(self.store.row('review_runs', run['id'])['disposition'], 'auto_merged')
         self.assertEqual(sum(c[0] == 'merge' for c in self.git.calls), 1)
@@ -408,6 +418,7 @@ class ControllerTests(ReviewFixture):
                   'url': 'https://github.com/example/server/pull/2'}
         self.store.db.execute('INSERT INTO review_prs(id,run_id,repository,url,target,source_head,source_branch) VALUES(?,?,?,?,?,?,?)',
             tuple(server[k] for k in ('id', 'run_id', 'repository', 'url', 'target', 'source_head', 'source_branch')))
+        self.store.db.execute('UPDATE review_runs SET policy=? WHERE id=?', (self.controller.run_policy(run['id']), run['id']))
         return run
 
     def test_dependency_pin_membership_is_checked_before_any_merge_and_ancestry_after_common(self):
@@ -513,12 +524,14 @@ class ControllerTests(ReviewFixture):
     def test_unsupported_backend_prevents_partial_delivery_merge(self):
         run = self.multi_delivery()
         self.controller.policy['repositories']['server']['backend'] = 'github_queue'
+        self.store.db.execute('UPDATE review_runs SET policy=? WHERE id=?', (self.controller.run_policy(run['id']), run['id']))
         self.controller.tick()
         for a in list(self.workers.launched):
             snapshot = self.good(a)
             self.github.states[snapshot['commit']] = 'passed'
         self.controller.tick()
-        self.assertIsNone(self.store.row('review_runs', run['id'])['disposition'])
+        self.assertEqual(self.store.row('review_runs', run['id'])['disposition'], 'human_handoff')
+        self.assertIn('backend is not implemented', self.store.row('review_runs', run['id'])['reason'])
         self.assertFalse(any(c[0] == 'merge' for c in self.git.calls))
 
     def test_partial_merge_failure_retains_confirmed_inventory_and_never_reverts(self):

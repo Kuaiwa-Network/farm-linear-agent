@@ -12,6 +12,7 @@ class GitHub:
     def __init__(self, repositories, request=None):
         self.repositories = {name: github_repository(url) for name, url in repositories.items()}
         self.request = request or self._request
+        self.feedback = {}
 
     @staticmethod
     def _request(method, endpoint, body=None, missing=False):
@@ -153,31 +154,70 @@ class GitHub:
                 raise PublicationUnavailable('GitHub did not confirm ready conversion')
             return value
 
+    def rerun(self, repo, sha, ci):
+        """Only rerun Actions workflows proven to own this exact failed check suite."""
+        suites = {c.get('check_suite_id') for c in ci['checks']
+                  if c.get('status') == 'completed' and c.get('conclusion') not in ('success', 'failure', 'timed_out')}
+        if not suites or any(type(s) is not int or s <= 0 for s in suites):
+            raise ReviewError('Unavailable required CI has no verifiable Actions suite; human recovery required')
+        runs = set()
+        for suite in suites:
+            matches = [r for r in self.pages(repo, f'/actions/runs?check_suite_id={suite}&head_sha={commit(sha)}', 'workflow_runs')
+                       if r.get('head_sha') == sha and r.get('check_suite_id') == suite]
+            if not matches:
+                raise ReviewError('Unavailable required check is not a recoverable Actions workflow')
+            for run in matches:
+                if run.get('status') == 'completed':
+                    if type(run.get('id')) is not int or run['id'] <= 0:
+                        raise ReviewError('Invalid Actions workflow identity')
+                    runs.add(run['id'])
+        for run_id in sorted(runs):
+            self.request('POST', self.endpoint(repo, f'/actions/runs/{run_id}/rerun'))
+
     def blockers(self, row):
         number = self.number(row['repository'], row['url'])
         reviews = self.pages(row['repository'], f'/pulls/{number}/reviews')
-        latest = {}
+        latest, bots = {}, []
         for review in sorted(reviews, key=lambda r: r['id']):
             if review.get('state') in ('APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'):
-                latest[review['user']['id']] = review['state']
-        if any(state == 'CHANGES_REQUESTED' for state in latest.values()):
+                latest[review['user']['id']] = review
+        for review in latest.values():
+            if review.get('user', {}).get('type') == 'Bot' and review['state'] == 'CHANGES_REQUESTED':
+                bots.append({'id': str(review['id']), 'body': review.get('body', '')})
+        if any(r['state'] == 'CHANGES_REQUESTED' and r.get('user', {}).get('type') != 'Bot' for r in latest.values()):
             return True
         owner, name = self.repositories[row['repository']].split('/')
         cursor = None
         for _ in range(100):
             value = self.request('POST', 'graphql', {'query': '''query($owner:String!,$name:String!,$number:Int!,$cursor:String){
                 repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100,after:$cursor){
-                nodes{isResolved} pageInfo{hasNextPage endCursor}}}}}''',
+                nodes{id isResolved path line comments(first:100){nodes{id body author{__typename}}
+                pageInfo{hasNextPage}}} pageInfo{hasNextPage endCursor}}}}}''',
                 'variables': {'owner': owner, 'name': name, 'number': number, 'cursor': cursor}})
             if value.get('errors'):
                 raise ReviewError('Cannot establish review thread status')
             threads = value['data']['repository']['pullRequest']['reviewThreads']
-            if any(t['isResolved'] is not True for t in threads['nodes']):
-                return True
+            for thread in threads['nodes']:
+                if thread['isResolved'] is True:
+                    continue
+                comments = thread.get('comments') or {}
+                nodes = comments.get('nodes') or []
+                if (not nodes or comments.get('pageInfo', {}).get('hasNextPage', True)
+                        or any((c.get('author') or {}).get('__typename') != 'Bot' for c in nodes)):
+                    return True  # Human participation or incomplete authorship always blocks.
+                bots.append({'id': thread['id'], 'path': thread.get('path'), 'line': thread.get('line'),
+                             'comments': [{'id': c['id'], 'body': c['body']} for c in nodes]})
             if not threads['pageInfo']['hasNextPage']:
+                if len(encoded(bots)) > 64000:
+                    raise ReviewError('Bot review feedback exceeds bounded review input')
+                self.feedback[row['url']] = bots
                 return False
             cursor = threads['pageInfo']['endCursor']
         raise ReviewError('Review thread pagination incomplete')
+
+    def bot_feedback(self, row):
+        # blockers() refreshed this exact PR first; no duplicate API round trip.
+        return self.feedback.get(row['url'], [])
 
     def commits(self, row):
         return {commit(v['sha']) for v in self.pages(row['repository'], '/pulls/' + str(self.number(row['repository'], row['url'])) + '/commits')}

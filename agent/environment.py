@@ -7,8 +7,11 @@ from pathlib import Path
 def validate_runtime(config, runtime_override=None):
     runtime = runtime_override or config.runtime
     stub = os.environ.get('FARMBOT_LINEAR_STUB_DIR')
-    if config.environment in ('development', 'production') and (runtime == 'fake' or stub):
-        raise ValueError('live profiles refuse fake workers and Linear stub selectors')
+    review_stub = os.environ.get('FARMBOT_REVIEW_GITHUB_STUB_DIR')
+    if config.environment in ('development', 'production') and (runtime == 'fake' or stub or review_stub):
+        raise ValueError('live profiles refuse fake workers and Linear/GitHub stub selectors')
+    if review_stub and runtime != 'fake':
+        raise ValueError('review GitHub stub requires fake workers')
     if config.environment == 'offline' and (runtime != 'fake' or not stub):
         raise ValueError('offline profiles require fake workers and a Linear stub fixture')
 

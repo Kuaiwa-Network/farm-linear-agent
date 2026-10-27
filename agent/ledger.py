@@ -678,6 +678,7 @@ class Ledger:
             self.connection.executescript(REVIEW_SCHEMA)
             # Columns added after the first ledgers were written; CREATE TABLE IF NOT EXISTS leaves those files as they were.
             for table, column, declaration in (("review_candidates", "review_inputs", "TEXT"),
+                                                ("review_prs", "bot_feedback", "TEXT NOT NULL DEFAULT '[]'"),
                                                 ("review_attempts", "review_inputs", "TEXT"),
                                                 ("reservations", "server_test_plan", "TEXT"),
                                                 ("reservations", "wait_detail", "TEXT"),

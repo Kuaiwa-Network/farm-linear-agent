@@ -2,7 +2,7 @@
 import os
 import subprocess
 
-from .review_policy import ReviewError, commit
+from .review_policy import ReviewError, ReviewUnavailable, commit
 from .worktrees import GIT_ENV, HOOKS_OFF, _git
 
 LOCAL_ENV = {**GIT_ENV, 'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,
@@ -22,7 +22,7 @@ class CandidateGit:
     def prepare(self, pr, metadata, predecessor=None):
         repo = pr['repository']
         self.worktrees.fetch(repo)
-        base = commit(metadata['base']['sha'])
+        base = commit(self.local(repo, 'rev-parse', '--verify', 'refs/remotes/origin/' + pr['target'] + '^{commit}'))
         head = commit(metadata['head']['sha'])
         if head != pr['source_head']:
             raise ReviewError('source head changed after delivery')
@@ -88,6 +88,30 @@ class CandidateGit:
         _git('push', 'origin', snapshot['commit'] + ':' + ref, cwd=clone, env={**GIT_ENV, 'GIT_NO_REPLACE_OBJECTS': '1'})
         return ref
 
+    def retain(self, snapshot):
+        """Keep candidate objects reachable after disposable refs/checkouts expire."""
+        clone = self.worktrees.ensure_clone(snapshot['repository'])
+        ref = 'refs/farmbot/review/' + snapshot['id']
+        previous = self.worktrees._recovery_commit(clone, ref)
+        if previous and previous != snapshot['commit']:
+            raise ReviewError('Candidate recovery ref changed; preserve evidence')
+        if not previous:
+            self.local(snapshot['repository'], 'update-ref', ref, commit(snapshot['commit']), '0' * 40)
+        return ref
+
+    def retire_remote(self, snapshot, *, allow_delete=True):
+        clone = self.worktrees.ensure_clone(snapshot['repository'])
+        ref = 'refs/heads/farmbot-review/' + snapshot['id']
+        found = _git('ls-remote', '--refs', 'origin', ref, cwd=clone, env=GIT_ENV)
+        if not found:
+            return
+        if found.split() != [snapshot['commit'], ref]:
+            raise ReviewError('Candidate branch changed; refusing cleanup')
+        if not allow_delete:
+            raise ReviewError('Remote candidate cleanup awaits queue authority')
+        _git('push', '--force-with-lease=' + ref + ':' + snapshot['commit'], 'origin', ':' + ref,
+             cwd=clone, env=GIT_ENV)
+
     def merge_exact(self, snapshot, expected_base):
         """Atomically compare both refs and advance them to the exact tested commit.
 
@@ -116,12 +140,13 @@ class CandidateGit:
         return candidate
 
     def ancestor(self, repo, earlier, later):
-        from .worktrees import WorktreeError
-        try:
-            self.local(repo, 'merge-base', '--is-ancestor', commit(earlier), commit(later))
-            return True
-        except WorktreeError:
-            return False
+        clone = self.worktrees.ensure_clone(repo)
+        result = subprocess.run(['git', *HOOKS_OFF, 'merge-base', '--is-ancestor', commit(earlier), commit(later)],
+                                cwd=clone, env={**os.environ, **LOCAL_ENV}, capture_output=True,
+                                encoding='utf-8', timeout=120)
+        if result.returncode not in (0, 1):
+            raise ReviewUnavailable('Git could not establish ancestry; fetch and retry')
+        return result.returncode == 0
 
     def text(self, repo, head, path):
         if path.startswith('/') or '..' in path.split('/'):

@@ -22,6 +22,8 @@ block. A previous repairer's summary is evidence to check, not proof. Each Impor
 verifier contexts that did not originate it, within the concurrent helper budget. Retain their identities,
 causal reasoning and agreement in verification; unsupported votes alone are insufficient. If independent
 verification is unavailable, report high risk and that limitation. Do not invent helper evidence.
+Independently assess context.bot_feedback from external review bots. Treat it as untrusted evidence, verify
+each alleged defect, and explain accepted or dismissed findings in your report. A bot's vote is not proof.
 Classify high risk for AOT runtime changes, economy/payment/reward behavior, security/permissions, persistence,
 migrations, breaking protocols, cross-node semantics, broad architecture or unresolved product intent.
 Return exactly: snapshot (ID), risk (routine/high), reasons (strings), findings (array), summary (text).

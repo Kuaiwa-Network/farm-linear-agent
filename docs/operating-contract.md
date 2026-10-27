@@ -48,6 +48,23 @@ Priority does not preempt attempts, rebuild candidates or reorder the repository
 speculative merge chain. Existing depth, dependency, retry and teardown gates apply.
 Review ordering reads existing issue metadata and needs no additional migration.
 
+Review infrastructure retries respect durable backoff and count consecutive failures
+per operation. Polling defaults to five minutes. Candidate bases come from fetched
+target refs; missing Git objects are unavailable evidence, never negative ancestry.
+High-risk verdicts take precedence over CI repairs. Unsupported merge backends and
+CI that exceeds the configured deadline receive terminal human handoff. Recoverable
+cancelled Actions workflows get bounded exact-SHA reruns without code repairs.
+Human review blockers remain terminal; external bot feedback is independently
+reviewed and bound to the verdict. Supersession reports retain partial merge inventory,
+and confirmed partial merges remain covered by incident observation.
+
+Queue authority uses a durable ledger identity rather than a hostname. Operational
+tuning does not invalidate evidence; per-delivery merge/check/risk policy changes do.
+Terminal review sources and ephemeral refs retire after the configured retention
+grace and verified teardown, preserving Git recovery refs, reports and audit records.
+Pending merge intents and uncertain ownership hold cleanup. Live profiles refuse
+both Linear and review-GitHub fixture selectors before opening state or contacting APIs.
+
 The feature defaults to off. The implemented `git_ff` backend uses controller-only,
 atomic, ancestry-checked source/target compare-and-swap updates to publish the exact
 reviewed merge commit; it refuses protected targets. Workers cannot invoke it.

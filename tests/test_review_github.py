@@ -91,6 +91,43 @@ class GitHubTests(unittest.TestCase):
         github = GitHub(REPOS, request)
         self.assertTrue(github.blockers({'repository': 'common', 'url': 'https://github.com/example/common/pull/1'}))
 
+    def test_bot_feedback_is_review_input_and_human_participation_still_blocks(self):
+        author = {'__typename': 'Bot'}
+        reviews = [{'id': 1, 'state': 'CHANGES_REQUESTED', 'body': 'Check overflow', 'user': {'id': 5, 'type': 'Bot'}}]
+        def request(method, endpoint, body=None, **kwargs):
+            if method == 'GET':
+                return reviews
+            return {'data': {'repository': {'pullRequest': {'reviewThreads': {
+                'nodes': [{'id': 'thread1', 'isResolved': False, 'path': 'a.py', 'line': 2,
+                           'comments': {'nodes': [{'id': 'comment1', 'body': 'Overflow', 'author': author}],
+                                        'pageInfo': {'hasNextPage': False}}}],
+                'pageInfo': {'hasNextPage': False, 'endCursor': None}}}}}}
+        github = GitHub(REPOS, request)
+        row = {'repository': 'common', 'url': 'https://github.com/example/common/pull/1'}
+        self.assertFalse(github.blockers(row))
+        self.assertEqual(len(github.bot_feedback(row)), 2)
+        author['__typename'] = 'User'
+        self.assertTrue(github.blockers(row))
+        author['__typename'] = 'Bot'
+        reviews[0]['user']['type'] = 'User'
+        self.assertTrue(github.blockers(row))
+
+    def test_rerun_only_accepts_exact_sha_and_suite_and_deduplicates_workflow(self):
+        calls = []
+        runs = [{'id': 12, 'head_sha': SHA, 'check_suite_id': 9, 'status': 'completed'}]
+        def request(method, endpoint, body=None, **kwargs):
+            calls.append((method, endpoint))
+            return {'workflow_runs': runs} if method == 'GET' else {}
+        github = GitHub(REPOS, request)
+        ci = {'checks': [{'status': 'completed', 'conclusion': 'cancelled', 'check_suite_id': 9}] * 2}
+        github.rerun('common', SHA, ci)
+        self.assertEqual([c for c in calls if c[0] == 'POST'], [('POST', 'repos/example/common/actions/runs/12/rerun')])
+        calls.clear()
+        runs[0]['head_sha'] = 'b' * 40
+        with self.assertRaisesRegex(ReviewError, 'recoverable'):
+            github.rerun('common', SHA, ci)
+        self.assertFalse(any(c[0] == 'POST' for c in calls))
+
     def test_standard_merge_commit_revert_is_attributed_without_guessing_partial_reverts(self):
         rows = [
             {'sha': 'b' * 40, 'commit': {'message': 'Revert feature\n\nThis reverts commit ' + SHA + '.'}},

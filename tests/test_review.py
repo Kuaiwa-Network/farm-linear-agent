@@ -131,11 +131,13 @@ class StoreTests(ReviewFixture):
         snapshot = self.candidate(pr)
         self.store.db.execute('ALTER TABLE review_candidates DROP COLUMN review_inputs')
         self.store.db.execute('ALTER TABLE review_attempts DROP COLUMN review_inputs')
+        self.store.db.execute('ALTER TABLE review_prs DROP COLUMN bot_feedback')
         other = Ledger(self.path)
         self.addCleanup(other.close)
         migrated = ReviewStore(other)
         self.assertIsNone(migrated.row('review_candidates', snapshot['id'])['review_inputs'])
         self.assertFalse(migrated.inputs_current(run['id'], None))
+        self.assertEqual(migrated.row('review_prs', pr['id'])['bot_feedback'], '[]')
         self.assertEqual(migrated.row('review_prs', pr['id'])['candidate_id'], snapshot['id'])
 
     def test_repeat_review_preserves_previous_important_findings_for_explicit_responses(self):

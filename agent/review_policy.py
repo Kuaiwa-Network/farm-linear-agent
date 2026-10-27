@@ -16,6 +16,10 @@ class ReviewError(ValueError):
     pass
 
 
+class ReviewUnavailable(RuntimeError):
+    """Missing infrastructure evidence; never a negative safety verdict."""
+
+
 def encoded(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False)
 
@@ -34,17 +38,18 @@ def settings(raw, repositories=None):
     if not isinstance(raw, dict):
         raise ReviewError('auto_merge must be an object')
     allowed = {'mode', 'workers', 'depth', 'repair_limit', 'retry_limit', 'worker_seconds',
-               'poll_seconds', 'hold_labels', 'repositories', 'authority', 'circuit_limit', 'circuit_days'}
+               'poll_seconds', 'hold_labels', 'repositories', 'authority', 'circuit_limit', 'circuit_days', 'ci_timeout_seconds'}
     if set(raw) - allowed:
         raise ReviewError('unknown auto_merge setting')
     policy = {'mode': 'off', 'workers': 3, 'depth': 3, 'repair_limit': 3, 'retry_limit': 3,
-              'worker_seconds': 2700, 'poll_seconds': 30, 'hold_labels': ['needs-person', 'hold-auto-merge'],
+              'worker_seconds': 2700, 'poll_seconds': 300, 'ci_timeout_seconds': 86400,
+              'hold_labels': ['needs-person', 'hold-auto-merge'],
               'repositories': {}, 'authority': '', 'circuit_limit': 2, 'circuit_days': 7, **raw}
     if policy['mode'] not in MODES:
         raise ReviewError('auto_merge.mode must be off, observe, shadow or merge')
     for key, maximum in (('workers', 32), ('depth', 10), ('repair_limit', 10), ('retry_limit', 10),
                          ('worker_seconds', 86400), ('poll_seconds', 3600), ('circuit_limit', 100),
-                         ('circuit_days', 365)):
+                         ('circuit_days', 365), ('ci_timeout_seconds', 604800)):
         if type(policy[key]) is not int or not 1 <= policy[key] <= maximum:
             raise ReviewError(f'auto_merge.{key} must be a positive bounded integer')
     if not isinstance(policy['authority'], str):
@@ -125,6 +130,17 @@ def settings(raw, repositories=None):
         visit(name)
     policy['repositories'] = checked
     return policy
+
+
+def evidence_policy(policy, repositories):
+    """Fence only evidence this delivery uses, not operational tuning or other repos."""
+    names = set(repositories)
+    selected = {}
+    for name in sorted(names):
+        row = policy['repositories'].get(name)
+        selected[name] = ({**row, 'dependencies': sorted(names.intersection(row['dependencies']))}
+                          if row else None)
+    return digest({'version': 2, 'repositories': selected})
 
 
 def risk(files, policy):

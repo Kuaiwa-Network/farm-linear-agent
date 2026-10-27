@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from agent.review_git import CandidateGit
-from agent.review_policy import digest
+from agent.review_policy import ReviewUnavailable, digest
 from agent.worktrees import Worktrees, WorktreeError
 from test_worktrees import git
 
@@ -71,6 +71,31 @@ class CandidateGitTests(unittest.TestCase):
         with self.assertRaises(WorktreeError):
             self.git.merge_exact(candidate, self.base)
         self.assertEqual(git('rev-parse', 'main', cwd=self.remote), external)
+        rebuilt = self.prepare(pr)  # Intentionally still passes the old PR base SHA.
+        self.assertEqual(rebuilt['base'], external)
+        self.assertEqual(rebuilt['prefix'], external)
+        self.assertIn('human update', self.git.text('common', rebuilt['commit'], 'external.txt'))
+
+    def test_missing_object_is_unavailable_not_negative_ancestry(self):
+        source = self.source(1, 'file.txt', 'feature')
+        candidate = self.prepare(source)
+        self.assertFalse(self.git.ancestor('common', candidate['commit'], self.base))
+        with self.assertRaises(ReviewUnavailable):
+            self.git.ancestor('common', candidate['commit'], 'f' * 40)
+
+    def test_candidate_retirement_preserves_objects_and_refuses_changed_remote_branch(self):
+        candidate = self.prepare(self.source(1, 'file.txt', 'feature'))
+        self.git.publish_candidate(candidate)
+        recovery = self.git.retain(candidate)
+        self.git.retire_remote(candidate)
+        self.git.retire_remote(candidate)  # Idempotent after a lost deletion response.
+        self.assertEqual(self.git.local('common', 'rev-parse', recovery), candidate['commit'])
+        self.git.publish_candidate(candidate)
+        ref = 'refs/heads/farmbot-review/' + candidate['id']
+        git('update-ref', ref, self.base, cwd=self.remote)
+        with self.assertRaisesRegex(ValueError, 'changed'):
+            self.git.retire_remote(candidate)
+        self.assertEqual(git('rev-parse', ref, cwd=self.remote), self.base)
 
     def test_conflicts_are_repaired_before_review_and_source_branch_stays_clean_of_predecessors(self):
         a = self.source(1, 'feature.txt', 'A\n')

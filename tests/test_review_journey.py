@@ -45,7 +45,7 @@ class ReviewJourneyTests(ReviewFixture):
             source = fixture.source(number, 'feature-' + str(number) + '.txt', str(number))
             run, pr = self.delivery(number)
             runs.append(run)
-            self.store.db.execute('UPDATE review_runs SET policy=? WHERE id=?', (digest(controller.policy), run['id']))
+            self.store.db.execute('UPDATE review_runs SET policy=? WHERE id=?', (controller.run_policy(run['id']), run['id']))
             self.store.db.execute('UPDATE review_prs SET source_head=? WHERE id=?', (source['source_head'], pr['id']))
         controller.tick()
         self.assertEqual(len(workers.launched), 2)
