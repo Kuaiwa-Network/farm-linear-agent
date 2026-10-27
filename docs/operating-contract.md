@@ -40,6 +40,14 @@ three-attempt review/repair budget. GitHub CI waits release AI capacity. Candida
 speculate in repository order and are invalidated when predecessors change. Human
 handoff is terminal delivered work; humans own subsequent review and merge.
 
+Review capacity admits eligible repairs before new reviews. Within each role,
+admission uses the latest observed Linear priority (urgent, high, normal, low, then
+no priority), with PR enrollment order breaking ties. Active issue reads refresh
+priority before admission; older responses cannot overwrite newer observations.
+Priority does not preempt attempts, rebuild candidates or reorder the repository's
+speculative merge chain. Existing depth, dependency, retry and teardown gates apply.
+Review ordering reads existing issue metadata and needs no additional migration.
+
 The feature defaults to off. The implemented `git_ff` backend uses controller-only,
 atomic, ancestry-checked source/target compare-and-swap updates to publish the exact
 reviewed merge commit; it refuses protected targets. Workers cannot invoke it.

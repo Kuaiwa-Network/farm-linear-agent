@@ -33,6 +33,14 @@ third cycle can merge. Infrastructure retries and speculative rebuilds have sepa
 bounded counters. Missing/running checks remain waiting; cancelled, skipped, neutral
 and unavailable checks cannot pass and use infrastructure recovery, not code edits.
 
+Free worker slots admit eligible repairs before reviews. Within each role, the
+latest observed Linear issue priority wins: urgent, high, normal, low, then no
+priority; ties retain PR enrollment order. Each tick refreshes active issues before
+admission, and older issue responses cannot undo a newer observed priority. Priority
+changes do not preempt workers, rebuild candidates, or reorder repository merge
+chains. Speculative depth, dependencies, retry delays and teardown checks still
+limit eligibility. This uses existing issue metadata, with no additional migration.
+
 Reports are claim- and snapshot-bound. Findings require causal evidence and
 independent verification. Follow-up reviews must answer every prior Important
 finding. Nits and pre-existing problems do not start repair cycles. Read-only
@@ -273,3 +281,10 @@ The post-integration Windows checks passed: 59 review tests, 53 service tests
 version-target tests (three platform skips), 32 publication tests, and 10 native
 Windows worker tests. Python compilation, JavaScript syntax and whitespace checks
 also passed. The full offline suite was not rerun after this integration.
+
+The subsequent Linear-priority admission change passed 65 review tests and all
+14 existing priority-scheduling tests on native Windows, with no skips. The review
+regressions cover every priority level, FIFO ties, live updates, stale responses,
+repairs before urgent reviews, retry eligibility, non-preemption and preserved
+merge order. Commands: `python -m unittest discover -s tests -p 'test_review*.py' -q`
+and `python -m unittest discover -s tests -p 'test_priority_scheduling.py' -q`.

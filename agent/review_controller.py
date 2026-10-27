@@ -27,6 +27,15 @@ class Controller:
         return [dict(r) for r in self.db.execute('SELECT * FROM review_prs' +
             (' WHERE run_id=?' if run_id else '') + ' ORDER BY sequence', (run_id,) if run_id else ())]
 
+    def worker_queue(self, state):
+        # Delivered work items keep their old priority. Read the latest observed
+        # issue instead, without changing the speculative chain's sequence.
+        return [dict(r) for r in self.db.execute(
+            'SELECT p.* FROM review_prs p JOIN review_runs r ON r.id=p.run_id '
+            'JOIN work_items w ON w.id=r.item_id JOIN issues i ON i.id=w.issue_id '
+            'WHERE p.state=? ORDER BY COALESCE(NULLIF(json_extract(i.metadata,\'$.priority\'),0),5),p.sequence',
+            (state,))]
+
     def candidate(self, pr):
         return json.loads(self.store.row('review_candidates', pr['candidate_id'])['snapshot']) if pr['candidate_id'] else None
 
@@ -83,11 +92,12 @@ class Controller:
                     self.advance(pr)
                 except Exception as exc:
                     self.retry(self.store.row('review_prs', pr['id']), type(exc).__name__)
-        # Repairs win admission, but running reviews are never preempted for capacity.
+        # Repairs win admission; Linear priority orders each role, then FIFO.
+        # Running reviews are never preempted for capacity.
         for state, role in (('repair', 'repair'), ('reviewing', 'review')):
             if role == 'repair' and not self.writes:
                 continue
-            for pr in self.prs():
+            for pr in self.worker_queue(state):
                 pr = self.store.row('review_prs', pr['id'])
                 if pr['state'] != state or not pr['candidate_id'] or pr['retry_at'] > self.ledger.clock():
                     continue

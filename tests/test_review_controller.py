@@ -117,6 +117,7 @@ class Git:
 class Workers:
     def __init__(self, store):
         self.store, self.launched, self.tokens = store, [], {}
+        self.capacity = 3
 
     def reap(self):
         db = self.store.db
@@ -126,7 +127,7 @@ class Workers:
 
     def launch(self, snapshot, role, context):
         active = self.store.db.execute("SELECT * FROM review_attempts WHERE state IN ('queued','running','submitted','stopping')").fetchall()
-        if len(active) >= 3 or any(r['candidate_id'] == snapshot['id'] for r in active):
+        if len(active) >= self.capacity or any(r['candidate_id'] == snapshot['id'] for r in active):
             return False
         attempt = self.store.attempt(snapshot['id'], role)
         self.tokens[attempt['id']] = self.store.claim(attempt['id'], 2700)
@@ -161,6 +162,105 @@ class ControllerTests(ReviewFixture):
         snap = json.loads(self.store.row('review_candidates', attempt['candidate_id'])['snapshot'])
         self.workers.finish(attempt, self.verdict(snap))
         return snap
+
+    def launched_prs(self):
+        return [self.store.row('review_candidates', a['candidate_id'])['pr_id'] for a in self.workers.launched]
+
+    def test_review_priority_orders_all_levels_then_fifo_without_reordering_merges(self):
+        self.config.auto_merge['depth'] = 6
+        self.controller = Controller(self.ledger, self.config, self.api, self.github, self.git, self.workers)
+        deliveries = [self.delivery(n, priority=p) for n, p in enumerate((0, 4, 3, 2, 1, 2), 1)]
+        prs = [p for _, p in deliveries]
+        self.controller.tick()
+        self.assertEqual(self.launched_prs(), [prs[i]['id'] for i in (4, 3, 5)])
+        for attempt in list(self.workers.launched):
+            snapshot = self.good(attempt)
+            self.github.states[snapshot['commit']] = 'passed'
+        self.controller.tick()
+        self.assertEqual(self.launched_prs(), [prs[i]['id'] for i in (4, 3, 5, 2, 1, 0)])
+        for attempt in self.workers.launched[3:]:
+            snapshot = self.good(attempt)
+            self.github.states[snapshot['commit']] = 'passed'
+        self.controller.tick()
+        self.assertEqual([c[1] for c in self.git.calls if c[0] == 'merge'], [p['url'] for p in prs])
+        self.assertTrue(all(self.store.row('review_runs', r['id'])['disposition'] == 'auto_merged'
+                            for r, _ in deliveries))
+
+    def test_live_priority_change_reorders_waiting_reviews_without_rebuilding_candidates(self):
+        deliveries = [self.delivery(n, priority=p) for n, p in enumerate((2, 3, 4), 1)]
+        self.workers.capacity = 0
+        self.controller.tick()
+        candidates = [p['candidate_id'] for p in self.controller.prs()]
+        run, urgent = deliveries[2]
+        issue_id = self.ledger.item(run['item_id'])['issue_id']
+        updated = {**self.ledger.issue(issue_id), 'priority': 1, 'updated_at': '2026-10-27T10:00:00Z'}
+        self.api.fetch_issue = lambda key: updated if key == issue_id else self.ledger.issue(key)
+        self.workers.capacity = 3
+        self.controller.tick()
+        self.assertEqual(self.launched_prs(), [urgent['id'], deliveries[0][1]['id'], deliveries[1][1]['id']])
+        self.assertEqual([p['candidate_id'] for p in self.controller.prs()], candidates)
+        self.assertEqual(self.ledger.item(run['item_id'])['priority'], 4)  # Author's historical priority.
+        self.assertTrue(all(self.store.current(r) for r, _ in deliveries))
+
+    def test_stale_linear_read_cannot_undo_newer_review_priority(self):
+        _, high = self.delivery(1, priority=2)
+        run, urgent = self.delivery(2, priority=4, updated_at='2026-10-27T09:00:00Z')
+        issue_id = self.ledger.item(run['item_id'])['issue_id']
+        stale = self.ledger.issue(issue_id)
+        self.ledger.apply_issue_status({**stale, 'priority': 1, 'updated_at': '2026-10-27T10:00:00Z'})
+        self.api.fetch_issue = lambda key: stale if key == issue_id else self.ledger.issue(key)
+        self.controller.tick()
+        self.assertEqual(self.launched_prs(), [urgent['id'], high['id']])
+        self.assertEqual(self.ledger.issue(issue_id)['priority'], 1)
+
+    def test_repairs_use_priority_and_always_precede_urgent_reviews(self):
+        repo_policy = self.config.auto_merge['repositories']['common']
+        for repo in ('one', 'two'):
+            self.config.auto_merge['repositories'][repo] = dict(repo_policy)
+            self.config.repos[repo] = 'unused'
+        self.controller = Controller(self.ledger, self.config, self.api, self.github, self.git, self.workers)
+        _, review = self.delivery(1, priority=1)
+        _, low_repair = self.delivery(2, priority=0)
+        _, high_repair = self.delivery(3, priority=2)
+        for repo, pr in (('one', low_repair), ('two', high_repair)):
+            self.store.db.execute('UPDATE review_prs SET repository=? WHERE id=?', (repo, pr['id']))
+            self.git.conflicts.add(pr['url'])
+        self.workers.capacity = 1
+        self.controller.tick()
+        self.assertEqual(self.launched_prs(), [high_repair['id']])
+        self.assertEqual(self.workers.launched[-1]['role'], 'repair')
+        for pr, head in ((high_repair, 'e' * 40), (low_repair, 'f' * 40)):
+            attempt = self.workers.launched[-1]
+            self.assertEqual(self.launched_prs()[-1], pr['id'])
+            self.assertEqual(attempt['role'], 'repair')
+            self.workers.finish(attempt, {'snapshot': attempt['candidate_id'], 'head': head,
+                                         'summary': 'fixed conflict', 'needs_person': False})
+            self.controller.tick()
+        self.assertEqual(self.launched_prs(), [high_repair['id'], low_repair['id'], review['id']])
+        self.assertEqual(self.workers.launched[-1]['role'], 'review')
+
+    def test_priority_never_preempts_running_review(self):
+        _, low = self.delivery(1, priority=4)
+        self.workers.capacity = 1
+        self.controller.tick()
+        running = self.workers.launched[0]
+        _, urgent = self.delivery(2, priority=1)
+        self.controller.tick()
+        self.assertEqual(self.launched_prs(), [low['id']])
+        self.assertEqual(self.store.row('review_attempts', running['id'])['state'], 'running')
+        self.good(running)
+        self.controller.tick()
+        self.assertEqual(self.launched_prs(), [low['id'], urgent['id']])
+
+    def test_retry_delayed_urgent_review_does_not_block_eligible_lower_priority(self):
+        _, low = self.delivery(1, priority=4)
+        _, urgent = self.delivery(2, priority=1)
+        self.workers.capacity = 0
+        self.controller.tick()
+        self.store.db.execute('UPDATE review_prs SET retry_at=? WHERE id=?', (self.now + 60, urgent['id']))
+        self.workers.capacity = 1
+        self.controller.tick()
+        self.assertEqual(self.launched_prs(), [low['id']])
 
     def test_three_speculative_reviews_release_capacity_while_ci_waits_then_merge_in_order(self):
         deliveries = [self.delivery(n) for n in (1, 2, 3)]
