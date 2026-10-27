@@ -166,7 +166,9 @@ def _snapshot(path):
                 SELECT 1 FROM sessions s WHERE s.issue_id=e.issue_id AND s.delegation=1
                 AND s.session_id NOT LIKE 'local-%' AND s.created_at>=e.mark))
             ORDER BY e.since,e.issue_id""") if "delegation_episodes" in tables else []
+        from .review_store import summary as review_summary
         return {
+            'review': review_summary(db),
             "_withdrawal": withdrawal,
             "_unclosed": unclosed,
             "_silent": silent,

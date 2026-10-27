@@ -15,7 +15,7 @@
     ok: ["正常", "ok"], attention: ["需要关注", "warn"], starting: ["正在启动", "info"],
     unresponsive: ["无响应", "bad"], stopped: ["已停止", "bad"], unknown: ["未知", "neutral"],
   };
-  const SKILL = {work: "任务", scene: "场景表现", fix: "修改", feature: "Code", fgui: "UI", chat: "对话"};
+  const SKILL = {work: "任务", scene: "场景表现", fix: "修改", feature: "Code", fgui: "UI", chat: "对话", review: "审查"};
   const FAILURE = {
     worker_launch_failed: ["工作进程启动失败", "请联系管理员检查执行器 CLI 和启动环境；修复后在 Linear 回复「重试」。"],
     worker_start_failed: ["工作进程在认领前退出", "请联系管理员检查执行器 CLI、登录状态和启动环境；修复后在 Linear 回复「重试」。"],
@@ -50,7 +50,7 @@
   };
   const LOOP = {
     receive: "接收", schedule: "调度", pool: "Unity 池", lifecycle: "状态同步", progress: "进度汇报",
-    resource_recovery: "资源恢复", server_pool: "服务测试池", worker_retention: "缓存清理",
+    resource_recovery: "资源恢复", server_pool: "服务测试池", worker_retention: "缓存清理", review: "审查与合并",
     version_labels: "版本标签同步",
   };
   const WORKER = {
@@ -281,8 +281,9 @@
     tasks.append(pill(general ? "主 worker 负责全程" : "任务未启用", general ? "info" : "neutral"));
     const retired = [...enabled].filter((name) => !["work", "chat"].includes(name));
     const known = typeof capacity.workers_used === "number";
-    const full = known && capacity.workers_used >= capacity.max_workers;
-    const usage = `${known ? capacity.workers_used : "?"}/${capacity.max_workers}`;
+    const total = capacity.max_workers + (capacity.review_workers || 0);
+    const full = known && capacity.workers_used >= total;
+    const usage = `${known ? capacity.workers_used : "?"}/${total}`;
     return [row("two", cell("label muted", "工作流"),
                 cell("main", configuredPills(["work", "chat"]),
                      el("p", "muted", general ? "新委派统一使用任务工作流，不按 Bot 标签分流。"
@@ -295,6 +296,8 @@
                      el("p", "muted", "当前服务拒绝启动这些旧配置；旧任务须在维护暂停时显式接续，不能自动恢复。")))] : []),
             row("two", cell("label muted", "worker 占用"),
                 cell("main", pill(`${usage}${full ? " · 已满载" : known ? "" : " · 状态未知"}`, full ? "warn" : "neutral"))),
+            ...(capacity.review_workers ? [row("two", cell("label muted", "worker 容量"),
+                cell("main", `${capacity.max_workers} 个任务名额 + ${capacity.review_workers} 个审查名额；CI 等待不占名额`))] : []),
             row("two", cell("label muted", "Unity 容量"),
                 cell("main", `${capacity.unity_slots} 个槽位`, " · ", el("span", "muted", "与 worker 容量独立，占用详情见下方"))),
             ...(typeof capacity.server_slots === "number" ? [row("two", cell("label muted", "服务测试容量"),
@@ -504,8 +507,23 @@
     if (work === null) return;
     renderCounts(work);
     renderActive(work);
+    renderReview(work);
     renderSlots(work);
     renderRecent(work);
+  }
+
+  function renderReview(work) {
+    const review = work.review;
+    byId("review-card").hidden = !review || !review.available || review.prs.length === 0;
+    if (!review || !review.available) return;
+    const names = {queued: "等待集成", reviewing: "独立审查", waiting_ci: "等待 GitHub CI",
+      repair: "AI 修复", ready: "等待合并", promoting: "发布修复", merging: "确认合并结果",
+      merged: "已合并", delivered: "已交付人工", shadow_repair: "影子模式：需要修复"};
+    const rows = review.prs.map((pr) => row("two", cell("label", pr.repository),
+      cell("main", `${pr.url} · ${names[pr.state] || pr.state} · 修复 ${pr.repairs} 轮`,
+        el("p", "muted", pr.error || (pr.ci ? `CI: ${pr.ci}` : "尚无候选 CI 结果")))));
+    if (review.control.paused) rows.unshift(row("two", cell("label", "自动合并已暂停"), cell("main", review.control.reason)));
+    byId("review-rows").replaceChildren(...rows);
   }
 
   // A render that threw may have left any verdict up, 正常 included. Until a render completes, the pill and the tab

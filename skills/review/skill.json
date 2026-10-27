@@ -1,0 +1,5 @@
+{
+  "name": "review", "trigger": ["delivery"], "intents": ["independent review of verified deliveries"],
+  "writes": [], "resources": [], "gates": [], "mcp": [], "opt_in": true,
+  "budget": {"lease_seconds": 2700, "max_hours": 1, "renew_minutes": 5}
+}

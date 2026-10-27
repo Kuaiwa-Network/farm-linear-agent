@@ -34,6 +34,45 @@ out older code neither reverses Linear status changes nor removes saved requests
 
 ## One issue, one main worker
 
+The optional [review and merge controller](review-automation.md) starts from verified
+single-worker delivery. It keeps the general-worker budget and adds a separate
+three-attempt review/repair budget. GitHub CI waits release AI capacity. Candidates
+speculate in repository order and are invalidated when predecessors change. Human
+handoff is terminal delivered work; humans own subsequent review and merge.
+
+Review capacity admits eligible repairs before new reviews. Within each role,
+admission uses the latest observed Linear priority (urgent, high, normal, low, then
+no priority), with PR enrollment order breaking ties. Active issue reads refresh
+priority before admission; older responses cannot overwrite newer observations.
+Priority does not preempt attempts, rebuild candidates or reorder the repository's
+speculative merge chain. Existing depth, dependency, retry and teardown gates apply.
+Review ordering reads existing issue metadata and needs no additional migration.
+
+Review infrastructure retries respect durable backoff and count consecutive failures
+per operation. Polling defaults to five minutes. Candidate bases come from fetched
+target refs; missing Git objects are unavailable evidence, never negative ancestry.
+High-risk verdicts take precedence over CI repairs. Unsupported merge backends and
+CI that exceeds the configured deadline receive terminal human handoff. Recoverable
+cancelled Actions workflows get bounded exact-SHA reruns without code repairs.
+Human review blockers remain terminal; external bot feedback is independently
+reviewed and bound to the verdict. Supersession reports retain partial merge inventory,
+and confirmed partial merges remain covered by incident observation.
+
+Queue authority uses a durable ledger identity rather than a hostname. Operational
+tuning does not invalidate evidence; per-delivery merge/check/risk policy changes do.
+Terminal review sources and ephemeral refs retire after the configured retention
+grace and verified teardown, preserving Git recovery refs, reports and audit records.
+Pending merge intents and uncertain ownership hold cleanup. Live profiles refuse
+both Linear and review-GitHub fixture selectors before opening state or contacting APIs.
+
+The feature defaults to off. The implemented `git_ff` backend uses controller-only,
+atomic, ancestry-checked source/target compare-and-swap updates to publish the exact
+reviewed merge commit; it refuses protected targets. Workers cannot invoke it.
+Squash/rebase native queue attestation, forwarding from independent instances, and
+shared Unity/server admission for review repair workers remain unimplemented; see
+the linked limits before enabling any host. Production deployment and live TestBot
+validation require separate operational authorization.
+
 Unlaunched jobs start by the latest observed Linear priority: urgent, high,
 normal, low, then no priority. Ties use the original job creation time and ID.
 Issue update webhooks request a fresh read; the regular lifecycle status read

@@ -565,6 +565,7 @@ def _service(beat_state, beat, health, now):
     if capacity is not None:
         live = beat_state == "fresh" and beat["phase"] == "serving" and beat["workers"] is not None
         capacity = {"max_workers": capacity["max_workers"], "unity_slots": capacity["unity_slots"],
+                    **({'review_workers': capacity['review_workers']} if 'review_workers' in capacity else {}),
                     **({"server_slots": capacity["server_slots"]} if "server_slots" in capacity else {}),
                     "enabled_skills": list(capacity["enabled_skills"]),
                     "workers_used": len(beat["workers"]) if live else None}
@@ -645,6 +646,8 @@ def build_status(ledger_path, *, heartbeat, health, instance, monitor_revision, 
                                                                         renew_seconds or {})
             from .maintenance import status as maintenance_status
             service['maintenance'] = maintenance_status(db, heartbeat, now)
+            from .review_store import summary as review_summary
+            sections['review'] = review_summary(db)
     except (sqlite3.Error, OSError, ValueError) as exc:
         document["ledger"]["error_type"] = type(exc).__name__
     else:

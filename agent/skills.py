@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .kw_ops import GRANTS
 
-TRIGGERS = ("delegation", "mention")
+TRIGGERS = ("delegation", "mention", "delivery")
 REQUIRED = ("name", "trigger", "intents", "writes", "resources", "gates", "mcp", "budget")
 # The stage keys (spec §9.5), then opt_in and exclusive (Phase B plan, P1 and P8).
 OPTIONAL = ("initial_root", "staged", "reads", "opt_in", "exclusive")
@@ -94,12 +94,14 @@ def _load_one(directory):
                  initial_root=initial_root, staged=staged, reads=tuple(reads), opt_in=opt_in, exclusive=exclusive)
 
 
-def load_skills(root, *, replay_legacy=False):
+def load_skills(root, *, replay_legacy=False, include_internal=False):
     root = Path(root)
     skills = {}
     for directory in sorted(p for p in root.iterdir() if p.is_dir()):
         if (directory / "skill.json").exists():
             skill = _load_one(directory)
+            if 'delivery' in skill.trigger and not include_internal:
+                continue  # The review controller owns this trigger; ordinary intake cannot select it.
             skills[skill.name] = skill
     if replay_legacy:
         for name in ('chat', 'work', 'fix', 'feature', 'fgui', 'scene'):

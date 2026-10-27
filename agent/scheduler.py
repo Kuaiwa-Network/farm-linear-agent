@@ -240,6 +240,12 @@ class Scheduler:
                     "result": "the pool recorded no batch run for this reservation"}
 
     def launch(self, item):
+        # A new explicit continuation supersedes review, but its writer must wait
+        # until the separately contained review/repair process has actually exited.
+        if self.ledger.connection.execute("SELECT 1 FROM review_attempts a JOIN review_candidates c ON c.id=a.candidate_id "
+                "JOIN review_prs p ON p.id=c.pr_id JOIN review_runs r ON r.id=p.run_id JOIN work_items w ON w.id=r.item_id "
+                "WHERE w.issue_id=? AND a.state IN ('queued','running','submitted','stopping') LIMIT 1", (item['issue_id'],)).fetchone():
+            return None
         if item['skill'] != 'chat' and not single(item) and not self.replay_legacy:
             self._hold_legacy(item)
             return None

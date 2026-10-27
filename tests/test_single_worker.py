@@ -523,12 +523,29 @@ class SingleWorkerTests(LedgerBase):
         self.assertEqual(self.ledger.item(self.key)['state'], 'running')
         self.assertFalse(self.in_review_requested())
         self.assertEqual(self.ledger.issue_context(self.key)['published_prs'], [])
-        with patch('agent.__main__.verify_delivered_prs') as verify:
+        with patch('agent.__main__.verify_delivered_prs', return_value=[]) as verify:
             self.assertTrue(self.finish_command(report, '--check-ready')['local_completion_checked'])
             self.assertEqual(self.ledger.issue_context(self.key)['published_prs'], [])
             self.assertEqual(self.finish_command(report)['state'], 'delivered')
         self.assertEqual(verify.call_count, 2)
         self.assertTrue(self.in_review_requested())
+        self.assertEqual(self.ledger.connection.execute('SELECT count(*) FROM review_deliveries').fetchone()[0], 0)
+
+    def test_finish_records_verified_review_inputs_but_check_ready_does_not(self):
+        self.claim_owner()
+        action = self.ledger.prepare_comment(self.key, self.token, 'delivery', 'Delivered ' + PR)
+        self.ledger.confirm_comment(action['action_id'], 'remote-comment')
+        report = {'summary': 'Fixed', 'verification': 'Affected tests passed', 'prs': [PR],
+                  'comment_action_id': action['action_id']}
+        proof = {'repo': 'Farm-Client', 'url': PR, 'head': 'a' * 40, 'base': 'b' * 40,
+                 'branch': 'farmbot/farm-1', 'base_branch': 'main'}
+        with patch('agent.__main__.verify_delivered_prs', return_value=[proof]):
+            self.finish_command(report, '--check-ready')
+            self.assertEqual(self.ledger.connection.execute('SELECT count(*) FROM review_deliveries').fetchone()[0], 0)
+            self.finish_command(report)
+        delivery = self.ledger.connection.execute('SELECT * FROM review_deliveries').fetchone()
+        self.assertEqual(json.loads(delivery['inputs']), [proof])
+        self.assertEqual(delivery['generation'], self.ledger.item(self.key)['generation'])
         self.assertEqual(self.ledger.issue_context(self.key)['published_prs'], [PR])
 
     def test_delivery_registration_is_atomic_and_requires_verified_prs(self):
@@ -565,7 +582,7 @@ class SingleWorkerTests(LedgerBase):
         action = self.ledger.prepare_comment(self.key, self.token, 'delivery', 'Delivered ' + PR)
         self.ledger.confirm_comment(action['action_id'], 'remote-comment')
         report = {'summary': 'Done', 'verification': 'Passed', 'prs': [PR], 'comment_action_id': action['action_id']}
-        with patch('agent.__main__.verify_delivered_prs'):
+        with patch('agent.__main__.verify_delivered_prs', return_value=[]):
             self.finish_command(report)
         before = self.ledger.issue_context(self.key)['fingerprint']
         self.ledger.observe_issue(issue(attachments=[PR, other]))
@@ -593,7 +610,7 @@ class SingleWorkerTests(LedgerBase):
         from agent.__main__ import verify_delivered_prs
         self.claim_owner()
         local = Path(self.tmp.name) / 'host'
-        config = SimpleNamespace(local_root=local, issue_prefix='FARM', runtime='codex', environment='legacy',
+        config = SimpleNamespace(local_root=local, issue_prefix='FARM', runtime='codex', environment='legacy', auto_merge={},
                                  repos={'Farm-Client': 'https://github.com/Kuaiwa-Network/Farm-Client.git',
                                         'farmgui': 'git@github.com:Kuaiwa-Network/farmgui.git',
                                         'common': str(local / 'not-github')})

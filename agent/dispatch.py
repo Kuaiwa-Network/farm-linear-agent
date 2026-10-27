@@ -47,6 +47,12 @@ def dispatch_message(**arguments):
     return legacy_dispatch.dispatch_message(**arguments)
 
 
+def review_message(*args, **kwargs):
+    """Internal delivery stage has narrower, role-specific authority than work."""
+    from .review_dispatch import message
+    return message(*args, **kwargs)
+
+
 def __getattr__(name):
     """Historical diagnostics/tests may still name archived prompt constants."""
     return getattr(legacy_dispatch, name)

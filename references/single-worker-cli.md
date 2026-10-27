@@ -1,5 +1,14 @@
 # Single worker CLI
 
+The implementation owner still finishes through the commands below. When the
+private host config enables review, verified PR identities are captured atomically
+with successful delivery. The owner then exits; it does not keep an AI slot while
+GitHub CI runs or merge its PRs. The separate internal review/repair role uses
+`python -m agent.review_cli --db DATABASE claim|renew|submit --attempt ID
+--token-file STATE_DIR/token`, with `--input RESULT.json` for submit. Only that
+launched attempt may call those commands. See [review automation](../docs/review-automation.md)
+for its terminal handoff behavior and current limitations.
+
 This guide applies to `single-worker-v1`. Use the launch payload's absolute
 `repo_root`, `execution.python`, `database`, `state_dir` and owned worktrees.
 Invoke Python with an argument array from repo_root. On Windows use the supplied

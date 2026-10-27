@@ -141,7 +141,7 @@ class PublicationVerifier:
         except (WorktreeError, OSError, subprocess.TimeoutExpired) as exc:
             raise PublicationError('cannot verify the configured worktree and push destination') from exc
 
-    def verify_pr(self, repo, item_id, identifier, url, *, delivered=False):
+    def verify_pr(self, repo, item_id, identifier, url, *, delivered=False, proof=False):
         """Prove a late Linear attachment is this job's actual draft output.
 
         delivered: a PR a finished delivery names. A person may since have marked it ready for review or merged
@@ -173,6 +173,11 @@ class PublicationVerifier:
                 or head['repo'].get('full_name') != verified['repository']
                 or base['repo'].get('full_name') != verified['repository']):
             raise PublicationError(f"{url} must be {requirement}")
+        if proof:
+            if not isinstance(base.get('sha'), str) or not re.fullmatch(r'[0-9a-f]{40}', base['sha']):
+                raise PublicationError('review delivery requires GitHub base commit identity')
+            return {'repo': repo, 'url': url, 'head': verified['head'], 'branch': verified['branch'],
+                    'base_branch': verified['base_branch'], 'base': base['sha']}
         return url
 
     def _verify(self, repo, item_id, identifier, branch, suffix_roles=False, require_main=False):
