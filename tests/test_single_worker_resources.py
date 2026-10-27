@@ -114,6 +114,93 @@ class UnityBridgeTests(unittest.TestCase):
                     f.doCleanups()
 
 
+class ServerSelectionTests(unittest.TestCase):
+    def setUp(self):
+        from agent.__main__ import parser
+        self.f = single_fixture.SingleWorkerTests()
+        self.f.setUp()
+        self.addCleanup(self.f.doCleanups)
+        self.f.claim_owner()
+        root = Path(self.f.tmp.name)
+        self.plan_file = root / 'server scope 计划.json'
+        self.plan = {'packages': ['./modules/animal'], 'tests': [], 'race': False}
+        self.plan_file.write_text(json.dumps(self.plan), encoding='utf-8')
+        self.args = parser().parse_args(['--db', str(self.f.path), 'await-resource',
+            '--item', self.f.key, '--token', self.f.token, '--resource', 'server_slot',
+            '--mode', 'batch', '--commit', 'a' * 40, '--server-test-plan', str(self.plan_file)])
+        self.paths = Mock(ledger=self.f.path, repos=root / 'repos', worktrees=root / 'worktrees')
+        self.config = Mock(repos={}, issue_prefix='FARM', server_slots={'count': 1})
+        self.trees = Mock()
+        self.trees.git_in.return_value = 'farmbot/farm-1'
+        self.enterContext(patch('agent.worker_resources.Paths', return_value=self.paths))
+        self.enterContext(patch('agent.worker_resources.Worktrees', return_value=self.trees))
+        self.enterContext(patch('agent.__main__.load_config', return_value=self.config))
+
+    def request(self):
+        from agent.__main__ import run
+        return run(self.args, self.f.ledger, lambda: None)
+
+    def audit(self):
+        return self.f.ledger.connection.execute(
+            "SELECT details FROM audit WHERE item_id=? AND kind='server_test_scope'", (self.f.key,)).fetchall()
+
+    def test_real_single_worker_cli_rejects_expensive_selection_before_allocating_then_records_reason(self):
+        plan = {**self.plan, 'race': True}
+        self.plan_file.write_text(json.dumps(plan), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, '--server-scope-reason'):
+            self.request()
+        self.assertEqual(self.f.ledger.reservations(), [])
+        self.assertEqual(self.audit(), [])
+        self.assertEqual(self.f.ledger.connection.execute('SELECT count(*) FROM resource_process_scopes').fetchone()[0], 0)
+        self.args.server_scope_reason = 'Changed animal-store concurrency needs race coverage.'
+        result = self.request()
+        reservation = self.f.ledger.reservation(result['reservation_id'])
+        self.assertEqual(reservation['server_test_plan'], plan)
+        self.assertEqual(self.f.ledger.item(self.f.key)['state'], 'running')
+        decision = json.loads(self.audit()[0]['details'])
+        self.assertEqual(decision, {'plan': plan, 'reason': self.args.server_scope_reason,
+            'verification_scope': 'targeted', 'reservation_id': result['reservation_id'],
+            'commit_sha': 'a' * 40, 'generation': self.f.ledger.item(self.f.key)['generation']})
+        self.trees.fetch.assert_not_called()
+        self.trees.server_verification_base.assert_not_called()
+
+    def test_narrow_plan_needs_no_reason_and_no_missing_plan_can_default_to_full(self):
+        self.args.server_test_plan = None
+        with self.assertRaisesRegex(LedgerError, 'actual scoped test plan'):
+            self.request()
+        self.assertEqual(self.f.ledger.reservations(), [])
+        self.args.server_test_plan = str(self.plan_file)
+        result = self.request()
+        self.assertEqual(self.f.ledger.reservation(result['reservation_id'])['server_test_plan'], self.plan)
+        self.assertIsNone(json.loads(self.audit()[0]['details'])['reason'])
+
+    def test_direct_admission_enforces_policy_and_failed_fences_leave_no_scope_audit(self):
+        from agent.maintenance import Maintenance
+        full = {'packages': ['./...'], 'tests': [], 'race': True}
+        with self.assertRaisesRegex(ValueError, '--server-scope-reason'):
+            queue_resource(self.f.ledger, self.f.key, self.f.token, 'server_slot', 'batch',
+                           'a' * 40, test_plan=full)
+        Maintenance(self.f.ledger).pause('offline test')
+        with self.assertRaisesRegex(LedgerError, 'maintenance'):
+            queue_resource(self.f.ledger, self.f.key, self.f.token, 'server_slot', 'batch',
+                           'a' * 40, test_plan=full, scope_reason='Explicit final acceptance for shared runtime changes.')
+        self.assertEqual(self.f.ledger.reservations(), [])
+        self.assertEqual(self.audit(), [])
+
+    def test_audit_and_reservation_are_atomic(self):
+        original = self.f.ledger._audit
+        def fail_scope(item, kind, *args, **kwargs):
+            if kind == 'server_test_scope':
+                raise RuntimeError('audit write failed')
+            return original(item, kind, *args, **kwargs)
+        with patch.object(self.f.ledger, '_audit', side_effect=fail_scope):
+            with self.assertRaisesRegex(RuntimeError, 'audit write failed'):
+                self.request()
+        self.assertEqual(self.f.ledger.reservations(), [])
+        self.assertEqual(self.audit(), [])
+        self.assertEqual(self.f.ledger.connection.execute('SELECT count(*) FROM resource_process_scopes').fetchone()[0], 0)
+
+
 class ServerOwnerTests(unittest.TestCase):
     def test_docker_restart_preserves_live_claim_and_reservation(self):
         from agent.server_slots import DockerUnavailable

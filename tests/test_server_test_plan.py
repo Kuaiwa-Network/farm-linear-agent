@@ -3,7 +3,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from agent.server_test_plan import FULL_PLAN, profile, test_argv, validate_plan
+from agent.server_test_plan import FULL_PLAN, profile, test_argv, validate_plan, worker_selection
 from agent.resource_admission import validate_settings
 from agent.server_slots import read_resource
 from test_server_slots import ServerPoolFixture
@@ -13,6 +13,29 @@ TARGETED = {**FOCUSED, "tests": []}
 
 
 class PlanTests(unittest.TestCase):
+    def test_worker_selection_requires_reason_for_wildcards_and_race_without_expanding_packages(self):
+        for plan in (FOCUSED, TARGETED, {**TARGETED, 'packages': ['./config', './modules/animal']}):
+            self.assertEqual(worker_selection(plan)['plan'], plan)
+        for plan in (FULL_PLAN, {**TARGETED, 'race': True},
+                     {**TARGETED, 'packages': ['./...']},
+                     {**FOCUSED, 'packages': ['./modules/...']}):
+            with self.subTest(plan=plan):
+                with self.assertRaisesRegex(ValueError, '--server-scope-reason'):
+                    worker_selection(plan)
+                decision = worker_selection(plan, '  Check changed concurrent animal store writes.  ')
+                self.assertEqual(decision['plan'], plan)
+                self.assertEqual(decision['reason'], 'Check changed concurrent animal store writes.')
+        race = worker_selection({**TARGETED, 'race': True}, 'Check concurrent animal store writes.')
+        self.assertEqual(race['verification_scope'], 'targeted')
+        self.assertEqual(profile(race['plan']), 'full')
+
+    def test_worker_reason_is_bounded_text_and_cannot_replace_plan_validation(self):
+        for reason in ('', ' ' * 20, 'short', 'x' * 501, True, 123, {}):
+            with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, '10-500'):
+                worker_selection(TARGETED, reason)
+        with self.assertRaises(ValueError):
+            worker_selection({**FULL_PLAN, 'packages': ['../foreign']}, 'Required acceptance check.')
+
     def test_maximum_named_selection_fits_but_oversized_combined_plan_is_refused(self):
         from agent.integration import validate_argv
         tests = ['Test' + str(i).zfill(3) + 'x' * 147 for i in range(128)]

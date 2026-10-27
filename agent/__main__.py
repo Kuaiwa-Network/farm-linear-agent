@@ -142,7 +142,7 @@ def parser():
     resource.add_argument('--integration-plan', help='single-client/game-server plan, from the Client stage')
     cmd('run-server-tests', '--item', '--module', token=True)
     integration = cmd('run-integration', '--item', '--client-command', token=True)
-    resource.add_argument("--server-scope-reason", help="concrete coverage reason for broader or named-only server checks")
+    resource.add_argument("--server-scope-reason", help="10-500 character coverage reason; required for broad or race server tests")
     resource.add_argument("--mode", required=True, choices=["interactive", "batch"])
     resource.add_argument("--commit", help="full SHA of the clean Farm-Client worktree HEAD to verify; default: baseline")
     resource.add_argument("--baseline", action="store_true",

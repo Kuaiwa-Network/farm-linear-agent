@@ -522,6 +522,22 @@ or plugin/cache modification is involved; unsupported plugin APIs fail explicitl
 For server tests, request services only when needed, using an explicit scoped
 package/test/race plan. The worker runs the actual commands against isolated
 loopback services. Local tests that need no services need no server reservation.
+Start with affected packages and necessary consumers, normally without race.
+New single-worker server requests containing any `...` package or `race=true`
+require a 10-500 character `--server-scope-reason`. The reason explains the
+affected consumers, concurrency risk or acceptance requirement for this change;
+a generic full-suite example or shared configuration change alone is insufficient.
+This is a worker engineering decision, not an approval or a host test verdict.
+Admission atomically audits the normalized plan/reason, candidate, generation and
+reservation. It does not fetch main, impose a baseline comparison or expand scope.
+Prepare pinned inputs and settle focused failures before broad acceptance. Preserve
+CI requirements, reuse matching reports and rerun only affected checks after fixes.
+The full memory tier does not imply full test coverage. Managed commands retain
+serial package isolation and uncached test execution for fresh service evidence.
+Existing reservations and historical replay retain their recorded plans; there is
+no schema migration or automatic interruption. Rollback removes the new admission
+check and instructions but retains audit evidence. Deploy controller, CLI and
+worker instructions together for new requests to use this policy.
 Docker administration remains host-owned. Server cleanup retains the existing
 process-quiescence requirement; new leases use reservation-scoped command proofs
 to retain the main worker. Historical leases require full worker teardown.

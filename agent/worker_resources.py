@@ -68,7 +68,8 @@ def request(args, ledger, config, token):
     if args.resource == 'server_slot' and args.server_test_plan:
         test_plan = json.loads(Path(args.server_test_plan).read_text(encoding='utf-8'))
     return queue_resource(ledger, item['id'], token, args.resource, args.mode, args.commit,
-                          test_plan=test_plan, integration_plan=integration_plan)
+                          test_plan=test_plan, integration_plan=integration_plan,
+                          scope_reason=getattr(args, 'server_scope_reason', None))
 
 
 def status(args, ledger, config, token):

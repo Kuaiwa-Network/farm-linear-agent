@@ -189,6 +189,14 @@ Own the test decision and explain it. Follow actual repository test requirements
 affected behavior. Reuse matching reports and QA. Baseline testing is optional diagnostic work justified by a
 specific unresolved failure, never an automatic stage. Record unrelated failures separately; do not repair all
 existing debt or wait for main to become green. Do not merge newer main merely because it advanced or you resumed.
+For Go tests, start with explicit affected packages and their necessary consumers, with race=false by default.
+Use race only for relevant concurrency risk or an acceptance requirement that applies to this change.
+A generic README full-suite command or a shared config change alone does not require local full-repository race.
+Before broad or race server tests, pass --server-scope-reason with the concrete coverage/concurrency need;
+this is your engineering decision, not another human approval. Full memory admission does not mean full test scope.
+Settle focused failures and prepare pinned test inputs first. Reuse unchanged evidence and rerun only affected
+checks after corrections. Preserve existing CI requirements; do not duplicate full CI locally by default or
+make unrelated suite failures a draft-PR prerequisite. Do not change serial service isolation or cache flags.
 Settle generated assets and test inputs before final verification. Earlier exploratory runs remain useful, but
 reuse them for delivery only when the tested inputs still match; run independent checks together when practical.
 Use publish-ui for native exports of explicitly selected FairyGUI packages, then install the needed outputs

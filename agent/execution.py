@@ -42,11 +42,12 @@ def validate_progress(progress):
         raise LedgerError('checkpoint summary must be text')
 
 
-def queue_resource(ledger, item_id, token, resource, mode, commit, *, test_plan=None, integration_plan=None):
+def queue_resource(ledger, item_id, token, resource, mode, commit, *, test_plan=None, integration_plan=None,
+                   scope_reason=None):
     from uuid import uuid4
     from .ledger import COMMIT_SHA, LedgerError, _json
     from .maintenance import Maintenance
-    from .server_test_plan import validate_plan
+    from .server_test_plan import worker_selection
     if resource not in ('unity_slot', 'server_slot'):
         raise LedgerError('unsupported resource')
     if mode != ('interactive' if resource == 'unity_slot' else 'batch'):
@@ -58,10 +59,14 @@ def queue_resource(ledger, item_id, token, resource, mode, commit, *, test_plan=
         if resource!='unity_slot' or mode!='interactive':
             raise LedgerError('combined verification requires interactive Unity')
         integration_plan = validate_integration(integration_plan)
+    selection = None
     if resource == 'server_slot':
         if test_plan is None:
             raise LedgerError('server resource requires the actual scoped test plan')
-        test_plan = validate_plan(test_plan)
+        selection = worker_selection(test_plan, scope_reason)
+        test_plan = selection['plan']
+    elif scope_reason is not None:
+        raise LedgerError('--server-scope-reason requires server_slot')
     with ledger._transaction():
         row = ledger._owned(item_id, token)
         if not single(row):
@@ -91,6 +96,10 @@ def queue_resource(ledger, item_id, token, resource, mode, commit, *, test_plan=
             ('waiting-for-' + resource, resource + ':' + mode, ledger.clock(), item_id))
         ledger._audit(item_id, 'reservation', 'queued',
                       {'reservation_id': reservation, 'commit_sha': commit, 'mode': mode})
+        if selection is not None:
+            ledger._audit(item_id, 'server_test_scope', 'worker-selected coverage',
+                          {**selection, 'reservation_id': reservation, 'commit_sha': commit,
+                           'generation': row['generation']})
         return {'reservation_id': reservation, 'state': 'queued', 'keep_worker': True}
 
 
