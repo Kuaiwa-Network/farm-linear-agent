@@ -70,9 +70,8 @@ def parser():
         receipt.add_argument('--view', choices=('compact', 'full'), default='compact',
                              help='single-worker response: compact receipt (default) or full work item')
     context = cmd("issue-context", "--item")
-    context.add_argument("--view", choices=["full", "resume"], default="full")
-    context.add_argument('--include-work-item', action='store_true',
-                         help='with --view full, include the complete stored work item without a mutation')
+    context.add_argument("--view", choices=["full", "resume", "work-item"], default="full",
+                         help='full context (default), resume digest, or only the complete stored work item')
     context.add_argument('--if-changed', metavar='DIGEST',
                          help='with --view resume, return a small receipt when retained context is unchanged')
     cmd("pop-inbox", "--item", token=True)
@@ -669,7 +668,7 @@ def run(args, ledger, api_factory):
             result['context'] = resume_view(ledger.issue_context(args.item))
         return result
     if c == "renew":
-        return ledger.renew(args.item, resolve_token(args))
+        return ledger.renew(args.item, resolve_token(args), include_controls=True)
     if c == "retry-approval":
         from .launcher import _read_worker_text
         token = resolve_token(args)
@@ -686,7 +685,7 @@ def run(args, ledger, api_factory):
         ledger.require_valid_checkpoint(args.item, token)
         owned = ledger._owned(args.item, token)
         fingerprint = ledger._issue_row(owned['issue_id'])['fingerprint']
-        changed = owned['requeue_requested'] or fingerprint != owned['claimed_fingerprint']
+        changed = ledger.requires_issue_review(args.item)
         if changed and (c == 'closing-preflight' or not args.verify):
             raise LedgerError('issue changed; revalidate before preparing closeout evidence')
         if c == 'closing-preflight':
@@ -728,7 +727,7 @@ def run(args, ledger, api_factory):
         token = resolve_token(args)
         return ledger.checkpoint(args.item, token, progress,
                                  verified_prs=verify_late_prs(ledger, args, token, progress),
-                                 issue_prefix=configured_issue_prefix())
+                                 issue_prefix=configured_issue_prefix(), include_controls=True)
     if c == "handoff-repository":
         from .config import ROOT
         from .skills import load_skills
@@ -764,15 +763,13 @@ def run(args, ledger, api_factory):
         ledger.renew(args.item, token)
         return ledger.handoff_repository(args.item, token, args.to, skill=skill)
     if c == "revalidate":
-        return ledger.revalidate(args.item, resolve_token(args), args.fingerprint)
+        return ledger.revalidate(args.item, resolve_token(args), args.fingerprint, include_controls=True)
     if c == "issue-context":
         if args.if_changed is not None and args.view != 'resume':
             raise LedgerError('--if-changed requires --view resume')
-        if getattr(args, 'include_work_item', False) and args.view != 'full':
-            raise LedgerError('--include-work-item requires --view full')
+        if args.view == 'work-item':
+            return ledger.item(args.item)
         context = ledger.issue_context(args.item)
-        if getattr(args, 'include_work_item', False):
-            context['work_item'] = ledger.item(args.item)
         if args.view == 'resume':
             from .resume_context import resume_view
             return resume_view(context, if_changed=args.if_changed)
@@ -1523,7 +1520,7 @@ def main(argv=None):
         ledger = Ledger(args.db, lease_seconds=args.lease_seconds)
         result = run(args, ledger, linear_api)
         from .worker_output import response
-        result = response(args, result, ledger)
+        result = response(args, result)
         print(json.dumps(result, ensure_ascii=True, allow_nan=False))
         return 0
     except (LedgerError, OSError, ValueError, RuntimeError, sqlite3.Error, KeyError) as exc:

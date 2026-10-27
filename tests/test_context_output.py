@@ -191,7 +191,7 @@ class ContextOutputPromptTests(unittest.TestCase):
                 self.assertEqual(authority.count('Context/output discipline:'), 1)
                 self.assertIn('add --if-changed DIGEST only while you retain the context', authority)
                 self.assertIn('Keep required fetch-issue, renewal, inbox, revalidation and publication checks', authority)
-                self.assertIn('Read --view full when requires_full_view is true', authority)
+                self.assertIn('Read issue-context --view full when requires_full_view is true', authority)
                 self.assertIn('not permission to truncate required instructions', authority)
                 self.assertIn('Never rerun work merely to recover output', authority)
                 data = json.loads(payload)

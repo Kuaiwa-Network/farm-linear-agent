@@ -34,7 +34,7 @@ parking or finish, and checkpoints their work. No FarmBot child task is created.
 | Command | Additional arguments and purpose |
 | --- | --- |
 | `fetch-issue` | No token arguments. Read live issue facts before delivery or after a new request. |
-| `issue-context` | No token arguments; prefer `--view resume`, optionally `--if-changed DIGEST` from retained `context_view.digest`. `--view full` keeps all context evidence and remains the CLI default; add `--include-work-item` to explicitly read the complete current work item/checkpoint without repeating a mutation. |
+| `issue-context` | No token arguments; prefer `--view resume`, optionally `--if-changed DIGEST` from retained `context_view.digest`. `--view full` keeps all context evidence and remains the CLI default. `--view work-item` reads only the complete current work item/checkpoint, without conversation history or repeating a mutation. |
 | `download-uploads` | `--out STATE_DIR/uploads`, optional repeatable `--url UNSIGNED_UPLOAD_URL`: authenticated download of issue and current Project Overview attachments, with a local manifest. Reuse intact files; never fetch private upload URLs anonymously. |
 | `renew` | Keep the claim alive; compact receipt with control/recovery flags, pending questions/inbox and issue-review indicator. Optional `--view full`. |
 | `checkpoint` | `--input FILE`: save bounded JSON progress, candidate SHAs, report paths and next action; compact acknowledgement by default, optional `--view full`. |

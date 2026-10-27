@@ -161,11 +161,17 @@ The CLI defaults `renew`, `checkpoint` and `revalidate` for single-worker jobs t
 compact acknowledgements. Complete checkpoint/evidence and target data remain
 stored; control/recovery fields, active question text, old/new revalidation
 fingerprints, unread inbox count and stored-input review indication remain visible.
-Unknown new fields are retained, not silently discarded. `--view full` returns the
-prior full result; use `issue-context --view full --include-work-item` to read the
-complete current work item without repeating the mutation (resume remains compact).
+Unknown new fields and null/empty context values are retained, not silently discarded.
+Choose `--view full` before running the command for the complete work item with the
+same control signals and checkpoint acknowledgement. Afterwards, use
+`issue-context --view work-item` to read only the current work item, without loading
+conversation history or repeating the mutation (resume remains compact).
+The CLI collects controls inside the write transaction; a signal-read failure rolls
+back the write, and output formatting makes no post-commit database reads. Question
+reads share the legacy consumed-message floor. Inbox counts and issue-review signals
+use shared Ledger helpers.
 See [response semantics](../references/worker-context-output.md).
-Ledger APIs, staged responses, resource status, startup, errors and publication/
+Default Ledger results, staged responses, resource status, startup, errors and publication/
 release/finish gates are unchanged. There is no schema migration. CLI consumers of
 these three commands must use `--view full` if they need the old work-item payload.
 Rollback restores full default output without losing stored evidence; scripts must

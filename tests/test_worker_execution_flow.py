@@ -32,6 +32,8 @@ class WorkerExecutionFlowTests(unittest.TestCase):
                 'fresh verification before each push', 'batching preparation never reuses publication authority',
                 'finish --check-ready on final PR heads', 'confirm the delivery outbox comment and finish promptly',
                 'concise completion/blocker handoff', 'compact receipts by default',
+                'Choose --view full before running', 'response_view.read_full_item',
+                'omitted_fields lists only non-empty payloads',
                 'Do not repeat a mutation to recover omitted output',
                 'A quiescent release is checked by the host',
                 'Never push default/protected branches, force-push, merge PRs, deploy',
