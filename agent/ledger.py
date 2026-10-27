@@ -756,7 +756,7 @@ class Ledger:
             raise LedgerError(f"unknown issue: {issue_id}")
         return row
 
-    def _view(self, row):
+    def _view(self, row, *, include_controls=False):
         issue = json.loads(self._issue_row(row["issue_id"])["metadata"])
         result = {key: row[key] for key in ["id", "issue_id", "session_id", "skill", "state", "stage",
                                             "execution_contract",
@@ -775,7 +775,25 @@ class Ledger:
         result['maintenance_requested'] = Maintenance(self).requested(row['id'])
         from .version_targets import Store
         result['branch_target'] = Store(self).get(row['id'])
+        if include_controls and single(row):
+            # CLI mutations request these before their transaction commits.
+            # Output projection must never need another database read.
+            result.update(human_question=self._human_question(result),
+                          inbox_pending=self.inbox_pending(row['id']),
+                          requires_issue_review=self.requires_issue_review(row['id']))
         return result
+
+    def inbox_pending(self, item_id):
+        """Count unread input without consuming it."""
+        return self.connection.execute(
+            'SELECT count(*) FROM inbox WHERE item_id=? AND consumed_at IS NULL',
+            (item_id,)).fetchone()[0]
+
+    def requires_issue_review(self, item_id):
+        """Report stored input changes without acknowledging or clearing them."""
+        row = self._row(item_id)
+        return bool(row['requeue_requested'] or
+                    self._issue_row(row['issue_id'])['fingerprint'] != row['claimed_fingerprint'])
 
     def _audit(self, item_id, kind, reason="", details=None):
         self.connection.execute("INSERT INTO audit(item_id,kind,reason,details,created_at) VALUES(?,?,?,?,?)",
@@ -787,7 +805,11 @@ class Ledger:
             self._audit(item_id, kind, reason, details)
 
     def human_question(self, item_id):
-        question = question_from(self._view(self._row(item_id)))
+        return self._human_question(self._view(self._row(item_id)))
+
+    def _human_question(self, item):
+        item_id = item['id']
+        question = question_from(item)
         if question and question["id"].startswith("legacy-"):
             # Do not let pre-upgrade, already-consumed rulings acknowledge a
             # later question merely because the old checkpoint has no round id.
@@ -1383,13 +1405,13 @@ class Ledger:
             result["token"] = token  # the only time the raw token exists outside the worker
             return result
 
-    def renew(self, item_id, token):
+    def renew(self, item_id, token, *, include_controls=False):
         with self._transaction():
             row = self._owned(item_id, token)
             self.connection.execute("UPDATE work_items SET lease_expires_at=?,updated_at=? WHERE id=?",
                                     (self.clock() + (row["lease_seconds"] or self.lease_seconds), self.clock(), row["id"]))
             self._audit(row["id"], "renew")
-            return self._view(self._row(row["id"]))
+            return self._view(self._row(row["id"]), include_controls=include_controls)
 
     def set_worker(self, item_id, pid, host, lease_seconds=None):
         """Record the launched worker and, with it, the lease this item's skill budgets."""
@@ -1491,7 +1513,7 @@ class Ledger:
         if error := self.checkpoint_error(item_id):
             raise LedgerError(f"repair the rejected checkpoint handoff before pausing or finishing: {error}")
 
-    def checkpoint(self, item_id, token, progress, *, verified_prs=(), issue_prefix="FARM"):
+    def checkpoint(self, item_id, token, progress, *, verified_prs=(), issue_prefix="FARM", include_controls=False):
         """`issue_prefix` is the host's issue namespace (Config.issue_prefix), which the worker CLI passes: a plan's
         issue branches are checked against it (plan P9)."""
         if not isinstance(progress, dict):
@@ -1599,9 +1621,9 @@ class Ledger:
             self._audit(row["id"], "checkpoint", stage or "")
             if handoff_updated:
                 self._audit(row["id"], "handoff_saved")
-            return self._view(self._row(row["id"]))
+            return self._view(self._row(row["id"]), include_controls=include_controls)
 
-    def revalidate(self, item_id, token, fingerprint):
+    def revalidate(self, item_id, token, fingerprint, *, include_controls=False):
         """Move a live claim onto the issue input its worker has just read (spec §9.9, §11).
 
         `fetch-issue` stores a snapshot and prints its fingerprint; the worker reads that snapshot through
@@ -1629,7 +1651,7 @@ class Ledger:
             self.connection.execute("UPDATE work_items SET claimed_fingerprint=?,revalidated_fingerprint=?,updated_at=? "
                                     "WHERE id=?", (fingerprint, fingerprint, self.clock(), row["id"]))
             self._audit(row["id"], "revalidate", "", {"from": row["claimed_fingerprint"], "to": fingerprint})
-            return {**self._view(self._row(row["id"])), "claimed_fingerprint": fingerprint,
+            return {**self._view(self._row(row["id"]), include_controls=include_controls), "claimed_fingerprint": fingerprint,
                     "previous_fingerprint": row["claimed_fingerprint"]}
 
     def handoff_repository(self, item_id, token, to_repo, *, skill):
@@ -3896,8 +3918,8 @@ class Ledger:
                 self._set_state(row["id"], "queued", "human answered in Linear", token=None,
                                 lease_expires_at=None, worker_pid=None, resume_authorized=1,
                                 **self._new_stage_allowances(row))
-            return {"item_id": row["id"], "state": self._row(row["id"])["state"], "pending": self.connection.execute(
-                "SELECT count(*) FROM inbox WHERE item_id=? AND consumed_at IS NULL", (row["id"],)).fetchone()[0]}
+            return {"item_id": row["id"], "state": self._row(row["id"])["state"],
+                    "pending": self.inbox_pending(row['id'])}
 
     def pop_inbox(self, item_id, token):
         with self._transaction():
@@ -3956,8 +3978,7 @@ class Ledger:
                             for notice in self.notices(item_id)],
                 "published_prs": [r["url"] for r in self.connection.execute(
                     "SELECT url FROM published_prs WHERE issue_id=? ORDER BY url", (row["issue_id"],))],
-                "inbox_pending": self.connection.execute(
-                    "SELECT count(*) FROM inbox WHERE item_id=? AND consumed_at IS NULL", (row["id"],)).fetchone()[0]}
+                "inbox_pending": self.inbox_pending(row['id'])}
 
     def _conversation_history(self, issue_id):
         """Prior findings/questions are recall, separate from this item's live requests."""

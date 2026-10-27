@@ -46,6 +46,37 @@ of repeated whole-file, whole-repository or full-context dumps.
 
 ## Keep large output available without repeating it in the conversation
 
+For `single-worker-v1`, CLI `renew`, `checkpoint` and `revalidate` return compact
+receipts by default. They omit non-empty checkpoint/evidence, target/branch-target
+and task-request payloads; null/empty values stay inline. `response_view.omitted_fields`
+names the omissions and `read_context` identifies the read-only resume command. `checkpoint_saved: true`
+acknowledges the normal checkpoint write, not a test pass or approval. The database
+retains the complete data. The CLI opts into control signals collected inside the
+write transaction, from the same snapshot as the work item. A signal-read failure
+rolls back the write; response formatting performs no database reads after commit.
+Internal Ledger callers retain their previous output unless they opt into controls.
+
+Read state, generation, lease expiry, authority, maintenance/withdrawal and recovery
+fields in either view. Active `human_question` text and IDs are retained in full,
+including the legacy consumed-message floor used by ordinary question reads.
+`inbox_pending` counts unread messages without consuming them; `requires_issue_review`
+reports a stored fingerprint difference/requeue request without revalidating it.
+Handle those signals through the normal inbox/context/control workflow. Receipts
+are acknowledgements, not cached permission, live Linear reads or complete context.
+Recovery/questions and unknown new control fields are not truncated to meet a size
+budget. Revalidation retains `claimed_fingerprint` and `previous_fingerprint`.
+
+Choose `--view full` before running the command when its full work-item result is
+needed; it includes the same control signals and checkpoint acknowledgement as
+compact output. After a compact response, read `issue-context --view resume` for context.
+To retrieve the complete stored work item/checkpoint, use the receipt's
+`read_full_item`: `issue-context --view work-item` with the item ID. This reads only
+the work item, without loading issue context or conversation history. It does not
+renew, write or consume input; `--if-changed` remains resume-only. Do not repeat a checkpoint/
+revalidation merely to see omitted data.
+Historical staged jobs retain their previous response shape. Resource-status,
+startup, other lifecycle commands, errors and raw Unity results are unchanged.
+
 For builds, tests and other potentially large outputs, capture full stdout/stderr
 under `state_dir/reports` using explicit UTF-8 and preserve the actual command's
 exit code. Use a distinct report path so earlier evidence is not overwritten.

@@ -192,7 +192,7 @@ def adopt(ledger, item_id, launcher, reason):
 def resource_status(ledger, item_id, token):
     item = ledger.renew(item_id, token)
     control = {key: item[key] for key in ('maintenance_requested', 'withdraw_deadline', 'withdraw_reason')}
-    control['inbox_pending'] = ledger.connection.execute('SELECT count(*) FROM inbox WHERE item_id=? AND consumed_at IS NULL', (item_id,)).fetchone()[0]
+    control['inbox_pending'] = ledger.inbox_pending(item_id)
     row = ledger.connection.execute('SELECT * FROM reservations WHERE item_id=? AND generation=? ORDER BY sequence DESC LIMIT 1',
                                     (item_id, item['generation'])).fetchone()
     if row is None:

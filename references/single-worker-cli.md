@@ -43,12 +43,12 @@ parking or finish, and checkpoints their work. No FarmBot child task is created.
 | Command | Additional arguments and purpose |
 | --- | --- |
 | `fetch-issue` | No token arguments. Read live issue facts before delivery or after a new request. |
-| `issue-context` | No token arguments; prefer `--view resume`, optionally `--if-changed DIGEST` from retained `context_view.digest`. `--view full` keeps all evidence and remains the CLI default. |
+| `issue-context` | No token arguments; prefer `--view resume`, optionally `--if-changed DIGEST` from retained `context_view.digest`. `--view full` keeps all context evidence and remains the CLI default. `--view work-item` reads only the complete current work item/checkpoint, without conversation history or repeating a mutation. |
 | `download-uploads` | `--out STATE_DIR/uploads`, optional repeatable `--url UNSIGNED_UPLOAD_URL`: authenticated download of issue and current Project Overview attachments, with a local manifest. Reuse intact files; never fetch private upload URLs anonymously. |
-| `renew` | Read maintenance/withdrawal flags; keep the current claim alive. |
-| `checkpoint` | `--input FILE`: bounded JSON progress, candidate SHAs, report paths and next action. |
+| `renew` | Keep the claim alive; compact receipt with control/recovery flags, pending questions/inbox and issue-review indicator. Optional `--view full`. |
+| `checkpoint` | `--input FILE`: save bounded JSON progress, candidate SHAs, report paths and next action; compact acknowledgement by default, optional `--view full`. |
 | `pop-inbox` | Read attributed requests. Reuse actual existing answers. |
-| `revalidate` | `--fingerprint VALUE`, only after reviewing changed inputs. |
+| `revalidate` | `--fingerprint VALUE`, only after reviewing changed inputs; compact receipt retains old/new fingerprints. Optional `--view full`. |
 | `activity` | `--type thought --body-file FILE`: non-blocking progress or already-decided/high-confidence contract decision summary. Questions use `await-input`. |
 | `await-input` | `--question TEXT --reason question\|waiting`: save a checkpoint and release resources first; then exit. Work questions are posted as issue comments; partial answers reuse the same comment and round. |
 | `resolve-question` | `--question-id ID --message-id ID` (repeatable), actual attributed replies only. |
@@ -76,6 +76,11 @@ Use `COMMAND --help` for exact syntax. The large parser retains historical
 commands for old state inspection and offline replay; repository handoff,
 presentation subtasks, mandatory baseline comparison, UI receipts and semantic
 closing checks are refused for this contract.
+
+For reservation preparation, native Unity preflight, prompt collection/release and
+batched delivery preparation, follow [the execution workflow](worker-execution-flow.md).
+It introduces no manifest, approval or new scheduler gate. Publication verification
+remains fresh for each action and cleanup must still prove quiescence.
 
 For UI appearance/layout work, follow [UI verification](ui-verification.md) and
 select affected components on `publish-ui`. `layout-check.json` reports checked

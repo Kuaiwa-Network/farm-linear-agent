@@ -183,6 +183,40 @@ release to use this behavior.
 Final verification follows settled generated assets and test inputs; exploratory
 runs are reusable only when the relevant inputs still match.
 
+Workers follow [prepare, run, collect and deliver](../references/worker-execution-flow.md):
+prepare commands, reports and cleanup before reserving, settle source/fixture
+inputs before final verification, reuse project QA helpers, and preflight new/changed
+helpers in the actual native runtime after readiness. Exploratory reservations still
+support concrete diagnostic questions before implementation is complete. Execute
+promptly, collect evidence while owned and release after verified
+quiescence before substantial setup repair or delivery prose. Independent work and
+delivery-text preparation may overlap tests within source-freezing/ownership rules.
+Helpers return bounded evidence handoffs. Prepare PR updates together, retaining
+fresh verification before each publication action; reconcile current inputs and
+heads, check-ready, confirm the delivery outbox and finish promptly. These are worker
+instructions, not a new scheduler gate, cancellation path or acceptance substitute.
+
+The CLI defaults `renew`, `checkpoint` and `revalidate` for single-worker jobs to
+compact acknowledgements. Complete checkpoint/evidence and target data remain
+stored; control/recovery fields, active question text, old/new revalidation
+fingerprints, unread inbox count and stored-input review indication remain visible.
+Unknown new fields and null/empty context values are retained, not silently discarded.
+Choose `--view full` before running the command for the complete work item with the
+same control signals and checkpoint acknowledgement. Afterwards, use
+`issue-context --view work-item` to read only the current work item, without loading
+conversation history or repeating the mutation (resume remains compact).
+The CLI collects controls inside the write transaction; a signal-read failure rolls
+back the write, and output formatting makes no post-commit database reads. Question
+reads share the legacy consumed-message floor. Inbox counts and issue-review signals
+use shared Ledger helpers.
+See [response semantics](../references/worker-context-output.md).
+Default Ledger results, staged responses, resource status, startup, errors and publication/
+release/finish gates are unchanged. There is no schema migration. CLI consumers of
+these three commands must use `--view full` if they need the old work-item payload.
+Rollback restores full default output without losing stored evidence; scripts must
+omit the new `--view` option on older releases. Running workers require the updated
+code/instructions through the normal authorized release to gain this behavior.
+
 No A–G stage matrix, separate semantic verifier, comparison verdict, evidence
 index, UI receipt or technical closeout approval is required. A checkpoint is
 bounded progress data. Finish retains claim, input, resource and delivery checks.

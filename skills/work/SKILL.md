@@ -145,6 +145,26 @@ An exploratory result may be reused only if those inputs still match. Check the
 repository's native toolchain before running a bundled executable: fresh worktrees
 may contain an LFS pointer instead of the binary. Preserve version/schema checks.
 
+Follow [prepare, run, collect and deliver](../../references/worker-execution-flow.md).
+Before final verification, settle related fixture migrations and cheap local checks. Prepare
+exact commands/selections, private report paths and cleanup, and reuse working
+project tests/bootstrap/QA helpers. Prepare and typecheck necessary helper code
+before reserving; discover actual native schemas and check runtime prerequisites
+only after readiness. For new/changed QA helpers, verify bootstrap, dimensions and
+one small relevant step before a larger procedure; reuse established procedures
+when inputs match. Exploratory reservations for concrete diagnosis need no completed
+implementation, but still need a prepared bounded procedure and cleanup.
+Offline compilation does not establish native acceptance.
+Do not hold a resource while writing a helper or PR prose. If substantial setup
+repair is needed, collect evidence and settle/release normally first. Run promptly
+on readiness, collect results while owned, then release after verified quiescence.
+Never force release or invent cancellation to shorten a reservation.
+
+Helpers return a concise completion/blocker handoff with changed paths/commit,
+actual results, limitations and report paths. Report meaningful changes promptly;
+avoid repeated unchanged updates and whole-log handoffs. Keep existing owner-only
+authority, source freezing, helper settlement and polling/control boundaries.
+
 For Unity, request a slot at the clean committed candidate, stay in this worker,
 and poll `resource-status` with the bounded cadence above. When ready, use
 `unity-tools` to discover schemas and `unity-tool`/`unity-read` to work with the
@@ -269,6 +289,14 @@ safety denial or uncertain execution outcome as this capacity failure.
 
 Review the final diff and required verification yourself. Use `verify-publication`
 before pushing each exact issue branch or creating/updating its draft PR.
+Prepare the affected PR descriptions and verification summaries together while
+independent checks run, marking results pending until observed. Finalize them after
+review, preserving actual failures and input-matching caveats. Batch preparation,
+but keep fresh verification immediately before every publication action. Avoid
+cosmetic update cycles when facts are unchanged. After current issue/inbox checks
+and `finish --check-ready` on final heads, confirm the delivery outbox and finish
+promptly; no extra unchanged review or test round is required. Reconcile real
+authority/input/head changes through the normal checks.
 Use the returned `base_branch` explicitly for the PR. `branch_target` in the launch
 and issue context records the controller-selected branches and starting commits.
 Keep source, dependency changes and verification on that version; optional baseline
