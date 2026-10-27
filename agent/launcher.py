@@ -220,7 +220,7 @@ class Launcher:
     settle_retry_seconds = 60.0
 
     def __init__(self, runs_root, runtime, host, clock=time.time, token_env=None, lark_cli=None, *,
-                 codex_windows_sandbox="elevated"):
+                 codex_windows_sandbox="elevated", go_build_cache=None):
         if (not isinstance(codex_windows_sandbox, str)
                 or codex_windows_sandbox not in ("elevated", "unelevated", "mxc")):
             raise ValueError("codex_windows_sandbox must be elevated, unelevated or mxc")
@@ -231,6 +231,7 @@ class Launcher:
         self.token_env = token_env
         self.lark_cli = dict(lark_cli or {})
         self.codex_windows_sandbox = codex_windows_sandbox
+        self.go_build_cache = go_build_cache
         self._handles = {}
         # Backlog retention cannot race creation of a same-job resume attempt.
         self.retention_lock = threading.RLock()
@@ -269,7 +270,7 @@ class Launcher:
 
     @_serialize_retention
     def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=(), cancelled=None,
-              model_settings=None, withheld_env=(), lark_cli_access=False):
+              model_settings=None, withheld_env=(), lark_cli_access=False, seed_go_cache=True):
         # Read only the controller's configured source, before overrides; fail before creating an attempt.
         lark_env = worker_credentials(self.lark_cli, self.runtime.name, os.environ) if lark_cli_access else {}
         if self.runtime.name == "codex":
@@ -283,6 +284,7 @@ class Launcher:
         preparation_started_at = self.clock()
         from .worker_cache import compiler_cache
         go_cache = compiler_cache(self, item_id)
+        cache_seed = self.go_build_cache.populate(go_cache) if self.go_build_cache and seed_go_cache else None
         run_dir = self.state_dir(item_id) / (time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(self.clock())) + "-" + uuid4().hex[:12])
         home = run_dir / "home"
         home.mkdir(parents=True, exist_ok=True)
@@ -335,6 +337,8 @@ class Launcher:
         mcp_config = write_mcp_config(home, self.runtime.mcp_format, mcp_servers, settings, root_settings)
         last_message = run_dir / "last_message.txt"
         (run_dir / "prompt.md").write_text(message, encoding="utf-8")
+        if cache_seed is not None:
+            (run_dir / 'go-cache-seed.json').write_text(json.dumps(cache_seed), encoding='utf-8')
         command = [part.format(cwd=str(cwd), last_message=str(last_message), mcp_config=str(mcp_config), home=str(home))
                    for part in self.runtime.command]
         if self.runtime.writable_flag:
@@ -352,6 +356,9 @@ class Launcher:
             (disposable / child).mkdir(parents=True)
         env.update(GOCACHE=str(go_cache), GOTMPDIR=str(disposable / 'go-tmp'),
                    FARMBOT_BUILD_ROOT=str(disposable / 'build'))
+        if cache_seed is not None:
+            env.pop('GOCACHEPROG', None)
+            env['GOFLAGS'] = (env.get('GOFLAGS', '') + ' -trimpath').strip()
         if self.runtime.name == "claude":
             env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
         # Apply withholding last: overrides must not restore a secret or select a different lark-cli store.

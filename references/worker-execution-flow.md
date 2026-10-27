@@ -6,6 +6,11 @@ claim/control checks, resource isolation and publication authority.
 
 ## Prepare before reserving
 
+Keep the assigned `GOCACHE` and inherited `GOFLAGS`: configured hosts seed private
+compilation caches across issues and use `-trimpath` for checkout-independent keys.
+Do not clear or replace caches to obtain fresh test evidence; `-count=1` executes
+tests while reusing valid compilation. A cache import receipt is not a test pass.
+
 For final verification, settle source, generated inputs and related fixture migrations first. Run cheap
 affected checks that need no shared service, including available native typechecks.
 Prepare the exact test selection/argv, private report paths, relevant UI states

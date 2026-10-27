@@ -479,6 +479,8 @@ class Scheduler:
             worker_env["FARMBOT_CONFIG"] = str(self.config_path)
         if not Maintenance(self.ledger).may_launch(item['id']):
             return None
+        if getattr(self.launcher, 'go_build_cache', None) is not None:
+            options['seed_go_cache'] = 'farm-hive' in write_repos
         handle = self.launcher.spawn(item["id"], message, servers, int(skill.budget["max_hours"] * 3600), cwd=primary,
                                      extra_env=worker_env,
                                      writable=[Path(self.db_path).parent, *source_roots],

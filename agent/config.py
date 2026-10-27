@@ -112,6 +112,8 @@ class Config:
     fgui_export: dict = field(default_factory=dict)
     # Opt-in host preparation; no tool selection/installation or worker cache write grant.
     go_dependencies: dict = field(default_factory=dict)
+    # Operator-published, immutable compilation seed; workers get private copies.
+    go_build_cache: dict = field(default_factory=dict)
     # Only allowlisted regenerable attempt data; logs/recovery have no expiry.
     worker_retention: dict = field(default_factory=dict)
     # Opt-in review: a separate pool; never reduces the existing general-worker budget.
@@ -185,6 +187,8 @@ class Config:
             validate_settings(self.fgui_export)
         from .go_dependencies import validate_settings as validate_go_dependencies
         validate_go_dependencies(self.go_dependencies, self.local_root, self.repos)
+        from .go_build_cache import validate_settings as validate_go_build_cache
+        validate_go_build_cache(self.go_build_cache, self.local_root, self.go_dependencies)
         from .worker_retention import settings as retention_settings
         retention_settings(self.worker_retention)
         from .review_policy import settings as review_settings

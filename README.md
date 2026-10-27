@@ -170,6 +170,9 @@ Custom historical download directories are not inferred or swept.
 
 New workers reuse item-owned `GOCACHE` after verified prior-attempt teardown;
 `GOTMPDIR` and `FARMBOT_BUILD_ROOT` remain attempt-local.
+For reuse across issues, configure an
+[operator-published compilation seed](docs/go-build-cache.md). Each issue receives
+private copies; workers never share writable caches. Test results are not cached.
 Only regenerable build outputs belong there; durable evidence belongs elsewhere
 under `state_dir`. Known Codex download caches and the earlier controller-managed
 `server-tests/go-cache` and `server-tests/tmp` also expire. Other historical build
