@@ -45,6 +45,8 @@ def build(config, runtime_override=None, *, replay_legacy=False):
     if config.go_dependencies:
         from .go_dependencies import ensure as ensure_dependencies
         ensure_dependencies(config)
+    from .go_build_cache import load as load_build_cache
+    build_cache = load_build_cache(config, check_files=True)
     skills = load_skills(ROOT / "skills", replay_legacy=replay_legacy, include_internal=True)
     # spec §9.11, before any client or state exists: a name the checkout lacks, or a skill the dispatch cannot
     # brief, stops startup.
@@ -64,7 +66,7 @@ def build(config, runtime_override=None, *, replay_legacy=False):
     runtime = RUNTIMES[runtime_override or config.runtime]
     token_env = config.kw_ops.get("token_env")
     launcher = Launcher(paths.runs, runtime, config.host, token_env=token_env, lark_cli=config.lark_cli,
-                        codex_windows_sandbox=config.codex_windows_sandbox)
+                        codex_windows_sandbox=config.codex_windows_sandbox, go_build_cache=build_cache)
     ledger = Ledger(paths.ledger, check_same_thread=False)
     # One list of entries, read by both: the pool switches and runs the slots it describes, and the
     # scheduler tells the worker which -buildTarget that slot was switched to.

@@ -473,6 +473,17 @@ def diagnose(config, *, now=None):
                      "configured roots; adopting existing unmarked content requires operator maintenance.")
         else:
             report["tools"]["go_dependencies"] = {"configured": True, "ready": True}
+    if config.go_build_cache:
+        from .go_build_cache import load as load_build_cache
+        try:
+            seed = load_build_cache(config, check_files=True)
+        except (OSError, ValueError, RuntimeError):
+            report['tools']['go_build_cache'] = {'configured': True, 'ready': False}
+            _finding(report, 'go_build_cache_unready',
+                     'Check the operator-published seed, manifest digest, toolchain and instance identity.')
+        else:
+            report['tools']['go_build_cache'] = {'configured': True, 'ready': True,
+                                                'files': len(seed.files), 'trimpath': True}
     # spec §9.11: which of this checkout's skills the config runs; serve refuses a list it cannot honour.
     configured = config.enabled_skills is not None
     loaded = {}

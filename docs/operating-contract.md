@@ -795,7 +795,14 @@ The launcher supplies absolute `GOCACHE` at the same item's
 `compiler-cache-v1/go-cache`, reusing Go's content-addressed compilation cache only
 after every previous attempt is proved quiescent. It supplies attempt-local
 `GOTMPDIR` and `FARMBOT_BUILD_ROOT`; arbitrary binaries/build trees are not silently
-reused. Item roots never share caches. Go keys compilation by source/toolchain/flags;
+reused. Item roots never share writable caches. The optional
+[operator-published compilation seed](go-build-cache.md) copies verified artifacts
+one way into private caches for writable farm-hive workers. It is pinned to the
+instance and Go executable, outside worker state and sandbox temporary roots;
+worker artifacts are never promoted. Startup validates it before Linear/ledger
+use. Seeded workers use `-trimpath` to reuse compilation across checkout paths,
+with private scratch and import receipts. Read-only chats do not import it.
+Go keys compilation by source/toolchain/flags;
 service tests retain `-count=1`, so a warm compile cache is no test-result pass.
 Native/cgo external libraries still require the toolchain's documented invalidation.
 Historical per-attempt caches stay on their existing retention path; the first
