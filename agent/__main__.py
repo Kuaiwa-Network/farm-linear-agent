@@ -54,10 +54,10 @@ def parser():
     claim.add_argument('--context', action='store_true',
                        help='include the current resume context in the same claim response')
     claim.add_argument('--save-token', help='exclusively save state_dir/token; omit the secret from stdout')
-    cmd("renew", "--item", token=True)
+    renew = cmd("renew", "--item", token=True)
     cmd("maintenance-handoff", "--item", token=True)
     cmd("document-reader-status", "--item", token=True)
-    cmd("checkpoint", "--item", "--input", token=True)
+    checkpoint = cmd("checkpoint", "--item", "--input", token=True)
     cmd('closing-preflight', '--item', token=True)
     index = cmd('evidence-index', '--item', token=True)
     mode = index.add_mutually_exclusive_group(required=True)
@@ -65,9 +65,14 @@ def parser():
     mode.add_argument('--verify', help='existing immutable evidence index in this item state directory')
     handoff = cmd("handoff-repository", "--item", "--to", token=True)
     handoff.add_argument('--checkpoint', help='save this checkpoint through normal gates before handing off')
-    cmd("revalidate", "--item", "--fingerprint", token=True)
+    revalidate = cmd("revalidate", "--item", "--fingerprint", token=True)
+    for receipt in (renew, checkpoint, revalidate):
+        receipt.add_argument('--view', choices=('compact', 'full'), default='compact',
+                             help='single-worker response: compact receipt (default) or full work item')
     context = cmd("issue-context", "--item")
     context.add_argument("--view", choices=["full", "resume"], default="full")
+    context.add_argument('--include-work-item', action='store_true',
+                         help='with --view full, include the complete stored work item without a mutation')
     context.add_argument('--if-changed', metavar='DIGEST',
                          help='with --view resume, return a small receipt when retained context is unchanged')
     cmd("pop-inbox", "--item", token=True)
@@ -763,7 +768,11 @@ def run(args, ledger, api_factory):
     if c == "issue-context":
         if args.if_changed is not None and args.view != 'resume':
             raise LedgerError('--if-changed requires --view resume')
+        if getattr(args, 'include_work_item', False) and args.view != 'full':
+            raise LedgerError('--include-work-item requires --view full')
         context = ledger.issue_context(args.item)
+        if getattr(args, 'include_work_item', False):
+            context['work_item'] = ledger.item(args.item)
         if args.view == 'resume':
             from .resume_context import resume_view
             return resume_view(context, if_changed=args.if_changed)
@@ -1513,6 +1522,8 @@ def main(argv=None):
         check_worker_state(args.db)
         ledger = Ledger(args.db, lease_seconds=args.lease_seconds)
         result = run(args, ledger, linear_api)
+        from .worker_output import response
+        result = response(args, result, ledger)
         print(json.dumps(result, ensure_ascii=True, allow_nan=False))
         return 0
     except (LedgerError, OSError, ValueError, RuntimeError, sqlite3.Error, KeyError) as exc:

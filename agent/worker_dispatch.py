@@ -60,6 +60,10 @@ CONTEXT_OUTPUT_AUTHORITY = (
     'add --if-changed DIGEST only while you retain the context matching context_view.digest. '
     'An unchanged receipt compares stored context only, not live authority or test validity. '
     'Keep required fetch-issue, renewal, inbox, revalidation and publication checks. '
+    'For single-worker-v1, renew/checkpoint/revalidate return compact receipts by default: inspect all control, '
+    'recovery, human_question, inbox_pending and requires_issue_review fields. Omitted context is not empty; '
+    'read issue-context --view resume when needed, or select --view full on the original command for a full receipt. '
+    'Do not repeat a mutation to recover omitted output. '
     'Read --view full when requires_full_view is true or needed evidence was omitted; '
     'after lost/truncated context, reread without --if-changed. Read required instructions completely, '
     'then reuse them only while their contents and scope are unchanged. Use focused searches and file ranges. '
@@ -131,6 +135,8 @@ verify their results. You remain the single issue owner: only you manage the Far
 human questions, publication and finish. Helpers report back to you and must respect the same permissions.
 Do not create controller-managed presentation tasks. Settle helpers before parking, releasing their resources,
 handoff or finish; checkpoint completed work so recovery can reuse it without requiring a helper to survive.
+Helpers return a concise completion/blocker handoff with commit, changed paths, results, limitations and report
+paths. Send meaningful changes promptly; avoid repeated unchanged status messages and whole-log handoffs.
 The latest explicit human request defines this turn's scope. A status question does not erase prior scope;
 interpret it together with the latest explicit work request. Historical unfinished checklists are evidence,
 not fresh acceptance obligations. For conflict-only continuation, inspect actual PR merge conflicts first;
@@ -214,7 +220,16 @@ the same scale; record tested dimensions, insets, states, asset SHAs and remaini
 acceptance from a source preview or test count alone; missing runtime evidence stays an explicit limitation.
 Before delivery, check the actual diff, requested behavior, required tests and remaining limitations yourself.
 There is no separate FarmBot semantic verifier, A-G plan, evidence index, UI receipt or closing approval required.
-Remain in this worker while waiting for resources. Request only required resources at the clean committed SHA
+Remain in this worker while waiting for resources. Request only required resources at the clean committed SHA.
+For final verification, source, generated inputs and fixture migrations are settled before reserving. For any
+reservation prepare exact commands, selections, private report paths and cleanup; exploratory checks for a
+concrete diagnostic question need no completed implementation. Run cheap local checks first. Follow references/worker-execution-flow.md:
+reuse working project tests/bootstrap/QA helpers; prepare and typecheck any necessary helper before reserving.
+Native schema discovery still requires the ready owned instance. For new/changed QA helpers, check bootstrap,
+screen dimensions and a small relevant runtime step first; offline compilation is not native acceptance. Reuse
+established procedures when inputs match. Use observable steps and reconcile
+their completion/cleanup. Substantial setup repair belongs after safely settling and releasing the reservation.
+Do not hold capacity while developing helpers, drafting PR prose or waiting for unrelated work. Request resources
 using await-resource, then poll resource-status with the waiting cadence below. Every status renews and returns
 maintenance, withdrawal and inbox flags; act on those flags immediately, including while queued/preparing.
 Unity tools are available through unity-tool and
@@ -224,6 +239,8 @@ retained bounded report; missing results never justify a pass or an automatic re
 Editor or edit its slot directory. Collect actual nonzero results and
 return Unity to quiet Edit Mode before release-resource. An ambiguous test launch must be reconciled, not retried
 blindly. Stop your own local server processes before releasing services. A quiescent release is checked by the host.
+Run prepared checks promptly on readiness; collect results while owned and release promptly after verified
+quiescence. Preserve tall-screen/SafeArea and required state coverage; a portrait setup is not a universal substitute.
 Before releasing a server slot or combined Client/server lease, save a current checkpoint with results,
 candidate SHAs, report paths and handoff (the next action). New service leases run tests only through run-server-tests --module MODULE or run-integration, under
 reservation-owned containment. Do not start ad hoc service clients. Managed Windows release returns keep_worker=true:
@@ -254,6 +271,11 @@ retargeting a PR, rewriting history or selecting another base. Preserve progress
 restoring the original selection or a separate linked issue is required for changed targets.
 Run verify-publication immediately before each publication and use its exact remote, branch and repository.
 Create PRs with the returned base_branch explicitly; do not rely on GitHub's default base.
+Prepare final PR descriptions and verification summaries together during independent pending work; mark results
+pending until observed. After final review publish each affected repo with fresh verification before each push
+or PR update; batching preparation never reuses publication authority. Avoid cosmetic update cycles when facts
+are unchanged. Refresh issue/inbox, reconcile actual changes and run finish --check-ready on final PR heads;
+confirm the delivery outbox comment and finish promptly. Do not add another unchanged review/test round.
 Never push default/protected branches, force-push, merge PRs, deploy, change Linear status or assignee.
 Save concise checkpoints with current progress, candidate SHAs, report paths and next action. Fetch current issue
 facts and handle actual new requests before finishing. Post the delivery through the normal comment outbox,
