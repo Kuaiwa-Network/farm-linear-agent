@@ -370,6 +370,12 @@ class SingleWorkerTests(LedgerBase):
         payload = json.loads(payload)
         authority = ' '.join(authority.split())
         skill = ' '.join(Path(payload['skill']).read_text(encoding='utf-8').split())
+        for text in (authority, skill.replace('`', '')):
+            for requirement in ('explicit affected packages and their necessary consumers',
+                                'race=false', '--server-scope-reason',
+                                'Full memory admission does not mean full test scope',
+                                'not another human approval', 'do not duplicate full CI locally by default'):
+                self.assertIn(requirement, text)
         for text in (authority, skill):
             for requirement in ('references/ui-verification.md', '--component PACKAGE/RESOURCE_ID',
                                 'layout-check.json', 'production UI lifecycle', 'nonzero SafeArea insets',

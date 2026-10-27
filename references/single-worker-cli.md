@@ -175,6 +175,16 @@ only when needed. Test commands still run in the worker. Resource
 readiness never certifies a test result. A lost Unity mutation response must be
 reconciled by observing the Editor/test job, not automatically retried.
 
+Start with explicit affected packages and necessary consumers, normally without
+race. Any `...` package selection or `race=true` requires `--server-scope-reason`
+(10-500 characters) explaining the affected consumers, concurrency risk or
+applicable acceptance requirement. This is a worker decision, not a user approval.
+The host atomically records the normalized plan, reason, candidate, generation
+and reservation in `server_test_scope`; the reason is not another JSON plan key.
+The plan does not become broad just because race needs the full memory tier.
+The managed runner keeps `-p=1` and `-count=1` for isolated, fresh service checks;
+reuse retained reports with matching inputs instead of silently caching live checks.
+
 `unity-test-result` requires the same ready reservation and a test started after
 its acquisition. It returns the exact job ID, reservation and candidate commit,
 terminal counts and up to 50 non-passing test details with explicit truncation

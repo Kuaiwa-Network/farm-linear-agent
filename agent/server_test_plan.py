@@ -62,6 +62,25 @@ def scope(plan):
     return 'focused' if plan['tests'] else 'targeted'
 
 
+def worker_selection(plan, reason=None):
+    """Require an intentional expensive selection, without reviving staged baselines.
+
+    This records the worker's coverage decision, not a verdict on test adequacy.
+    Race reserves full memory even for one package; it does not imply all packages.
+    """
+    plan = validate_plan(plan)
+    if reason is not None:
+        if not isinstance(reason, str) or not 10 <= len(reason.strip()) <= 500:
+            raise ValueError('server scope reason must contain 10-500 characters')
+        reason = reason.strip()
+    breadth = scope(plan)
+    if (breadth == 'broad' or plan['race']) and not reason:
+        raise ValueError('broad or race server tests require --server-scope-reason explaining the '
+                         'affected consumers, concurrency risk or applicable acceptance requirement; '
+                         'start with explicit affected packages and race=false')
+    return {'plan': plan, 'reason': reason, 'verification_scope': breadth}
+
+
 def timeout_seconds(plan, configured=1800):
     # A package's Go -timeout is not an aggregate suite deadline. Keep a hard
     # ceiling, but allow serial broad suites several package budgets. No heartbeat

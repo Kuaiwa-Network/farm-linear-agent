@@ -132,6 +132,14 @@ the delivery; they do not create an automatic whole-suite repair project.
 Never turn missing results into a pass. Reuse reports when candidate and relevant
 inputs still match. Maintenance, a diagnostic run, renamed tests or main moving
 does not alone justify another full run or merge.
+For Go tests, start with explicit affected packages and their necessary consumers,
+with `race=false` by default. Use race only for relevant concurrency risk or an
+acceptance requirement that applies to this change. A generic README full-suite
+command or a shared config change alone does not require local full-repository
+race. Settle focused failures and prepare pinned test inputs before expanding.
+After corrections rerun affected checks and reuse unchanged evidence. Preserve
+existing CI requirements; do not duplicate full CI locally by default or make
+unrelated suite failures a draft-PR prerequisite.
 Finalize generated output and test inputs before the final verification run.
 An exploratory result may be reused only if those inputs still match. Check the
 repository's native toolchain before running a bundled executable: fresh worktrees
@@ -172,6 +180,13 @@ tests and race selection. Run the reserved plan through `run-server-tests --modu
 MODULE` in the owned farm-hive module. `-run` filters test names, not package builds:
 select affected packages explicitly. New leases expose service environments only
 to scoped commands. Do not start ad hoc service clients or reuse old endpoints.
+Broad package selections (any `...`) or `race=true` require
+`--server-scope-reason` with 10-500 characters explaining the affected consumers,
+concurrency risk or applicable acceptance requirement. This is your engineering
+decision, not another human approval. The host records the plan and reason with
+the candidate and reservation. Full memory admission does not mean full test scope.
+Keep managed commands' serial service isolation and fresh test execution; do not
+change parallelism or cache flags to speed up a poorly scoped selection.
 Docker stays host-owned. Checkpoint results, SHAs, reports and `handoff` before
 release. A normal managed Windows release returns `keep_worker: true`: continue this claim.
 The host verifies reservation-command teardown before recycling services. Only
