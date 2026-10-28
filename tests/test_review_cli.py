@@ -31,6 +31,9 @@ class CliTests(ReviewFixture):
         attempt = self.store.attempt(snapshot['id'], 'review')
         status, text, path = self.call(attempt, 'claim')
         self.assertEqual(status, 0, text)
+        receipt = json.loads(text)
+        self.assertGreater(receipt['timing']['cli_started_at'], 0)
+        self.assertGreaterEqual(receipt['timing']['cli_elapsed_ms'], 0)
         secret = path.read_text(encoding='utf-8')
         self.assertNotIn(secret, text)
         report = path.parent / 'report.json'

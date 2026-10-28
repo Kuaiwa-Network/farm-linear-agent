@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import sys
 import sqlite3
+import time
 from uuid import UUID
 
 from .config import Paths, load_config
@@ -15,6 +16,7 @@ from .review_store import ReviewStore
 
 
 def main(argv=None):
+    started_at, started_clock = time.time(), time.monotonic()
     parser = argparse.ArgumentParser()
     parser.add_argument('--db', required=True)
     parser.add_argument('command', choices=('claim', 'renew', 'submit'))
@@ -45,7 +47,10 @@ def main(argv=None):
             with os.fdopen(os.open(token_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w', encoding='utf-8') as handle:
                 token = store.claim(args.attempt, policy['worker_seconds'])
                 handle.write(token)
-            result = {'claimed': True, 'attempt': args.attempt}
+            # Distinguish scheduling before CLI startup from time inside the CLI.
+            result = {'claimed': True, 'attempt': args.attempt,
+                      'timing': {'cli_started_at': started_at,
+                                 'cli_elapsed_ms': round((time.monotonic() - started_clock) * 1000, 1)}}
         else:
             token = token_file.read_text(encoding='utf-8').strip()
             if args.command == 'renew':
