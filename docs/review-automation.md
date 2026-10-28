@@ -39,8 +39,9 @@ attempts. External checks without a recoverable workflow hand off. CI infrastruc
 recovery never spends a code-repair round.
 
 A repair worker reports local test failures and skips honestly. If a local test is blocked by its environment,
-it may leave that verification to a required candidate check only when the trusted policy and target-base
-workflow establish that the check runs the same test. Source-only checks, an evidence-only policy, a check
+it may leave that verification to a required candidate check only when the trusted policy and applicable
+target-base push workflow, or configured dispatch workflow at its workflow ref, establish that the check runs
+the same test on the exact candidate. Source-only checks, an evidence-only policy, a check
 name alone, or a candidate's own workflow changes do not establish coverage. The repaired commit still needs
 its own successful required CI and a fresh independent review. Unknown coverage and human-only decisions
 remain grounds for handoff. Evidence policy version 5 fences earlier active evidence; drain active review

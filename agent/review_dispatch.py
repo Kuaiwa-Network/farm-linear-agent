@@ -60,8 +60,11 @@ or unrelated cleanup. Do not access shared Unity/server resources directly; pres
 If the repair requires an unresolved human decision or cannot be verified within available authority, set
 needs_person true and explain the concrete gap. A local test blocked by the worker environment alone does not
 require a human when you can establish that a configured required candidate CI check covers that same test.
-Use context.candidate_ci_policy and inspect the applicable workflow on the target base to establish coverage;
-a check name alone, source-only checks, evidence_only, or a workflow change in the candidate is not proof.
+Use context.candidate_ci_policy to establish coverage. For a configured candidate_workflow, inspect the
+actual workflow at workflow_ref and establish that it tests the exact candidate; otherwise inspect the
+applicable target-base push workflow. If the applicable workflow or its exact-candidate coverage cannot be
+established, request human help. A check name alone, source-only checks, evidence_only, or a workflow change
+in the candidate is not proof.
 Report the exact blocked command, error, covering required check and supporting workflow evidence. If coverage
 or an automated path cannot be established, or a human decision is needed, request human help. Never claim CI
 has passed before it runs. The controller still requires the repaired candidate's own CI and fresh independent

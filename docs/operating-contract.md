@@ -73,7 +73,8 @@ required human action. Notices distinguish review attempts from received reports
 and show repair counts per repository. Economic domain and missing optional tests are
 review focus, not high risk by themselves; assess consequences, safeguards and whether
 automation can close the gap. Required checks remain mandatory. A repair worker may defer a locally blocked
-test to required candidate CI only after establishing that the target-base workflow covers the same test;
+test to required candidate CI only after establishing that the applicable target-base push workflow, or the
+configured dispatch workflow at its workflow ref, covers the same test on that exact candidate;
 it must report the gap and evidence, and the repaired commit still needs its own green checks and independent
 review. If coverage cannot be established or a human decision is needed, it requests human help. Evidence
 policy version 5 invalidates evidence from earlier worker rules; existing terminal deliveries are never silently resumed.
