@@ -341,21 +341,26 @@ class Worktrees:
                 fetched.add(repo)  # the origin fetch above is the one fetch() makes
         return path
 
-    def fetch(self, repo, *, config=(), timeout=600):
+    def fetch(self, repo, *, config=(), timeout=600, prune=True):
         """Fetch origin into the clone, made first if it must be, one FarmBot fetch per clone at a time
         (_fetch_lock). A lost ref-lock race (REF_RACE) is retried once; losing the retry too raises FetchRaced.
         Inside one_fetch_per_clone, only the first successful call for each clone fetches; a fetch that failed or
-        raced is not recorded, so a later call tries again."""
+        raced is not recorded, so a later call tries again. Worker verification uses
+        prune=False: removing even a loose ref can lock packed-refs in the protected
+        clone root. Only controller maintenance may prune."""
         clone = self.ensure_clone(repo)
         fetched = self._fetched_in_scope()
-        if fetched is not None and repo in fetched:
+        key = repo if prune else (repo, 'no-prune')
+        if fetched is not None and (repo in fetched or key in fetched):
             return
         with _fetch_lock(clone):
             for attempt in (1, 2):
                 try:
                     # Worker CLI callers can write objects and refs, not the clone root. No caller
                     # consumes FETCH_HEAD: remote identity comes from ls-remote and explicit refs.
-                    _git("fetch", "--quiet", "--prune", "--no-write-fetch-head", "origin",
+                    maintenance = ("--prune",) if prune else (
+                        "--no-prune", "--no-prune-tags", "--no-auto-maintenance", "--no-write-commit-graph")
+                    _git("fetch", "--quiet", *maintenance, "--no-write-fetch-head", "origin",
                          cwd=clone, env=FETCH_ENV, config=config, timeout=timeout)
                     break
                 except WorktreeError as exc:
@@ -364,7 +369,7 @@ class Worktrees:
                     if attempt == 2:
                         raise FetchRaced(str(exc)) from exc
         if fetched is not None:
-            fetched.add(repo)
+            fetched.add(key)
 
     def remote_branches(self, repo):
         """Read actual remote heads; worker-writable tracking refs are not authority."""
@@ -377,15 +382,17 @@ class Worktrees:
                 result[ref[len('refs/heads/'):]] = sha
         return result
 
-    def resolve_target(self, repo, branch=None):
+    def resolve_target(self, repo, branch=None, *, prune=True):
         from .version_targets import TargetError, branch_name
         branch = branch_name(branch or self.default_branch(repo, config=HOOKS_OFF))
         commit = self.remote_branches(repo).get(branch)
         if commit is None:
             raise TargetError(f'{repo}: target branch {branch} does not exist; correct the issue target or repository mapping')
-        self.fetch(repo)
+        self.fetch(repo, prune=prune)
         if not self.has_commit(repo, commit):
-            _git('fetch', '--quiet', '--no-tags', 'origin', commit, cwd=self.ensure_clone(repo), config=HOOKS_OFF)
+            _git('fetch', '--quiet', '--no-tags', '--no-prune', '--no-prune-tags',
+                 '--no-auto-maintenance', '--no-write-commit-graph', '--no-write-fetch-head',
+                 'origin', commit, cwd=self.ensure_clone(repo), config=HOOKS_OFF)
         if not self.has_commit(repo, commit):
             raise WorktreeError('target branch moved during fetch; retry preparation')
         return {'branch': branch, 'commit': commit}

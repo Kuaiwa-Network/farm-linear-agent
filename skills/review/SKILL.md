@@ -15,6 +15,13 @@ pre-existing issues and style suggestions. Do not invent verification results. E
 changes and unresolved intent. A repaired defect needs fresh independent checking; the repairer is not its
 own reviewer. Re-review affected changes rather than repeatedly reporting the same finding.
 
+Configured sensitive paths in `context.risk_focus` are review focus, not a high-risk conclusion. Inspect the
+actual diff, affected callers and integration/repair changes before judging risk; a shared UI path alone
+does not require human handoff. Controller-enforced AOT, automation-policy and other hard gates still apply.
+Write human-facing summaries, reasons and evidence in Simplified Chinese. Each high-risk reason must explain
+the changed file/behavior, concrete consequence, supporting evidence or verification gap, and the specific
+decision or verification that requires a human. State uncertainty explicitly rather than claiming a defect.
+
 For a repair-role launch, edit only the listed writable candidate, answer each blocking finding and report
 real test outcomes and limitations. Preserve predecessor behavior. Never force-push, publish, merge, deploy,
 administer the host or touch shared resources outside existing resource authority. The controller owns CI and

@@ -92,13 +92,17 @@ def build(config, runtime_override=None, *, replay_legacy=False):
                           guidance_for=lambda item: (ledger.session(item["session_id"]) or {}).get("guidance") or "",
                           api=api, control_ledger_factory=lambda: Ledger(paths.ledger),
                           publication=PublicationVerifier(JobWorktrees(worktrees, ledger), issue_prefix=config.issue_prefix))
+    from .review_policy import settings as review_settings
+    review_policy = review_settings(config.auto_merge, config.repos)
+    review_labels = review_policy['mode'] == 'merge' and config.instance_id == review_policy['authority']
     lifecycle = Lifecycle(Ledger(paths.ledger, check_same_thread=False), api, scheduler,
-                          interval=config.reconcile_seconds)
+                          interval=config.reconcile_seconds, review_labels=review_labels)
 
     def preflight(item):
         current = Ledger(paths.ledger)
         try:
-            return Lifecycle(current, api, scheduler, interval=config.reconcile_seconds).preflight(item)
+            return Lifecycle(current, api, scheduler, interval=config.reconcile_seconds,
+                             review_labels=review_labels).preflight(item)
         finally:
             current.close()
     scheduler.preflight = preflight
@@ -168,8 +172,6 @@ def build(config, runtime_override=None, *, replay_legacy=False):
         from .go_dependencies import Controller as DependencyController
         dependencies = DependencyController(Ledger(paths.ledger, check_same_thread=False), worktrees, config)
     review = None
-    from .review_policy import settings as review_settings
-    review_policy = review_settings(config.auto_merge, config.repos)
     if review_policy['mode'] != 'off' or ledger.connection.execute("SELECT 1 FROM review_attempts WHERE state IN "
             "('queued','running','submitted','stopping') LIMIT 1").fetchone():
         from .review_controller import Controller as ReviewController

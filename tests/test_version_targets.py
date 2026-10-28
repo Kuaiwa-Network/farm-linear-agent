@@ -248,7 +248,23 @@ class TargetTests(unittest.TestCase):
                     self.ledger.observe_issue(selected('1.1'))
                 return pr if '/pulls/' in endpoint else None if '/branches/' in endpoint else metadata
             verifier = PublicationVerifier(JobWorktrees(self.trees, self.ledger), api=api)
-            result = verifier.verify('Farm-Client', self.item['id'], 'FARM-1')
+            # FARM-1953: an unrelated deleted branch must not make delivery need
+            # clone-root write access. Simulate that boundary with an occupied lock.
+            git('branch', 'deleted-before-delivery', cwd=local)
+            self.trees.fetch('Farm-Client')
+            clone = self.trees.clone_path('Farm-Client')
+            git('pack-refs', '--all', cwd=clone)
+            git('branch', '-D', 'deleted-before-delivery', cwd=local)
+            packed = (clone / 'packed-refs').read_bytes()
+            lock = clone / 'packed-refs.lock'
+            lock.mkdir()
+            try:
+                result = verifier.verify('Farm-Client', self.item['id'], 'FARM-1')
+                self.assertEqual(verifier.verify_pr('Farm-Client', self.item['id'], 'FARM-1', url,
+                                                  delivered=True), url)
+                self.assertEqual((clone / 'packed-refs').read_bytes(), packed)
+            finally:
+                lock.rmdir()
             self.assertEqual(result['base_branch'], 'release/1.0')
             self.assertEqual(result['base_commit'], record['repositories']['Farm-Client']['commit'])
             # Upstream report files brought in by an intentional merge are not

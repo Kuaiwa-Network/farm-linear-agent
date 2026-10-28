@@ -5,8 +5,9 @@ remain shadow-only: an ordinary PR merge API cannot fence the target branch.
 """
 import json
 
+from .attention import reconcile_review_label
 from .maintenance import Maintenance
-from .review_policy import ReviewError, commit, digest, encoded, evidence_policy, risk, settings
+from .review_policy import ReviewError, commit, digest, encoded, evidence_policy, review_focus, risk, settings
 from .review_store import ReviewStore
 
 
@@ -141,7 +142,14 @@ class Controller:
                 if role == 'review' and self.store.review_inputs(run['id']) is None:
                     continue
                 try:
+                    focus = self.risk_focus(pr, snapshot) if role == 'review' else {}
+                    self.recovered(pr, 'review_context')
+                except Exception as exc:
+                    self.retry(pr, type(exc).__name__, phase='review_context')
+                    continue
+                try:
                     self.workers.launch(snapshot, role, {'repairs': pr['repairs'], 'reason': pr['error'],
+                        'risk_focus': focus,
                         'ci': json.loads(record['ci']) if record['ci'] else None,
                         'previous': self.history(pr), 'delivery': self.ledger.item(run['item_id']).get('evidence'),
                         'bot_feedback': {p['repository']: json.loads(p['bot_feedback']) for p in self.prs(run['id'])},
@@ -166,6 +174,15 @@ class Controller:
         return [dict(r) for r in self.db.execute('SELECT c.id,c.verdict,a.role,a.result FROM review_candidates c '
             'LEFT JOIN review_attempts a ON a.candidate_id=c.id AND a.result IS NOT NULL WHERE c.pr_id=? '
             'ORDER BY c.created_at,a.created_at', (pr['id'],))][-12:]
+
+    def risk_focus(self, pr, snapshot):
+        policy = self.policy['repositories'][pr['repository']]
+        return {'source': review_focus(self.github.files(pr), policy),
+                'candidate': review_focus(self.git.files(snapshot), policy)}
+
+    def high_risk(self, pr, verdict):
+        self.store.handoff(pr['run_id'], f"AI 独立审查判定高风险：{pr['repository']}（{pr['url']}）。\n\n"
+                           + '\n\n'.join(verdict['reasons']))
 
     def recovered(self, pr, phase):
         if self.db.execute('DELETE FROM review_recovery WHERE pr_id=? AND phase=?', (pr['id'], phase)).rowcount:
@@ -193,8 +210,9 @@ class Controller:
         # UNCERTAIN outcome to humans; it never asserts that a timed-out push failed.
         pending = self.db.execute("SELECT 1 FROM review_merges WHERE candidate_id=? AND state='pending'", (pr['candidate_id'],)).fetchone()
         if count >= self.policy['retry_limit']:
-            self.store.handoff(pr['run_id'], ('Merge outcome unconfirmed; reconcile the retained merge intent. ' if pending else '')
-                               + 'Infrastructure recovery exhausted: ' + reason)
+            self.store.handoff(pr['run_id'], f"{pr['repository']}（{pr['url']}）："
+                               + ('合并结果尚未确认；请核对保留的合并记录及远端分支，不能假定合并失败。' if pending else '')
+                               + f"基础设施连续恢复失败 {count} 次，已达到上限；需人工排查 {phase} 阶段。错误详情：{reason}")
 
     def live_issue(self, run):
         item = self.ledger.item(run['item_id'])
@@ -205,19 +223,20 @@ class Controller:
         issue = self.ledger.issue(item['issue_id'])  # Preserve newer lifecycle observations.
         if (issue.get('delegate_id') != self.api.app_user_id or issue.get('archived')
                 or issue.get('status_type') in ('completed', 'canceled', 'duplicate')):
-            self.store.handoff(run['id'], 'Issue closed or delegation withdrawn', superseded=True)
+            self.store.handoff(run['id'], '任务已关闭、归档或撤销对 FarmBot 的委派，自动化授权已失效；剩余 PR 由人工处置。', superseded=True)
             return None
         if not self.store.current(self.store.row('review_runs', run['id'])):
-            self.store.handoff(run['id'], 'Issue inputs or generation changed', superseded=True)
+            self.store.handoff(run['id'], '任务输入或执行代次已变化，现有审查证据不能覆盖最新请求；需人工确认剩余 PR 如何处理。', superseded=True)
             return None
-        if set(issue.get('labels', [])) & set(self.policy['hold_labels']):
-            self.store.handoff(run['id'], 'Human hold on issue')
+        holds = set(issue.get('labels', [])) & set(self.policy['hold_labels'])
+        if holds:
+            self.store.handoff(run['id'], '任务存在禁止自动合并的人工交接标签：' + '、'.join(sorted(holds)) + '；请人工审查并决定是否合并。')
             return None
         return issue
 
     def refresh(self, run):
         if run['policy'] != self.run_policy(run['id']):
-            self.store.handoff(run['id'], 'Review policy changed; a new explicit delivery is required')
+            self.store.handoff(run['id'], '审查或合并策略已变化，旧证据不能沿用；如需重新自动审查，必须通过新请求重新交付。')
             return
         # Reconcile submitted merges BEFORE comparing source/base metadata, including after a restart.
         for pr in self.prs(run['id']):
@@ -235,33 +254,35 @@ class Controller:
             if pr['state'] in ('merged', 'merging'):
                 continue
             if pr['repository'] not in self.policy['repositories']:
-                self.store.handoff(run['id'], 'Delivery includes a repository without review policy')
+                self.store.handoff(run['id'], f"仓库 {pr['repository']} 未配置审查策略，无法确认自动合并条件；本次交付由人工审查与合并。")
                 return
             if self.writes and self.policy['repositories'][pr['repository']]['backend'] != 'git_ff':
-                self.store.handoff(run['id'], 'Configured merge backend is not implemented; humans own this delivery')
+                self.store.handoff(run['id'], f"仓库 {pr['repository']} 配置的合并后端尚未实现安全自动合并；本次交付由人工合并，避免跨仓库部分提交。")
                 return
             value = self.github.pr(pr)
             if value.get('merged') is True:
                 self.db.execute("UPDATE review_prs SET state='merged',error='Merged outside the review queue' WHERE id=?", (pr['id'],))
-                self.store.handoff(run['id'], 'A PR merged outside this queue; remaining work belongs to humans')
+                self.store.handoff(run['id'], f"PR 已在本队列之外合并：{pr['url']}；现有整合证据失效，剩余 PR 由人工确认依赖并合并。")
                 return
             try:
                 self.github.validate_pr(pr, value)
             except ReviewError:
-                self.store.handoff(run['id'], 'PR changed, closed or no longer matches verified delivery')
+                self.store.handoff(run['id'], f"PR 已变化、关闭或不再符合已验证的交付身份：{pr['url']}；需人工核对最新提交与目标分支。")
                 return
             names = {label['name'] for label in value.get('labels', [])}
-            if names & (set(self.policy['hold_labels']) | {'aot-no-hotfix', 'lead-review', 'economy'}):
-                self.store.handoff(run['id'], 'PR requires human review')
+            holds = names & (set(self.policy['hold_labels']) | {'aot-no-hotfix', 'lead-review', 'economy'})
+            if holds:
+                self.store.handoff(run['id'], f"PR {pr['url']} 存在禁止自动合并的人工交接标签："
+                                   + '、'.join(sorted(holds)) + '；请人工审查并决定是否合并。')
                 return
             if self.github.blockers(pr):
-                self.store.handoff(run['id'], 'Human review requests changes or has an unresolved thread')
+                self.store.handoff(run['id'], f"PR {pr['url']} 存在人工要求修改、未解决的人工讨论或无法确认讨论者身份的阻塞；需人工在 GitHub 处理后审查与合并。")
                 return
             feedback = self.github.bot_feedback(pr)
             self.db.execute('UPDATE review_prs SET bot_feedback=? WHERE id=?', (encoded(feedback), pr['id']))
             reasons = risk(self.github.files(pr), self.policy['repositories'][pr['repository']])
             if reasons:
-                self.store.handoff(run['id'], '; '.join(reasons))
+                self.store.handoff(run['id'], f"仓库 {pr['repository']}（{pr['url']}）：\n" + '\n'.join(reasons))
                 return
             snapshot = self.candidate(pr)
             if snapshot:
@@ -293,7 +314,7 @@ class Controller:
         policy = self.policy['repositories'][pr['repository']]
         if pr['state'] == 'queued':
             if pr['rebuilds'] > self.policy['retry_limit'] * self.policy['depth']:
-                self.store.handoff(pr['run_id'], 'Speculative integration did not converge')
+                self.store.handoff(pr['run_id'], f"PR {pr['url']} 的整合候选已重建 {pr['rebuilds']} 次，超过恢复上限；需人工协调并行 PR 的基线与合并顺序。")
                 return
             queue, position = self.frontier(pr)
             if position < 0 or position >= self.policy['depth']:
@@ -311,14 +332,14 @@ class Controller:
             snapshot = self.store.candidate(pr['id'], snapshot, [predecessor['id']] if predecessor else [])
             pr = self.store.row('review_prs', pr['id'])
             if snapshot['conflicts']:
-                self.need_repair(pr, 'Integration conflicts')
+                self.need_repair(pr, '整合候选存在合并冲突')
                 return
         snapshot = self.candidate(pr)
         if not snapshot or snapshot['conflicts'] or pr['state'] == 'repair':
             return
         reasons = risk(self.git.files(snapshot), policy)
         if reasons:
-            self.store.handoff(pr['run_id'], '; '.join(reasons))
+            self.store.handoff(pr['run_id'], f"仓库 {pr['repository']}（{pr['url']}）的整合候选：\n" + '\n'.join(reasons))
             return
         record = self.store.row('review_candidates', snapshot['id'])
         if record['verdict'] and not self.store.inputs_current(pr['run_id'], record['review_inputs']):
@@ -327,7 +348,7 @@ class Controller:
             # responses, while refusing to use it as a current verdict.
             record['verdict'] = None
         if record['verdict'] and json.loads(record['verdict'])['risk'] == 'high':
-            self.store.handoff(pr['run_id'], '; '.join(json.loads(record['verdict'])['reasons']))
+            self.high_risk(pr, json.loads(record['verdict']))
             return
         if self.writes and record['state'] == 'prepared':
             # Each ref is immutable and unique. Crash retries publish the identical commit.
@@ -339,21 +360,21 @@ class Controller:
         if self.store.row('review_runs', pr['run_id'])['state'] in ('delivered', 'superseded'):
             return
         if ci['state'] == 'failed':
-            self.need_repair(pr, 'Required candidate CI failed')
+            self.need_repair(pr, '整合候选的必需 CI 检查失败')
             return
         if not record['verdict']:
             return
         verdict = json.loads(record['verdict'])
         if verdict['risk'] == 'high':
-            self.store.handoff(pr['run_id'], '; '.join(verdict['reasons']))
+            self.high_risk(pr, verdict)
         elif any(f['severity'] == 'important' for f in verdict['findings']):
-            self.need_repair(pr, 'Important independently verified findings remain')
+            self.need_repair(pr, '独立验证确认的重要缺陷尚未解决')
         else:
             source_ci = self.checks(pr, snapshot, pr['source_head'], policy['source_checks'])
             if self.store.row('review_runs', pr['run_id'])['state'] in ('delivered', 'superseded'):
                 return
             if source_ci['state'] == 'failed':
-                self.need_repair(pr, 'Required source PR CI failed')
+                self.need_repair(pr, '源 PR 的必需 CI 检查失败')
                 return
             self.db.execute('UPDATE review_prs SET state=?,error=? WHERE id=?',
                 ('ready' if ci['state'] == source_ci['state'] == 'passed' else 'waiting_ci',
@@ -369,10 +390,12 @@ class Controller:
         recovery = self.db.execute('SELECT * FROM review_ci_recovery WHERE candidate_id=? AND sha=?',
                                    (snapshot['id'], sha)).fetchone()
         if ci['state'] in ('waiting', 'unavailable') and now - recovery['started_at'] >= self.policy['ci_timeout_seconds']:
-            self.store.handoff(pr['run_id'], 'Required CI did not complete before the configured deadline; check workflow/name/App configuration')
+            self.store.handoff(pr['run_id'], f"PR {pr['url']} 的必需 CI 等待已超过 {self.policy['ci_timeout_seconds']} 秒。"
+                               f"提交：`{sha}`；需人工检查工作流触发、检查名称与 App 配置。未完成不能视为通过。")
         elif ci['state'] == 'unavailable' and self.writes and now >= recovery['retry_at']:
             if recovery['attempts'] >= self.policy['retry_limit']:
-                self.store.handoff(pr['run_id'], 'Required CI could not recover after bounded workflow retries')
+                self.store.handoff(pr['run_id'], f"PR {pr['url']} 的必需 CI 在 {recovery['attempts']} 次工作流重试后仍不可用；"
+                                   f"提交：`{sha}`。需人工排查 CI 服务或工作流配置。")
             else:
                 # Journal before the remote call. Lost responses retain the cooldown and budget.
                 self.db.execute('UPDATE review_ci_recovery SET attempts=attempts+1,retry_at=? WHERE candidate_id=? AND sha=?',
@@ -380,7 +403,7 @@ class Controller:
                 try:
                     self.github.rerun(pr['repository'], sha, ci)
                 except ReviewError as exc:
-                    self.store.handoff(pr['run_id'], str(exc))
+                    self.store.handoff(pr['run_id'], f"PR {pr['url']} 的 CI 无法由控制器安全重试；需人工检查工作流与检查来源。技术详情：{exc}")
                 except Exception as exc:
                     self.db.execute('UPDATE review_ci_recovery SET error=? WHERE candidate_id=? AND sha=?',
                                     (type(exc).__name__, snapshot['id'], sha))
@@ -390,7 +413,8 @@ class Controller:
         if pr['state'] == 'repair':
             return
         if pr['repairs'] >= self.policy['repair_limit']:
-            self.store.handoff(pr['run_id'], reason + '; repair budget exhausted')
+            self.store.handoff(pr['run_id'], f"PR {pr['url']}：{reason}；已完成 {pr['repairs']} 轮 AI 修复，达到配置上限 "
+                               f"{self.policy['repair_limit']} 轮。需人工继续诊断、修改并验证。")
             return
         if not self.writes:
             self.db.execute("UPDATE review_prs SET state='shadow_repair',error=? WHERE id=?", (reason, pr['id']))
@@ -418,10 +442,10 @@ class Controller:
                                 (encoded(result), attempt['review_inputs'], record['id']))
                 self.recovered(pr, 'worker')
                 if result['risk'] == 'high':
-                    self.store.handoff(pr['run_id'], '; '.join(result['reasons']))
+                    self.high_risk(pr, result)
             return
         if result['needs_person']:
-            self.store.handoff(pr['run_id'], result['summary'])
+            self.store.handoff(pr['run_id'], f"AI 修复需要人工协助：{pr['repository']}（{pr['url']}）。\n\n" + result['summary'])
             return
         replacement = self.git.repaired(snapshot, attempt['id'], result['head'])
         if record['verdict']:
@@ -466,12 +490,12 @@ class Controller:
             if dependency:
                 commits = self.github.commits(dependency)
                 if sha not in commits:
-                    raise ReviewError('dependency pin is not a commit of this delivery PR')
+                    raise ReviewError(f"{repo} 的依赖锁定文件 {pin['path']} 未指向本次交付中 {pin['repository']} PR 的提交；需人工核对版本配套关系。")
             if merging == repo or not dependency:
                 base = self.github.default_head(pin['repository'])
                 self.git.worktrees.fetch(pin['repository'])
                 if not self.git.ancestor(pin['repository'], sha, base):
-                    raise ReviewError('dependency pin is not merged on its default branch')
+                    raise ReviewError(f"{repo} 锁定的依赖提交 {sha} 尚未合入 {pin['repository']} 默认分支；需人工确认依赖版本与合并顺序。")
 
     def merge(self, pr):
         pr = self.store.row('review_prs', pr['id'])
@@ -494,7 +518,7 @@ class Controller:
         try:
             self.pins(run, merging=pr['repository'])
         except ReviewError as exc:
-            self.store.handoff(run['id'], str(exc))
+            self.store.handoff(run['id'], '跨仓库依赖版本验证未通过；需人工核对锁定文件与配套提交。详情：' + str(exc))
             return
         snapshot = self.candidate(pr)
         for predecessor in snapshot['predecessors']:
@@ -503,11 +527,11 @@ class Controller:
         metadata = self.github.pr(pr)
         self.github.validate_pr(pr, metadata)
         if self.github.protected(pr):
-            self.store.handoff(run['id'], 'Exact-commit push backend cannot bypass protected-branch policy')
+            self.store.handoff(run['id'], f"PR {pr['url']} 的目标分支受到保护，当前精确提交推送后端不能绕过保护规则；需人工按仓库规则合并。")
             return
         if self.github.blockers(pr) or {v['name'] for v in metadata.get('labels', [])} & (
                 set(self.policy['hold_labels']) | {'aot-no-hotfix', 'lead-review', 'economy'}):
-            self.store.handoff(run['id'], 'Human review or hold takes precedence')
+            self.store.handoff(run['id'], f"PR {pr['url']} 在合并前出现人工审查阻塞或禁止自动合并的标签；需人工处理并决定是否合并。")
             return
         actual = self.github.target(pr)
         if actual != snapshot['prefix']:
@@ -577,34 +601,64 @@ class Controller:
                 self.db.execute("UPDATE review_runs SET state='delivered',disposition='auto_merged',updated_at=? WHERE id=?",
                                 (self.ledger.clock(), pr['run_id']))
 
+    def notification_body(self, run):
+        prs = self.prs(run['id'])
+        handoff = run['disposition'] != 'auto_merged'
+        body = 'FarmBot 已交付：' + ('交由人工审查与合并。' if handoff else '已自动合并。')
+        reason = run['reason']
+        if reason.startswith('sensitive path: '):
+            reason = ('历史路径门禁触发人工交接，文件：`' + reason.removeprefix('sensitive path: ')
+                      + '`。这是路径规则判断，不能据此认定实际改动存在缺陷。')
+        if reason:
+            body += '\n\n交接原因：\n' + reason
+        if handoff:
+            if len(prs) > 1:
+                body += '\n\n以上原因使本次关联交付停止自动合并；所有未合并 PR 一并交由人工处理，避免仅交付部分配套改动。'
+            body += '\n\n后续由人工审查、修改并合并。本轮自动化已结束；通过审查或 CI 转绿不会自动恢复。'
+        for pr in prs:
+            state = '已合并' if pr['state'] == 'merged' else '已交付人工处理'
+            body += f"\n\n{pr['repository']}：{pr['url']}（{state}）"
+            attempts = self.db.execute("SELECT count(*) FROM review_attempts a JOIN review_candidates c ON c.id=a.candidate_id "
+                                       "WHERE c.pr_id=? AND a.role='review'", (pr['id'],)).fetchone()[0]
+            reports = self.db.execute('SELECT count(*) FROM review_candidates WHERE pr_id=? AND verdict IS NOT NULL',
+                                      (pr['id'],)).fetchone()[0]
+            body += f"\n独立 AI 审查尝试：{attempts} 次；已接收审查报告：{reports} 份；AI 修复轮数：{pr['repairs']}。"
+            if not attempts:
+                body += '\n尚未进入独立 AI 审查；本仓库不能视为已通过审查。'
+            elif not reports:
+                body += '\n尚未收到可用的独立审查结论；不能视为已通过审查。'
+            seen = set()
+            for history in self.history(pr):
+                if history['verdict'] and history['id'] not in seen:
+                    seen.add(history['id'])
+                    verdict = json.loads(history['verdict'])
+                    body += '\n\n保留的审查摘要：' + verdict['summary']
+                    for finding in verdict['findings']:
+                        if finding['severity'] == 'important':
+                            body += f"\n- {finding['path']}:{finding['line']}：{finding['claim']}（依据：{finding['evidence']}）"
+            candidate = self.candidate(pr)
+            if candidate:
+                body += '\n\n保留候选：`' + candidate['commit'] + '`；基线：`' + candidate['base'] + '`。'
+                ci = self.store.row('review_candidates', candidate['id'])['ci']
+                if ci:
+                    body += '\nCI 记录：`' + ci + '`'
+        return body[:48000]
+
     def notifications(self):
         for row in self.db.execute("SELECT * FROM review_runs WHERE state IN ('delivered','superseded') AND notified=0").fetchall():
             run = dict(row)
             try:
                 marker = '<!-- farmbot-review:' + run['id'] + ' -->'
-                body = ('FarmBot 审查已交付：' + ('已自动合并' if run['disposition'] == 'auto_merged' else '交由人工审查与合并') + '。\n\n' + run['reason'] + '\n\n'
-                        + '\n'.join(p['url'] + ': ' + p['state'] for p in self.prs(run['id'])))
-                if run['disposition'] in ('human_handoff', 'superseded'):
-                    body += '\n\n后续由人工审查、修改并合并。本轮自动化已结束；通过审查或 CI 转绿不会自动恢复。'
+                body = self.notification_body(run)
+                item = self.ledger.item(run['item_id'])
+                try:
+                    reconcile_review_label(self.ledger, self.api, item['issue_id'])
+                except Exception as exc:
+                    # Lifecycle retries the status label independently. A label
+                    # outage must not hide the reason humans need to take over.
+                    self.ledger.note(item['id'], 'review_label_sync_failed', type(exc).__name__)
                 for pr in self.prs(run['id']):
-                    for history in self.history(pr):
-                        if history['verdict']:
-                            verdict = json.loads(history['verdict'])
-                            body += '\n\nReview: ' + verdict['summary']
-                            for finding in verdict['findings']:
-                                if finding['severity'] == 'important':
-                                    body += f"\n- {finding['path']}:{finding['line']}: {finding['claim']} ({finding['evidence']})"
-                    candidate = self.candidate(pr)
-                    if candidate:
-                        body += '\n\n保留候选：`' + candidate['commit'] + '`；基线：`' + candidate['base'] + '`。'
-                    body += '\n修复轮数：' + str(pr['repairs'])
-                    if candidate:
-                        ci = self.store.row('review_candidates', candidate['id'])['ci']
-                        if ci:
-                            body += '\nCI 记录：`' + ci + '`'
-                body = body[:48000]
-                for pr in self.prs(run['id']):
-                    self.github.notify(pr, marker, body, handoff=run['disposition'] != 'auto_merged' and pr['state'] != 'merged')
+                    self.github.notify(pr, marker, body)
                 self.linear_notice(run, body)
                 self.db.execute('UPDATE review_runs SET notified=1 WHERE id=?', (run['id'],))
             except Exception:

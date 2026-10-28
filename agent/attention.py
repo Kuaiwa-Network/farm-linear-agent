@@ -2,6 +2,8 @@
 import hashlib
 
 REPLY_LABEL = "待回复"
+REVIEW_LABEL = "待人工审查"
+LEGACY_REVIEW_LABEL = "needs-person"
 QUESTION_KEY = "human_question"
 
 
@@ -48,6 +50,45 @@ def reconcile_reply_label(ledger, api, issue_id):
         return
     if api.awaiting_reply(issue_id, bool(pending)) is not False and pending and not owned:
         mark_reply_label(ledger, pending[0]["item_id"])
+
+
+def review_label_state(ledger, issue_id):
+    """The latest implementation generation owns the issue's review status."""
+    if not ledger.connection.execute('SELECT 1 FROM review_runs r JOIN work_items w ON w.id=r.item_id '
+                                     'WHERE w.issue_id=? LIMIT 1', (issue_id,)).fetchone():
+        return None
+    item = ledger.connection.execute("SELECT id,generation,state FROM work_items WHERE issue_id=? "
+        "AND parent_id IS NULL AND skill='work' ORDER BY created_at DESC,rowid DESC LIMIT 1", (issue_id,)).fetchone()
+    if item is None:
+        return None
+    run = ledger.connection.execute('SELECT id,state,disposition FROM review_runs WHERE item_id=? AND generation=?',
+                                    (item['id'], item['generation'])).fetchone()
+    issue = ledger.issue(issue_id)
+    waiting = bool(run and item['state'] == 'delivered' and run['state'] in ('delivered', 'superseded')
+                   and run['disposition'] in ('human_handoff', 'superseded') and not issue['archived']
+                   and issue['status_type'] not in ('completed', 'canceled', 'duplicate'))
+    return (item['id'], item['generation'], run['id'] if run else None, waiting)
+
+
+def reconcile_review_label(ledger, api, issue_id):
+    state = review_label_state(ledger, issue_id)
+    if state is None:
+        return True
+    owned = ledger.connection.execute("SELECT 1 FROM audit a JOIN work_items w ON w.id=a.item_id "
+        "WHERE w.issue_id=? AND a.kind='review_label_managed' LIMIT 1", (issue_id,)).fetchone()
+    if not state[-1] and not owned:
+        return True  # Never sweep an unrelated human's same-named label.
+    if not owned:
+        # Persist ownership before the write, including a lost API response.
+        ledger.note(state[0], 'review_label_managed', 'owns only the issue review-status label ' + REVIEW_LABEL)
+    try:
+        return api.awaiting_review(issue_id, state[-1],
+                                   still_current=lambda: review_label_state(ledger, issue_id) == state)
+    except Exception:
+        # Retry even after delivery/closure, preserving the lifecycle's polling
+        # delay instead of turning a label outage into a busy status-read loop.
+        ledger.connection.execute('UPDATE issue_checks SET requested=1 WHERE issue_id=?', (issue_id,))
+        raise
 
 
 def question_notice(ledger, item, body, bot_name, *, comment_thread=False):

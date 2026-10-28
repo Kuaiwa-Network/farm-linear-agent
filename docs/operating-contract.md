@@ -7,6 +7,14 @@ requirement for new work.
 
 ## Issue workflow status
 
+Publication and delivery verification refresh Git objects without pruning refs,
+writing FETCH_HEAD or running automatic Git maintenance. These checks run inside
+the worker's existing object/ref write grants; pruning belongs to the trusted
+controller because it may lock `packed-refs` in the protected clone root. Remote
+branch identity and ancestry are still verified against the current remote heads.
+This changes no schema or worker permissions. After deploying the fix, an owner
+parked on this Git permission error can resume with its saved PRs and evidence.
+
 The controller moves a delegated issue to **In Progress** after successfully starting
 its first issue-work worker, and to **In Review** after the root job passes its
 existing delivery checks and records `delivered`. This covers the current single-worker `work` owner and retained legacy root write jobs. Queue admission, chat replies, internal
@@ -39,6 +47,13 @@ single-worker delivery. It keeps the general-worker budget and adds a separate
 three-attempt review/repair budget. GitHub CI waits release AI capacity. Candidates
 speculate in repository order and are invalidated when predecessors change. Human
 handoff is terminal delivered work; humans own subsequent review and merge.
+The yellow Linear issue label `待人工审查` marks that handoff; `待回复` instead means
+AI needs an answer. PR reports do not add status labels. The designated merge-mode
+controller reconciles its managed issue label, clearing it for new implementation
+work or a closed issue while leaving terminal runs untouched. Historical handoffs
+can gain the issue label during reconciliation without resuming work. Neither
+`待人工审查` nor legacy `needs-person` blocks a new review, including when present
+in an old host's hold-label config; explicit holds such as `hold-auto-merge` still do.
 
 Review capacity admits eligible repairs before new reviews. Within each role,
 admission uses the latest observed Linear priority (urgent, high, normal, low, then
@@ -47,6 +62,17 @@ priority before admission; older responses cannot overwrite newer observations.
 Priority does not preempt attempts, rebuild candidates or reorder the repository's
 speculative merge chain. Existing depth, dependency, retry and teardown gates apply.
 Review ordering reads existing issue metadata and needs no additional migration.
+
+Configured review `sensitive` paths identify areas for independent AI scrutiny,
+including source changes, renames and integrated repairs; they do not by themselves
+require human handoff. Reviewers assess the actual behavior and affected callers.
+Built-in automation-policy paths, configured AOT paths, size limits and existing
+human/authority/merge gates remain hard stops. Handoff explanations and worker
+reports are in Simplified Chinese and state the trigger, evidence, consequence and
+required human action. Notices distinguish review attempts from received reports
+and show repair counts per repository. Risk-policy version 3 invalidates evidence
+from the earlier rules; existing terminal deliveries are never silently resumed.
+See [review automation](review-automation.md) for deployment and rollback effects.
 
 Review infrastructure retries respect durable backoff and count consecutive failures
 per operation. Polling defaults to five minutes. Candidate bases come from fetched

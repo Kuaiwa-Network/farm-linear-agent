@@ -69,15 +69,59 @@ prior Important findings remain available for explicit, independently checked re
 Human hold labels, unresolved GitHub threads with human participation, human changes
 requested, high risk, changed source heads, changed issue inputs, withdrawal and exhausted recovery stop
 automatic eligibility. Human handoff is terminal `delivered / human_handoff`, with
-PR/Linear reports and `needs-person` on unmerged PRs. The issue stays In Review.
+PR/Linear reports and a yellow `待人工审查` label on the Linear issue. The issue
+stays In Review. PR notifications do not create status labels. `待人工审查` means
+automation has delivered to a human reviewer; `待回复` means AI is waiting for an answer.
 Humans own subsequent review, edits and merge. Green checks, human approvals and
 removing a hold cannot resume that run. A new explicit request uses normal intake.
+
+The designated merge-mode controller reconciles the issue label, records ownership
+before writing it and retries failures. New implementation work or issue closure
+clears the managed label; an unrelated chat does not. Observe/shadow/off instances
+do not write review labels. Labels `needs-person` and `待人工审查` are status output,
+never eligibility gates, even if an old host config lists them in `hold_labels`.
+Explicit human holds such as `hold-auto-merge` remain effective.
+
+This change needs no database migration. Existing terminal handoffs remain terminal;
+normal issue reconciliation can backfill their Linear label without reopening work.
+Remove legacy PR labels only from verified handoff PRs selected for migration;
+there is no global label sweep. Rollback does not undo external label changes, and
+older code can reintroduce the legacy PR label/blocker behavior.
 
 External bot review findings become independent-review input. Changed bot feedback
 fences earlier reports without rebuilding the candidate or discarding same-SHA CI.
 Unknown thread authorship is treated as a blocker. A high-risk verdict hands off
 before CI failure can launch repairs. Drafts are marked ready only at the merge
 frontier after the delivery's review and configured CI have passed.
+
+Configured `sensitive` paths are attention hints for the independent reviewer,
+not an automatic high-risk verdict. The controller supplies the matched file,
+original path on renames, and rule for both the source PR and integrated candidate.
+This includes paths introduced by conflict resolution or repairs. Generated files
+still receive this scrutiny. A shared UI component can proceed through ordinary
+review, repair, CI and merge when its actual change is routine; a path match alone
+does not justify human handoff. The reviewer explains the actual behavior, affected
+callers, evidence and remaining uncertainty before judging risk.
+
+Hard gates remain for the built-in CI/deployment/agent-policy paths, configured
+`aot` paths, the handwritten-diff size limit, human holds and the existing identity,
+dependency and merge protections. Their Chinese handoff reasons identify the
+trigger, file/rule or limit and required human action. Review and repair workers
+write human-facing reasons, summaries and evidence in Simplified Chinese. A
+high-risk reason states the change, concrete consequence, evidence or verification
+gap, and exactly what requires a human decision or verification. Submission rejects
+high-risk reasons missing the ordered `改动：`, `风险：`, `依据：`, `需人工：` sections
+or Chinese risk/action explanations; the evidence still requires independent review.
+Notifications
+distinguish attempts from received reports, show each repository's repair count,
+and do not imply that a pre-review policy gate found a defect.
+
+This changes the meaning of existing `sensitive` configuration; inspect those
+patterns before deployment. Evidence policy version 3 fences reports created with
+the earlier instructions. Active runs with the old policy receive terminal handoff
+and require a new explicit delivery; already delivered runs stay terminal. There
+is no schema migration or automatic replay. Rolling back restores the old path
+gates for new work; it does not undo merges, notifications or delivered handoffs.
 
 ## Exact merge backend
 

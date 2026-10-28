@@ -247,13 +247,11 @@ class GitHub:
         value = self.request('GET', self.endpoint(row['repository'], '/git/ref/heads/' + quote(row['target'], safe='')))
         return commit(value['object']['sha'])
 
-    def notify(self, row, marker, body, *, handoff=True):
+    def notify(self, row, marker, body):
         number = self.number(row['repository'], row['url'])
         comments = self.pages(row['repository'], f'/issues/{number}/comments')
         if not any(marker in c.get('body', '') for c in comments):
             self.request('POST', self.endpoint(row['repository'], f'/issues/{number}/comments'), {'body': body + '\n\n' + marker})
-        if handoff:
-            self.request('POST', self.endpoint(row['repository'], f'/issues/{number}/labels'), {'labels': ['needs-person']})
 
 
 class StubGitHub(GitHub):

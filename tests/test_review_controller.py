@@ -123,7 +123,7 @@ class Git:
 
 class Workers:
     def __init__(self, store):
-        self.store, self.launched, self.tokens = store, [], {}
+        self.store, self.launched, self.tokens, self.contexts = store, [], {}, []
         self.capacity = 3
 
     def reap(self):
@@ -139,6 +139,7 @@ class Workers:
         attempt = self.store.attempt(snapshot['id'], role)
         self.tokens[attempt['id']] = self.store.claim(attempt['id'], 2700)
         self.launched.append(attempt)
+        self.contexts.append(context)
         return True
 
     def finish(self, attempt, result):
@@ -156,7 +157,8 @@ class ControllerTests(ReviewFixture):
         self.workers = Workers(self.store)
         self.config = SimpleNamespace(auto_merge=policy(mode='merge'), repos={'common': 'unused'}, instance_id='test',
                                       max_concurrent=8, local_root=self.path.parent)
-        self.api = SimpleNamespace(app_user_id=APP, fetch_issue=self.ledger.issue)
+        self.api = SimpleNamespace(app_user_id=APP, fetch_issue=self.ledger.issue,
+                                   awaiting_review=lambda *args, **kwargs: True)
         self.controller = Controller(self.ledger, self.config, self.api, self.github, self.git, self.workers)
 
     def delivery(self, number=1, **changes):
@@ -172,6 +174,137 @@ class ControllerTests(ReviewFixture):
 
     def launched_prs(self):
         return [self.store.row('review_candidates', a['candidate_id'])['pr_id'] for a in self.workers.launched]
+
+    def test_legacy_pr_and_issue_status_labels_do_not_block_new_review(self):
+        self.config.auto_merge['hold_labels'] = ['needs-person', '待人工审查', 'hold-auto-merge']
+        self.controller = Controller(self.ledger, self.config, self.api, self.github, self.git, self.workers)
+        run, pr = self.delivery(labels=['needs-person', '待人工审查'])
+        self.github.labels[pr['url']] = [{'name': 'needs-person'}, {'name': '待人工审查'}]
+        self.controller.tick()
+        self.assertEqual(len(self.workers.launched), 1)
+        snapshot = self.good()
+        self.github.states[snapshot['commit']] = 'passed'
+        self.controller.tick()
+        self.assertEqual(self.store.row('review_runs', run['id'])['disposition'], 'auto_merged')
+
+    def test_explicit_manual_hold_still_blocks_review(self):
+        run, pr = self.delivery()
+        self.github.labels[pr['url']] = [{'name': 'hold-auto-merge'}]
+        self.controller.tick()
+        self.assertEqual(self.workers.launched, [])
+        self.assertEqual(self.store.row('review_runs', run['id'])['disposition'], 'human_handoff')
+
+    def test_handoff_label_failure_schedules_retry_without_hiding_handoff_notice(self):
+        from unittest.mock import Mock
+        run, _ = self.delivery()
+        self.store.handoff(run['id'], '需要人工审查。')
+        self.api.awaiting_review = Mock(side_effect=[OSError('lost label response'), True])
+        self.controller.linear_notice = Mock()
+        self.controller.notifications()
+        self.assertEqual(self.store.row('review_runs', run['id'])['notified'], 1)
+        issue_id = self.ledger.item(run['item_id'])['issue_id']
+        self.assertTrue(self.ledger.status_check(issue_id)['requested'])
+        self.controller.notifications()
+        self.assertEqual(self.store.row('review_runs', run['id'])['notified'], 1)
+        self.assertEqual(self.api.awaiting_review.call_args.args,
+                         (self.ledger.item(run['item_id'])['issue_id'], True))
+        self.controller.linear_notice.assert_called_once()
+        self.api.awaiting_review.assert_called_once()
+
+    def test_shared_ui_path_gets_reviewed_and_can_merge_after_routine_verdict(self):
+        self.controller.policy['repositories']['common']['sensitive'] = ['Core/UI/*']
+        files = [{'filename': 'Core/UI/MessageBox.cs', 'additions': 5, 'deletions': 1}]
+        self.github.files = lambda pr: files
+        self.git.files = lambda snapshot: files
+        run, pr = self.delivery()
+        self.controller.tick()
+        self.assertEqual(self.store.row('review_prs', pr['id'])['state'], 'reviewing')
+        focus = self.workers.contexts[-1]['risk_focus']
+        self.assertEqual(focus['source'][0]['rule'], 'Core/UI/*')
+        self.assertEqual(focus['candidate'][0]['file'], files[0]['filename'])
+        snapshot = self.good()
+        self.github.states[snapshot['commit']] = 'passed'
+        self.controller.tick()
+        self.assertEqual(self.store.row('review_runs', run['id'])['disposition'], 'auto_merged')
+
+    def test_sensitive_path_added_by_repair_is_independently_reviewed(self):
+        self.controller.policy['repositories']['common']['sensitive'] = ['Core/UI/*']
+        run, pr = self.delivery()
+        self.git.conflicts.add(pr['url'])
+        self.git.files = lambda snapshot: [{'filename': 'Core/UI/MessageBox.cs' if snapshot.get('repair_parent') else 'feature.py'}]
+        self.controller.tick()
+        attempt = self.workers.launched[-1]
+        self.assertEqual(attempt['role'], 'repair')
+        self.workers.finish(attempt, {'snapshot': attempt['candidate_id'], 'head': 'e' * 40,
+                                     'summary': '已解决冲突并验证弹窗调用兼容性', 'needs_person': False})
+        self.controller.tick()
+        self.assertEqual(self.workers.launched[-1]['role'], 'review')
+        focus = self.workers.contexts[-1]['risk_focus']
+        self.assertEqual(focus['source'], [])
+        self.assertEqual(focus['candidate'][0]['rule'], 'Core/UI/*')
+        self.assertIsNone(self.store.row('review_runs', run['id'])['disposition'])
+
+    def test_focus_read_failure_uses_bounded_recovery_before_launch(self):
+        from unittest.mock import Mock
+        run, pr = self.delivery()
+        self.controller.risk_focus = Mock(side_effect=OSError('metadata unavailable'))
+        self.controller.tick()
+        self.controller.tick()
+        self.assertEqual(self.controller.risk_focus.call_count, 1)
+        self.assertEqual(self.workers.launched, [])
+        for _ in range(2):
+            self.now += 300
+            self.controller.tick()
+        terminal = self.store.row('review_runs', run['id'])
+        self.assertEqual(terminal['disposition'], 'human_handoff')
+        self.assertIn('review_context', terminal['reason'])
+        self.assertIn('连续恢复失败 3 次', terminal['reason'])
+
+    def test_hard_path_handoff_explains_gate_and_no_ai_review(self):
+        self.github.files = lambda pr: [{'filename': '.github/workflows/test.yml'}]
+        run, pr = self.delivery()
+        self.controller.tick()
+        run = self.store.row('review_runs', run['id'])
+        self.assertEqual(run['disposition'], 'human_handoff')
+        self.assertEqual(self.workers.launched, [])
+        body = self.controller.notification_body(run)
+        for text in ('硬性路径门禁', '.github/*', '.github/workflows/test.yml', pr['url'],
+                     '尚未进入独立 AI 审查', '已接收审查报告：0', 'AI 修复轮数：0'):
+            self.assertIn(text, body)
+
+    def test_actual_high_risk_reason_and_review_progress_survive_handoff(self):
+        run, pr = self.delivery()
+        self.controller.tick()
+        attempt = self.workers.launched[-1]
+        snapshot = self.controller.candidate(self.store.row('review_prs', pr['id']))
+        reason = '改动：store.py:12 删除旧存档；风险：回滚也无法恢复玩家数据；依据：delete_many 无备份；需人工：确认迁移与恢复方案。'
+        self.workers.finish(attempt, self.verdict(snapshot, risk='high', reasons=[reason], summary='存在不可逆的数据删除风险。'))
+        self.controller.tick()
+        body = self.controller.notification_body(self.store.row('review_runs', run['id']))
+        for text in ('AI 独立审查判定高风险', reason, '已接收审查报告：1', pr['url']):
+            self.assertIn(text, body)
+        self.assertNotIn('尚未进入独立 AI 审查', body)
+        self.assertFalse(any(call[0] == 'merge' for call in self.git.calls))
+
+    def test_attempt_without_accepted_report_does_not_claim_review_completed(self):
+        run, _ = self.delivery()
+        self.controller.tick()
+        self.store.handoff(run['id'], '基础设施恢复失败，需要人工排查。')
+        body = self.controller.notification_body(self.store.row('review_runs', run['id']))
+        self.assertIn('独立 AI 审查尝试：1 次；已接收审查报告：0 份', body)
+        self.assertIn('尚未收到可用的独立审查结论', body)
+
+    def test_legacy_path_reason_is_displayed_in_chinese_without_reviving_run(self):
+        run, pr = self.delivery()
+        self.store.handoff(run['id'], 'sensitive path: Core/UI/MessageBox.cs')
+        run = self.store.row('review_runs', run['id'])
+        body = self.controller.notification_body(run)
+        self.assertIn('历史路径门禁', body)
+        self.assertIn('不能据此认定实际改动存在缺陷', body)
+        self.assertNotIn('sensitive path:', body)
+        self.controller.tick()
+        self.assertEqual(self.store.row('review_prs', pr['id'])['state'], 'delivered')
+        self.assertEqual(self.workers.launched, [])
 
     def test_review_priority_orders_all_levels_then_fifo_without_reordering_merges(self):
         self.config.auto_merge['depth'] = 6
@@ -339,7 +472,8 @@ class ControllerTests(ReviewFixture):
         self.controller.tick()
         attempt = self.workers.launched[-1]
         snapshot = json.loads(self.store.row('review_candidates', attempt['candidate_id'])['snapshot'])
-        self.workers.finish(attempt, self.verdict(snapshot, risk='high', reasons=['security boundary']))
+        self.workers.finish(attempt, self.verdict(snapshot, risk='high', reasons=[
+            '改动：auth.py:12 放宽权限；风险：普通用户可读管理数据；依据：检查被移除；需人工：确认新的授权边界。']))
         self.github.states[snapshot['commit']] = 'passed'
         self.controller.tick()
         self.github.blocked.clear()
@@ -498,7 +632,7 @@ class ControllerTests(ReviewFixture):
             self.controller.tick()
         terminal = self.store.row('review_runs', run['id'])
         self.assertEqual(terminal['disposition'], 'human_handoff')
-        self.assertIn('unconfirmed', terminal['reason'])
+        self.assertIn('合并结果尚未确认', terminal['reason'])
         self.assertEqual(sum(c[0] == 'merge' for c in self.git.calls), 1)
         self.assertEqual(self.store.db.execute('SELECT state FROM review_merges').fetchone()[0], 'pending')
 
@@ -531,7 +665,7 @@ class ControllerTests(ReviewFixture):
             self.github.states[snapshot['commit']] = 'passed'
         self.controller.tick()
         self.assertEqual(self.store.row('review_runs', run['id'])['disposition'], 'human_handoff')
-        self.assertIn('backend is not implemented', self.store.row('review_runs', run['id'])['reason'])
+        self.assertIn('合并后端尚未实现', self.store.row('review_runs', run['id'])['reason'])
         self.assertFalse(any(c[0] == 'merge' for c in self.git.calls))
 
     def test_partial_merge_failure_retains_confirmed_inventory_and_never_reverts(self):
