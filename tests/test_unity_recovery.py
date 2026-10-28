@@ -74,21 +74,47 @@ class EditorRecoveryTests(SlotFixture):
             adapter.repair(r)
         self.assertEqual(self.ledger.slot(r['slot_id'])['state'], 'held')
 
-    def test_successful_cooperative_stop_reuses_verified_editor(self):
+    def test_successful_setup_cooperative_stop_reuses_verified_editor(self):
         adapter, _, mcp, r = self.setup_repair()
         mcp.quiescent = lambda slot, mode: True
-        adapter.repair(r)
+        adapter.repair(dict(r, recovery_kind='setup'))
         self.assertNotIn(('terminate', r['slot_id']), mcp.calls)
         self.assertEqual(sum(name == 'start' for name, _ in mcp.calls), 1)
 
-    def test_failed_cooperative_reuse_escalates_to_restart_on_next_attempt(self):
+    def test_failed_setup_cooperative_reuse_escalates_to_restart_on_next_attempt(self):
         adapter, _, mcp, r = self.setup_repair()
         mcp.quiescent = lambda slot, mode: True
         mcp.console_errors_since = lambda slot, commit: ['old exception'] if sum(name == 'start' for name, _ in mcp.calls) == 1 else []
         with self.assertRaisesRegex(Exception, 'old exception'):
-            adapter.repair(dict(r, attempts=1))
-        adapter.repair(dict(r, attempts=2))
+            adapter.repair(dict(r, recovery_kind='setup', attempts=1))
+        adapter.repair(dict(r, recovery_kind='setup', attempts=2))
         self.assertIn(('terminate', r['slot_id']), mcp.calls)
+
+    def test_execution_recovery_restarts_quiet_editor_on_each_new_recovery(self):
+        adapter, pool, mcp, record = self.setup_repair()
+        mcp.quiescent = lambda slot, mode: True
+        for index, kind in enumerate((None, 'execution'), 1):
+            with self.subTest(kind=kind):
+                record = dict(record, id=f'recovery-{index}', attempts=1)
+                if kind:
+                    record['recovery_kind'] = kind
+                commit, instance = adapter.repair(record)
+                self.assertEqual(commit, self.trees.head(pool.folder(self.entry)))
+                self.assertEqual(instance, mcp.instance)
+                self.assertEqual(sum(name == 'terminate' for name, _ in mcp.calls), index)
+                self.assertEqual(sum(name == 'start' for name, _ in mcp.calls), index + 1)
+                self.assertEqual(self.ledger.slot(record['slot_id'])['state'], 'held')
+        self.assertNotIn('reap_server', [name for name, _ in mcp.calls])
+
+    def test_native_assert_after_fresh_editor_start_keeps_slot_held(self):
+        adapter, _, mcp, record = self.setup_repair()
+        mcp.quiescent = lambda slot, mode: True
+        mcp.console_errors_since = lambda slot, commit: ['TLS Allocator ALLOC_TEMP_TLS has unfreed allocations']
+        with self.assertRaisesRegex(Exception, 'TLS Allocator'):
+            adapter.repair(dict(record, recovery_kind='execution', attempts=1))
+        self.assertIn(('terminate', record['slot_id']), mcp.calls)
+        self.assertEqual(self.ledger.slot(record['slot_id'])['state'], 'held')
+        self.assertNotIn('probe', [name for name, _ in mcp.calls])
 
     def test_setup_reload_gets_reconnect_budget_before_any_editor_restart(self):
         from agent.slots import SlotError

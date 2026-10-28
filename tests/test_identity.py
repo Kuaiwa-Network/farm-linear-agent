@@ -581,7 +581,9 @@ class UnityIdentityTests(Loopback):
             with self.subTest(shape=name):
                 Handler.replies["tools/call:read_console"] = {"success": True, "data": data}
                 found = self.identity.console_errors_since(self.slot, "deadbeef")
-                self.assertEqual(found, [compile_error] if data else [])
+                expected = ([compile_error, 'just a Debug.LogError'] if isinstance(data, list) and data
+                            else [compile_error] if data else [])
+                self.assertEqual(found, expected)
 
     def test_a_console_payload_in_no_known_shape_holds_the_slot_instead_of_certifying_it_clean(self):
         Handler.replies["tools/call:read_console"] = {"success": True,

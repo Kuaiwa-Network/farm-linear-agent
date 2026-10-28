@@ -85,9 +85,13 @@ class UnityRecovery:
                 deadline = pool.clock() + 10
                 while pool.clock() < deadline:
                     if pool.mcp.quiescent(slot, 'interactive'):
-                        # A failed reuse (e.g. stale runner/console state) must
-                        # escalate on the next durable attempt.
-                        reusable = recovery.get('attempts', 1) == 1 and pool.worktrees.head(folder) == commit
+                        # Execution failures can leave native process state broken
+                        # even after a clean domain reload. A new recovery record
+                        # must not give that same Editor another first-attempt reuse.
+                        # Only pre-handoff setup recovery may reuse a quiet Editor.
+                        reusable = (recovery.get('recovery_kind') == 'setup'
+                                    and recovery.get('attempts', 1) == 1
+                                    and pool.worktrees.head(folder) == commit)
                         break
                     pool.sleep(1)
             except Exception:

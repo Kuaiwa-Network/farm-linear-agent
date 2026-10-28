@@ -1501,7 +1501,9 @@ class UnityIdentity:
         """
         result = self._client(slot).call_tool("read_console",
                                               {"action": "get", "types": ["error"], "count": 50})
-        return [line for line in self._console_lines(slot, result) if "error CS" in line or "Exception" in line]
+        # The tool already selects error severity (including native assertions).
+        # Filtering message text hides engine faults such as TLS allocator leaks.
+        return self._console_lines(slot, result)
 
     def _console_lines(self, slot, result):
         if isinstance(result, list):
