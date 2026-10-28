@@ -13,7 +13,8 @@ GitHub CI is owned by the controller: do not poll, retry or approve it. Submit o
 submit_argv, then settle helpers and exit. The controller verifies process teardown before using the result.
 If renew refuses because of maintenance or stale inputs, preserve your report, stop work and exit.
 If claim is still pending, keep waiting on the same tool invocation for up to ten minutes; do not start another
-claim or abandon it early. If its outcome is ambiguous, do not inspect source or submit an unclaimed result.
+claim or abandon it early. Check that invocation after 30 seconds, then at 60-second intervals; do not poll every
+second. If its outcome is ambiguous, do not inspect source or submit an unclaimed result.
 """
 REVIEW = """Your role is independent read-only review. Never edit source or run repository generators/tests.
 Review the incremental change against its integrated snapshot, including conflict resolutions and interactions
