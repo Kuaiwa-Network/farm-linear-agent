@@ -144,9 +144,9 @@ def evidence_policy(policy, repositories):
         row = policy['repositories'].get(name)
         selected[name] = ({**row, 'dependencies': sorted(names.intersection(row['dependencies']))}
                           if row else None)
-    # v3 makes configured sensitive paths review focus, not automatic handoff.
+    # v4 calibrates domain and verification gaps against actual risk.
     # Never reuse a verdict produced under the old risk instructions.
-    return digest({'version': 3, 'repositories': selected})
+    return digest({'version': 4, 'repositories': selected})
 
 
 def path_matches(entry, patterns):

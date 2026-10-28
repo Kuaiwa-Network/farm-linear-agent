@@ -62,6 +62,18 @@ class ReviewFixture(unittest.TestCase):
 
 
 class StoreTests(ReviewFixture):
+    def test_monitor_reports_actual_attempt_state_for_the_current_candidate(self):
+        run, pr = self.delivery()
+        candidate = self.candidate(pr)
+        attempt = self.store.attempt(candidate['id'], 'review')
+        def state():
+            return next(p for p in summary(self.ledger.connection)['prs'] if p['url'] == pr['url'])['attempt_state']
+        self.assertEqual(state(), 'queued')
+        token = self.store.claim(attempt['id'], 60)
+        self.assertEqual(state(), 'running')
+        self.store.submit(attempt['id'], token, self.verdict(candidate))
+        self.assertEqual(state(), 'submitted')
+
     def test_verified_delivery_enrollment_is_atomic_and_idempotent(self):
         run, pr = self.delivery()
         delivery = dict(self.ledger.connection.execute('SELECT * FROM review_deliveries').fetchone())
@@ -210,8 +222,9 @@ class PolicyTests(unittest.TestCase):
 
     def test_new_risk_semantics_invalidate_old_policy_evidence(self):
         p = policy()
-        old = digest({'version': 2, 'repositories': p['repositories']})
-        self.assertNotEqual(evidence_policy(p, ['common']), old)
+        for version in (2, 3):
+            old = digest({'version': version, 'repositories': p['repositories']})
+            self.assertNotEqual(evidence_policy(p, ['common']), old)
 
     def test_high_risk_cannot_use_a_blank_reason(self):
         for reasons in ([], [''], ['   '], ['sensitive path: Core/UI/MessageBox.cs'], ['高风险'],

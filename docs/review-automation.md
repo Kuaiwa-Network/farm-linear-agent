@@ -117,11 +117,12 @@ distinguish attempts from received reports, show each repository's repair count,
 and do not imply that a pre-review policy gate found a defect.
 
 This changes the meaning of existing `sensitive` configuration; inspect those
-patterns before deployment. Evidence policy version 3 fences reports created with
+patterns before deployment. Evidence policy version 4 fences reports created with
 the earlier instructions. Active runs with the old policy receive terminal handoff
 and require a new explicit delivery; already delivered runs stay terminal. There
-is no schema migration or automatic replay. Rolling back restores the old path
-gates for new work; it does not undo merges, notifications or delivered handoffs.
+is no schema migration or automatic replay. Rolling back to version 3 restores
+the earlier categorical domain guidance; older releases can also restore earlier
+path gates. Rollback does not undo merges, notifications or delivered handoffs.
 
 ## Exact merge backend
 
@@ -280,6 +281,11 @@ in seven days. Duplicate signals do not count twice. Resume clears the pause, no
 terminal human handoffs. Maintenance also stops new review admission and merging,
 and holds drain readiness until review attempts prove quiescent. Unverifiable process
 ownership retains capacity and evidence; never free slots by deleting run records.
+The controller checks local worker completion and pending deliveries every five seconds,
+and wakes on due recovery backoff without repeatedly polling GitHub. Remote refreshes
+remain bounded by the configured poll interval or a local state transition. The monitor
+distinguishes worker startup, active review, report submission and teardown; CI is the
+last controller observation and may lag GitHub until the next refresh.
 Superseded deliveries are also reported, including the inventory of any partial
 merges. Confirmed merges remain eligible for incident observation after a handoff or
 supersession. Incident polling processes at most ten due deliveries per tick.

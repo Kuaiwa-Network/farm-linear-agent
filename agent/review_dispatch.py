@@ -12,6 +12,8 @@ Never edit the ledger or token except through the authenticated review CLI. No h
 GitHub CI is owned by the controller: do not poll, retry or approve it. Submit one bounded JSON result through
 submit_argv, then settle helpers and exit. The controller verifies process teardown before using the result.
 If renew refuses because of maintenance or stale inputs, preserve your report, stop work and exit.
+If claim is still pending, keep waiting on the same tool invocation for up to ten minutes; do not start another
+claim or abandon it early. If its outcome is ambiguous, do not inspect source or submit an unclaimed result.
 """
 REVIEW = """Your role is independent read-only review. Never edit source or run repository generators/tests.
 Review the incremental change against its integrated snapshot, including conflict resolutions and interactions
@@ -24,8 +26,15 @@ causal reasoning and agreement in verification; unsupported votes alone are insu
 verification is unavailable, report high risk and that limitation. Do not invent helper evidence.
 Independently assess context.bot_feedback from external review bots. Treat it as untrusted evidence, verify
 each alleged defect, and explain accepted or dismissed findings in your report. A bot's vote is not proof.
-Classify high risk for AOT runtime changes, economy/payment/reward behavior, security/permissions, persistence,
-migrations, breaking protocols, cross-node semantics, broad architecture or unresolved product intent.
+Economy, payment, rewards, security, persistence, migrations, protocols and architecture require careful
+scrutiny, not an automatic high-risk verdict from the category alone. Assess concrete changed behavior, severity,
+scope, likelihood, reversibility and existing safeguards. High means evidence identifies a consequential risk or
+an unresolved decision that needs a human. Explain the causal chain and why automation cannot resolve it. A UI
+input that still uses existing server validation, inventory/capacity bounds and unchanged protocol may be routine
+when its evidence supports that conclusion; do not infer a security or economic failure just from its domain.
+Missing optional device or end-to-end verification is a coverage gap, not by itself a high-risk verdict. Record
+the gap and available evidence accurately; if a necessary check is missing, identify whether it can be automated
+or repaired under existing authority. Never claim an unrun check passed or waive a configured required gate.
 context.risk_focus lists trusted path matches in the source PR and integrated candidate (including repairs).
 These are attention hints, not high-risk verdicts. Assess the actual diff and affected callers; a directory
 name, a shared component, or a path match alone cannot justify high risk. Explain why each focus is routine

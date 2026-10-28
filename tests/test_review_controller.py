@@ -227,6 +227,19 @@ class ControllerTests(ReviewFixture):
         self.controller.tick()
         self.assertEqual(self.store.row('review_runs', run['id'])['disposition'], 'auto_merged')
 
+    def test_routine_inventory_ui_change_waits_for_review_and_exact_candidate_ci(self):
+        files = [{'filename': 'Features/Shelf/RestaurantViewInteractions.cs', 'additions': 16, 'deletions': 3}]
+        self.github.files = lambda pr: files
+        self.git.files = lambda snapshot: files
+        run, pr = self.delivery()
+        self.controller.tick()
+        snapshot = self.good()
+        self.controller.tick()
+        self.assertNotEqual(self.store.row('review_runs', run['id'])['disposition'], 'auto_merged')
+        self.github.states[snapshot['commit']] = 'passed'
+        self.controller.tick()
+        self.assertEqual(self.store.row('review_runs', run['id'])['disposition'], 'auto_merged')
+
     def test_sensitive_path_added_by_repair_is_independently_reviewed(self):
         self.controller.policy['repositories']['common']['sensitive'] = ['Core/UI/*']
         run, pr = self.delivery()

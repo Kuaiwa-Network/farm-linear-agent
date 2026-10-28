@@ -94,6 +94,7 @@ def summary(connection):
             'attempts': {r[0]: r[1] for r in connection.execute('SELECT state,count(*) FROM review_attempts GROUP BY state')},
             'prs': [dict(r) for r in connection.execute('SELECT p.repository,p.url,p.state,p.repairs,p.rebuilds,p.error,'
                 'c.id AS candidate,json_extract(c.snapshot,\'$.commit\') AS commit_sha,json_extract(c.ci,\'$.state\') AS ci,'
+                '(SELECT a.state FROM review_attempts a WHERE a.candidate_id=c.id ORDER BY a.created_at DESC,a.rowid DESC LIMIT 1) AS attempt_state,'
                 'r.disposition FROM review_prs p JOIN review_runs r ON r.id=p.run_id '
                 'LEFT JOIN review_candidates c ON c.id=p.candidate_id ORDER BY p.sequence DESC LIMIT 50')],
             'metrics': dict(connection.execute('SELECT count(*) AS candidates, '

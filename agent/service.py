@@ -393,9 +393,10 @@ def _serve(components):
                threading.Thread(target=guarded("schedule", schedule_once), daemon=True),
                threading.Thread(target=guarded("pool", pool_once), daemon=True)]
     if components.review is not None:
+        from .review_loop import ReviewLoop
+        review_loop = ReviewLoop(components.review)
         def review_once():
-            components.review.tick()
-            return components.review.policy['poll_seconds']
+            return review_loop.step()
         threads.append(threading.Thread(target=guarded('review', review_once), daemon=True))
     from .version_targets import LabelSync
     if components.config.version_targets.get('sync_labels', False):

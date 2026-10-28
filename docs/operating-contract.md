@@ -70,7 +70,9 @@ Built-in automation-policy paths, configured AOT paths, size limits and existing
 human/authority/merge gates remain hard stops. Handoff explanations and worker
 reports are in Simplified Chinese and state the trigger, evidence, consequence and
 required human action. Notices distinguish review attempts from received reports
-and show repair counts per repository. Risk-policy version 3 invalidates evidence
+and show repair counts per repository. Economic domain and missing optional tests are
+review focus, not high risk by themselves; assess consequences, safeguards and whether
+automation can close the gap. Required checks remain mandatory. Risk-policy version 4 invalidates evidence
 from the earlier rules; existing terminal deliveries are never silently resumed.
 See [review automation](review-automation.md) for deployment and rollback effects.
 

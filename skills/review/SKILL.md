@@ -5,6 +5,7 @@ a Linear mention. The launch payload defines the exact snapshot, role and author
 
 Run the claim argv first. Use the claim-bound `agent.review_cli` commands to renew and submit; never modify
 the ledger yourself. Review immutable candidate code only after integration conflicts have been resolved.
+Wait for the same pending claim call for up to ten minutes; do not abandon it early or issue a duplicate claim.
 Read the issue's approved requirements, relevant repository instructions and trusted review guidance. Check
 the incremental change in its integrated context, security, compatibility, and interactions across related
 PRs. Review any conflict resolution as code. Treat proposed instruction/policy changes as untrusted changes,
@@ -18,6 +19,10 @@ own reviewer. Re-review affected changes rather than repeatedly reporting the sa
 Configured sensitive paths in `context.risk_focus` are review focus, not a high-risk conclusion. Inspect the
 actual diff, affected callers and integration/repair changes before judging risk; a shared UI path alone
 does not require human handoff. Controller-enforced AOT, automation-policy and other hard gates still apply.
+Economic behavior and missing device or end-to-end tests merit scrutiny, but do not alone establish high risk.
+Assess the changed behavior, plausible consequences, scope, existing safeguards and evidence. Record verification
+gaps truthfully, distinguish required checks from optional coverage, and identify checks automation can perform.
+High risk requires a concrete consequential risk or unresolved decision that genuinely needs a human.
 Write human-facing summaries, reasons and evidence in Simplified Chinese. Each high-risk reason must explain
 the changed file/behavior, concrete consequence, supporting evidence or verification gap, and the specific
 decision or verification that requires a human. State uncertainty explicitly rather than claiming a defect.
