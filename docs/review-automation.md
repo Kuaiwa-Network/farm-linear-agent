@@ -69,9 +69,24 @@ prior Important findings remain available for explicit, independently checked re
 Human hold labels, unresolved GitHub threads with human participation, human changes
 requested, high risk, changed source heads, changed issue inputs, withdrawal and exhausted recovery stop
 automatic eligibility. Human handoff is terminal `delivered / human_handoff`, with
-PR/Linear reports and `needs-person` on unmerged PRs. The issue stays In Review.
+PR/Linear reports and a yellow `待人工审查` label on the Linear issue. The issue
+stays In Review. PR notifications do not create status labels. `待人工审查` means
+automation has delivered to a human reviewer; `待回复` means AI is waiting for an answer.
 Humans own subsequent review, edits and merge. Green checks, human approvals and
 removing a hold cannot resume that run. A new explicit request uses normal intake.
+
+The designated merge-mode controller reconciles the issue label, records ownership
+before writing it and retries failures. New implementation work or issue closure
+clears the managed label; an unrelated chat does not. Observe/shadow/off instances
+do not write review labels. Labels `needs-person` and `待人工审查` are status output,
+never eligibility gates, even if an old host config lists them in `hold_labels`.
+Explicit human holds such as `hold-auto-merge` remain effective.
+
+This change needs no database migration. Existing terminal handoffs remain terminal;
+normal issue reconciliation can backfill their Linear label without reopening work.
+Remove legacy PR labels only from verified handoff PRs selected for migration;
+there is no global label sweep. Rollback does not undo external label changes, and
+older code can reintroduce the legacy PR label/blocker behavior.
 
 External bot review findings become independent-review input. Changed bot feedback
 fences earlier reports without rebuilding the candidate or discarding same-SHA CI.

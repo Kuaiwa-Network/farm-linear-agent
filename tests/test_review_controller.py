@@ -157,7 +157,8 @@ class ControllerTests(ReviewFixture):
         self.workers = Workers(self.store)
         self.config = SimpleNamespace(auto_merge=policy(mode='merge'), repos={'common': 'unused'}, instance_id='test',
                                       max_concurrent=8, local_root=self.path.parent)
-        self.api = SimpleNamespace(app_user_id=APP, fetch_issue=self.ledger.issue)
+        self.api = SimpleNamespace(app_user_id=APP, fetch_issue=self.ledger.issue,
+                                   awaiting_review=lambda *args, **kwargs: True)
         self.controller = Controller(self.ledger, self.config, self.api, self.github, self.git, self.workers)
 
     def delivery(self, number=1, **changes):
@@ -173,6 +174,42 @@ class ControllerTests(ReviewFixture):
 
     def launched_prs(self):
         return [self.store.row('review_candidates', a['candidate_id'])['pr_id'] for a in self.workers.launched]
+
+    def test_legacy_pr_and_issue_status_labels_do_not_block_new_review(self):
+        self.config.auto_merge['hold_labels'] = ['needs-person', '待人工审查', 'hold-auto-merge']
+        self.controller = Controller(self.ledger, self.config, self.api, self.github, self.git, self.workers)
+        run, pr = self.delivery(labels=['needs-person', '待人工审查'])
+        self.github.labels[pr['url']] = [{'name': 'needs-person'}, {'name': '待人工审查'}]
+        self.controller.tick()
+        self.assertEqual(len(self.workers.launched), 1)
+        snapshot = self.good()
+        self.github.states[snapshot['commit']] = 'passed'
+        self.controller.tick()
+        self.assertEqual(self.store.row('review_runs', run['id'])['disposition'], 'auto_merged')
+
+    def test_explicit_manual_hold_still_blocks_review(self):
+        run, pr = self.delivery()
+        self.github.labels[pr['url']] = [{'name': 'hold-auto-merge'}]
+        self.controller.tick()
+        self.assertEqual(self.workers.launched, [])
+        self.assertEqual(self.store.row('review_runs', run['id'])['disposition'], 'human_handoff')
+
+    def test_handoff_label_failure_schedules_retry_without_hiding_handoff_notice(self):
+        from unittest.mock import Mock
+        run, _ = self.delivery()
+        self.store.handoff(run['id'], '需要人工审查。')
+        self.api.awaiting_review = Mock(side_effect=[OSError('lost label response'), True])
+        self.controller.linear_notice = Mock()
+        self.controller.notifications()
+        self.assertEqual(self.store.row('review_runs', run['id'])['notified'], 1)
+        issue_id = self.ledger.item(run['item_id'])['issue_id']
+        self.assertTrue(self.ledger.status_check(issue_id)['requested'])
+        self.controller.notifications()
+        self.assertEqual(self.store.row('review_runs', run['id'])['notified'], 1)
+        self.assertEqual(self.api.awaiting_review.call_args.args,
+                         (self.ledger.item(run['item_id'])['issue_id'], True))
+        self.controller.linear_notice.assert_called_once()
+        self.api.awaiting_review.assert_called_once()
 
     def test_shared_ui_path_gets_reviewed_and_can_merge_after_routine_verdict(self):
         self.controller.policy['repositories']['common']['sensitive'] = ['Core/UI/*']

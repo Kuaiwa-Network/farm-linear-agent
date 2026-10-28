@@ -5,6 +5,7 @@ remain shadow-only: an ordinary PR merge API cannot fence the target branch.
 """
 import json
 
+from .attention import reconcile_review_label
 from .maintenance import Maintenance
 from .review_policy import ReviewError, commit, digest, encoded, evidence_policy, review_focus, risk, settings
 from .review_store import ReviewStore
@@ -649,8 +650,15 @@ class Controller:
             try:
                 marker = '<!-- farmbot-review:' + run['id'] + ' -->'
                 body = self.notification_body(run)
+                item = self.ledger.item(run['item_id'])
+                try:
+                    reconcile_review_label(self.ledger, self.api, item['issue_id'])
+                except Exception as exc:
+                    # Lifecycle retries the status label independently. A label
+                    # outage must not hide the reason humans need to take over.
+                    self.ledger.note(item['id'], 'review_label_sync_failed', type(exc).__name__)
                 for pr in self.prs(run['id']):
-                    self.github.notify(pr, marker, body, handoff=run['disposition'] != 'auto_merged' and pr['state'] != 'merged')
+                    self.github.notify(pr, marker, body)
                 self.linear_notice(run, body)
                 self.db.execute('UPDATE review_runs SET notified=1 WHERE id=?', (run['id'],))
             except Exception:

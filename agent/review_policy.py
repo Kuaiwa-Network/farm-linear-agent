@@ -4,6 +4,8 @@ import hashlib
 import json
 import re
 
+from .attention import LEGACY_REVIEW_LABEL, REVIEW_LABEL
+
 SHA = re.compile(r'[0-9a-f]{40}\Z')
 PR = re.compile(r'https://github\.com/([^/]+/[^/]+)/pull/([1-9][0-9]*)\Z')
 DEFAULT_SENSITIVE = ('.github/*', 'AGENTS.md', '**/AGENTS.md', 'REVIEW.md', '**/REVIEW.md',
@@ -43,7 +45,7 @@ def settings(raw, repositories=None):
         raise ReviewError('unknown auto_merge setting')
     policy = {'mode': 'off', 'workers': 3, 'depth': 3, 'repair_limit': 3, 'retry_limit': 3,
               'worker_seconds': 2700, 'poll_seconds': 300, 'ci_timeout_seconds': 86400,
-              'hold_labels': ['needs-person', 'hold-auto-merge'],
+              'hold_labels': ['hold-auto-merge'],
               'repositories': {}, 'authority': '', 'circuit_limit': 2, 'circuit_days': 7, **raw}
     if policy['mode'] not in MODES:
         raise ReviewError('auto_merge.mode must be off, observe, shadow or merge')
@@ -57,8 +59,10 @@ def settings(raw, repositories=None):
     if policy['mode'] != 'off' and not policy['authority']:
         raise ReviewError('review requires a designated queue authority')
     labels = policy['hold_labels']
-    if not isinstance(labels, list) or not labels or any(not isinstance(v, str) or not v for v in labels):
+    if not isinstance(labels, list) or any(not isinstance(v, str) or not v for v in labels):
         raise ReviewError('review hold_labels must be nonempty strings')
+    # Status output is never merge authority, including legacy host settings.
+    policy['hold_labels'] = [name for name in labels if name not in (LEGACY_REVIEW_LABEL, REVIEW_LABEL)]
     if not isinstance(policy['repositories'], dict):
         raise ReviewError('review repositories must be an object')
     checked = {}

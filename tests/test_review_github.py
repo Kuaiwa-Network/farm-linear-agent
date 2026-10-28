@@ -72,14 +72,26 @@ class GitHubTests(unittest.TestCase):
         with self.assertRaises(ReviewError):
             github.authority('common', {**owner, 'controller': 'other host'})
 
-    def test_notification_retries_missing_label_after_comment_succeeded(self):
+    def test_notification_retry_never_creates_a_pr_status_label(self):
         marker = '<!-- run -->'
         calls = []
         def request(method, endpoint, body=None, **kwargs):
             calls.append((method, endpoint, body))
             return [{'body': marker}] if method == 'GET' else {}
         GitHub(REPOS, request).notify({'repository': 'common', 'url': 'https://github.com/example/common/pull/1'}, marker, 'Handoff')
-        self.assertEqual([v[2] for v in calls if v[0] == 'POST'], [{'labels': ['needs-person']}])
+        self.assertEqual([v for v in calls if v[0] != 'GET'], [])
+
+    def test_first_notification_only_posts_the_comment(self):
+        calls = []
+        def request(method, endpoint, body=None, **kwargs):
+            calls.append((method, endpoint, body))
+            return [] if method == 'GET' else {}
+        GitHub(REPOS, request).notify({'repository': 'common', 'url': 'https://github.com/example/common/pull/1'},
+                                      '<!-- run -->', 'Handoff')
+        writes = [v for v in calls if v[0] == 'POST']
+        self.assertEqual(len(writes), 1)
+        self.assertTrue(writes[0][1].endswith('/issues/1/comments'))
+        self.assertEqual(writes[0][2], {'body': 'Handoff\n\n<!-- run -->'})
 
     def test_unresolved_review_thread_on_second_page_blocks(self):
         def request(method, endpoint, body=None, **kwargs):

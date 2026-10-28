@@ -47,6 +47,13 @@ single-worker delivery. It keeps the general-worker budget and adds a separate
 three-attempt review/repair budget. GitHub CI waits release AI capacity. Candidates
 speculate in repository order and are invalidated when predecessors change. Human
 handoff is terminal delivered work; humans own subsequent review and merge.
+The yellow Linear issue label `待人工审查` marks that handoff; `待回复` instead means
+AI needs an answer. PR reports do not add status labels. The designated merge-mode
+controller reconciles its managed issue label, clearing it for new implementation
+work or a closed issue while leaving terminal runs untouched. Historical handoffs
+can gain the issue label during reconciliation without resuming work. Neither
+`待人工审查` nor legacy `needs-person` blocks a new review, including when present
+in an old host's hold-label config; explicit holds such as `hold-auto-merge` still do.
 
 Review capacity admits eligible repairs before new reviews. Within each role,
 admission uses the latest observed Linear priority (urgent, high, normal, low, then

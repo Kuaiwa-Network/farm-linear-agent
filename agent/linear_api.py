@@ -460,26 +460,39 @@ class LinearAPI:
     def awaiting_reply(self, issue_id, waiting=True):
         """Reconcile only FarmBot's current human-attention label, preserving other labels."""
         from .attention import REPLY_LABEL
+        return self._attention_label(issue_id, REPLY_LABEL, waiting, color='#E5484D')
+
+    def awaiting_review(self, issue_id, waiting=True, *, still_current=lambda: True):
+        from .attention import REVIEW_LABEL
+        return self._attention_label(issue_id, REVIEW_LABEL, waiting, color='#F2C94C',
+            description='自动化已交付，等待人工审查、按需修改和合并；仅表示交接状态，不阻止新的自动审查请求。',
+            still_current=still_current)
+
+    def _attention_label(self, issue_id, name, waiting, *, color, description=None, still_current=lambda: True):
+        """Add/remove one status label atomically without replacing other labels."""
         if not self.app_user_id:
             raise RuntimeError("reply label requires verified app identity")
         after, candidates = None, []
         while True:
             data = self.graphql("""query FarmBotReplyLabel($id: String!, $name: String!, $after: String) {
                 issue(id: $id) { team { id } delegate { id } archivedAt state { type }
-                    labels { nodes { id name } } }
+                    labels(first: 250) { nodes { id name } pageInfo { hasNextPage } } }
                 issueLabels(filter: {name: {eq: $name}}, first: 100, after: $after) {
                     nodes { id team { id } } pageInfo { hasNextPage endCursor }
-                } }""", {"id": issue_id, "name": REPLY_LABEL, "after": after})
+                } }""", {"id": issue_id, "name": name, "after": after})
             issue = data["issue"]
             if issue is None:
                 raise RuntimeError("Issue not found")
+            _require_complete_labels(issue)
+            if not still_current():
+                return False
             delegate = (issue.get("delegate") or {}).get("id")
             if delegate and delegate != self.app_user_id:
                 return False  # another bot may have its own unanswered question
             if waiting and (issue.get("archivedAt") or (issue.get("state") or {}).get("type")
                             in ("completed", "canceled", "duplicate")):
                 return False
-            present = [v for v in issue["labels"]["nodes"] if v["name"] == REPLY_LABEL]
+            present = [v for v in issue["labels"]["nodes"] if v["name"] == name]
             if present or not waiting:
                 break
             candidates.extend(data["issueLabels"]["nodes"])
@@ -489,6 +502,8 @@ class LinearAPI:
             after = page["endCursor"]
         if not waiting:
             for label in present:
+                if not still_current():
+                    return False
                 result = self.graphql("""mutation FarmBotRemoveReplyLabel($id: String!, $label: String!) {
                     issueRemoveLabel(id: $id, labelId: $label) { success } }""",
                     {"id": issue_id, "label": label["id"]})["issueRemoveLabel"]
@@ -501,12 +516,17 @@ class LinearAPI:
         label = next((v for v in candidates if (v.get("team") or {}).get("id") == team), None)
         label = label or next((v for v in candidates if v.get("team") is None), None)
         if label is None:
+            if not still_current():
+                return False
             created = self.graphql("""mutation FarmBotCreateReplyLabel($input: IssueLabelCreateInput!) {
                 issueLabelCreate(input: $input) { success issueLabel { id } } }""",
-                {"input": {"name": REPLY_LABEL, "teamId": team, "color": "#E5484D"}})["issueLabelCreate"]
+                {"input": {"name": name, "teamId": team, "color": color,
+                           **({'description': description} if description else {})}})["issueLabelCreate"]
             if not created.get("success") or not created.get("issueLabel", {}).get("id"):
                 raise RuntimeError("Linear did not confirm reply label creation")
             label = created["issueLabel"]
+        if not still_current():
+            return False
         result = self.graphql("""mutation FarmBotAddReplyLabel($id: String!, $label: String!) {
             issueAddLabel(id: $id, labelId: $label) { success } }""",
             {"id": issue_id, "label": label["id"]})["issueAddLabel"]

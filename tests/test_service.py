@@ -185,6 +185,19 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(components.review.workers.launcher.runs_root, components.paths.runs / 'review')
         self.assertNotIn('review', components.skills)
         self.assertNotIn('review', components.scheduler.skills)
+        self.assertFalse(components.lifecycle.review_labels)
+
+    def test_only_designated_merge_instance_reconciles_review_labels(self):
+        from dataclasses import replace
+        for mode, authority, expected in (('off', self.c.config.instance_id, False),
+                                          ('observe', self.c.config.instance_id, False),
+                                          ('shadow', self.c.config.instance_id, False),
+                                          ('merge', 'another-controller', False),
+                                          ('merge', self.c.config.instance_id, True)):
+            with self.subTest(mode=mode, authority=authority), patch('agent.review_github.GitHub'):
+                components = build(replace(self.c.config, auto_merge={'mode': mode, 'authority': authority}))
+            self.close_later(components)
+            self.assertEqual(components.lifecycle.review_labels, expected)
 
     def test_combined_helper_keeps_verified_docker_identity_on_its_own_connection(self):
         from dataclasses import replace

@@ -17,7 +17,8 @@ class RegressionTests(ReviewFixture):
         self.workers = fixtures.Workers(self.store)
         self.config = SimpleNamespace(auto_merge=policy(mode='merge'), repos={'common': 'unused'},
                                       instance_id='test', local_root=self.path.parent)
-        self.api = SimpleNamespace(app_user_id=APP, fetch_issue=self.ledger.issue)
+        self.api = SimpleNamespace(app_user_id=APP, fetch_issue=self.ledger.issue,
+                                   awaiting_review=lambda *args, **kwargs: True)
         self.controller = Controller(self.ledger, self.config, self.api, self.github, self.git, self.workers)
 
     def delivery(self, number=1, **changes):

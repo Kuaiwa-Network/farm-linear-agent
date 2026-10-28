@@ -158,6 +158,13 @@ class StoreTests(ReviewFixture):
 
 
 class PolicyTests(unittest.TestCase):
+    def test_handoff_status_labels_are_not_holds_even_in_legacy_config(self):
+        p = policy(hold_labels=['needs-person', '待人工审查', 'hold-auto-merge', 'manual-stop'])
+        self.assertEqual(p['hold_labels'], ['hold-auto-merge', 'manual-stop'])
+        normalized = policy(hold_labels=['needs-person'])
+        self.assertEqual(normalized['hold_labels'], [])
+        self.assertEqual(settings(normalized), normalized)
+
     def test_off_by_default_and_additional_pool_defaults(self):
         value = settings({})
         self.assertEqual((value['mode'], value['workers'], value['depth']), ('off', 3, 3))

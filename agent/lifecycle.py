@@ -4,7 +4,7 @@ import time
 
 from .ledger import ACTIVE_STATES, TERMINAL_STATUS_TYPES, StaleRouting
 from .linear_api import LinearError
-from .attention import reconcile_reply_label
+from .attention import reconcile_reply_label, reconcile_review_label
 from .issue_workflow import reconcile as reconcile_workflow
 # UNDELEGATED is the text notice() gives a write job whose delegation went, the one the lifecycle posted before; it
 # stays importable here.
@@ -22,9 +22,10 @@ WITHDRAWN_REASONS = {'undelegated': 'Linear delegation removed', 'unreachable': 
 
 
 class Lifecycle:
-    def __init__(self, ledger, api, scheduler, interval=60, clock=time.time):
+    def __init__(self, ledger, api, scheduler, interval=60, clock=time.time, *, review_labels=False):
         self.ledger, self.api, self.scheduler = ledger, api, scheduler
         self.interval, self.clock = interval, clock
+        self.review_labels = review_labels
 
     def refresh(self, issue_id):
         """Read the issue's status and act on it; the stored status, or None when the read failed."""
@@ -60,15 +61,19 @@ class Lifecycle:
             self.ledger.finish_status_check(issue_id, self.interval)
             # A label failure must not masquerade as a failed status read or
             # block an otherwise valid launch. Every status pass retries it.
-            sync = getattr(self.api, 'awaiting_reply', None)
-            if sync is not None:
+            labels = [('awaiting_reply', reconcile_reply_label, 'reply_label_sync_failed')]
+            if self.review_labels:
+                labels.append(('awaiting_review', reconcile_review_label, 'review_label_sync_failed'))
+            for method, reconcile, failure in labels:
+                if getattr(self.api, method, None) is None:
+                    continue
                 try:
-                    reconcile_reply_label(self.ledger, self.api, issue_id)
+                    reconcile(self.ledger, self.api, issue_id)
                 except Exception as exc:
                     root = self.ledger.connection.execute("SELECT id FROM work_items WHERE issue_id=? "
                         "AND parent_id IS NULL ORDER BY created_at DESC LIMIT 1", (issue_id,)).fetchone()
                     if root:
-                        self.ledger.note(root['id'], 'reply_label_sync_failed', type(exc).__name__)
+                        self.ledger.note(root['id'], failure, type(exc).__name__)
             reconcile_workflow(self.ledger, self.api, issue_id)
             return current, delegate
         except Exception as exc:
