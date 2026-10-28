@@ -11,7 +11,9 @@ class ReviewLoop:
     def step(self):
         controller = self.controller
         now = self.clock()
+        before = controller.workers.busy()
         handled = controller.process_workers()
+        released = controller.workers.busy() < before
         pending = False
         due = None
         if controller.policy['mode'] != 'off':
@@ -21,7 +23,7 @@ class ReviewLoop:
                 "WHERE r.state NOT IN ('delivered','superseded') AND p.state NOT IN ('merged','delivered') "
                 "AND p.retry_at>?", (self.last_full,)).fetchone()
             due = row[0] if row else None
-        if handled or pending or now >= self.next_full or (due is not None and now >= due):
+        if handled or released or pending or now >= self.next_full or (due is not None and now >= due):
             controller.tick()
             self.last_full = self.clock()
             self.next_full = self.last_full + controller.policy['poll_seconds']

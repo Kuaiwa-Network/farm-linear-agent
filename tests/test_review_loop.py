@@ -15,7 +15,8 @@ class ReviewLoopTests(unittest.TestCase):
             'CREATE TABLE review_prs(run_id,state,retry_at);')
         self.now = 1000.0
         self.controller = SimpleNamespace(db=self.db, policy={'mode': 'merge', 'poll_seconds': 300},
-                                          tick=Mock(), process_workers=Mock(return_value=False))
+                                          tick=Mock(), process_workers=Mock(return_value=False),
+                                          workers=SimpleNamespace(busy=Mock(return_value=0)))
         self.loop = ReviewLoop(self.controller, clock=lambda: self.now)
 
     def test_local_checks_do_not_poll_remote_until_due(self):
@@ -61,3 +62,10 @@ class ReviewLoopTests(unittest.TestCase):
         self.now += 5
         self.loop.step()
         self.assertEqual(self.controller.tick.call_count, 1)
+
+    def test_stale_worker_teardown_wakes_waiting_work_without_a_report(self):
+        self.loop.step()
+        self.now += 5
+        self.controller.workers.busy.side_effect = [1, 0]
+        self.loop.step()
+        self.assertEqual(self.controller.tick.call_count, 2)
