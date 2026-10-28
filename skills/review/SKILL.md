@@ -31,7 +31,12 @@ decision or verification that requires a human. State uncertainty explicitly rat
 For a repair-role launch, edit only the listed writable candidate, answer each blocking finding and report
 real test outcomes and limitations. Preserve predecessor behavior. Never force-push, publish, merge, deploy,
 administer the host or touch shared resources outside existing resource authority. The controller owns CI and
-publication. Human handoff ends automatic work; an approval does not authorize resuming it.
+publication. If local verification is blocked by the worker environment, establish from the trusted candidate
+CI policy and target-base workflow whether a required candidate check runs the same test. When it does, report
+the gap and evidence and let the controller run that check on the repaired commit; do not claim it already
+passed. A check name, source-only check, evidence-only policy or candidate workflow change alone is not proof.
+If coverage cannot be established or an actual human decision is needed, request human help. Human handoff ends
+automatic work; an approval does not authorize resuming it.
 
 Save the result as the documented JSON, submit it with the claim token file, settle helpers and exit. GitHub
 CI waits are controller state, not a reason to keep an AI process polling. Stale claims or maintenance stop

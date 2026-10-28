@@ -38,6 +38,14 @@ required check suite and exact SHA, with a five-minute minimum cooldown and boun
 attempts. External checks without a recoverable workflow hand off. CI infrastructure
 recovery never spends a code-repair round.
 
+A repair worker reports local test failures and skips honestly. If a local test is blocked by its environment,
+it may leave that verification to a required candidate check only when the trusted policy and target-base
+workflow establish that the check runs the same test. Source-only checks, an evidence-only policy, a check
+name alone, or a candidate's own workflow changes do not establish coverage. The repaired commit still needs
+its own successful required CI and a fresh independent review. Unknown coverage and human-only decisions
+remain grounds for handoff. Evidence policy version 5 fences earlier active evidence; drain active review
+runs before deploying this change. Terminal handoffs are never automatically resumed.
+
 The default polling interval is five minutes. Authority reads are cached for five
 minutes during polling and repeated before promotion; failed authority reads block
 writes while reconciliation and terminal reports can continue. Infrastructure
@@ -117,11 +125,11 @@ distinguish attempts from received reports, show each repository's repair count,
 and do not imply that a pre-review policy gate found a defect.
 
 This changes the meaning of existing `sensitive` configuration; inspect those
-patterns before deployment. Evidence policy version 4 fences reports created with
-the earlier instructions. Active runs with the old policy receive terminal handoff
+patterns before deployment. Evidence policy version 5 fences reports created with
+earlier instructions. Active runs with the old policy receive terminal handoff
 and require a new explicit delivery; already delivered runs stay terminal. There
-is no schema migration or automatic replay. Rolling back to version 3 restores
-the earlier categorical domain guidance; older releases can also restore earlier
+is no schema migration or automatic replay. Rolling back to version 4 restores the
+earlier repair guidance; version 3 restores categorical domain guidance and older releases can also restore earlier
 path gates. Rollback does not undo merges, notifications or delivered handoffs.
 
 ## Exact merge backend

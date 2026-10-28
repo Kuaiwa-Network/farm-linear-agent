@@ -72,8 +72,11 @@ reports are in Simplified Chinese and state the trigger, evidence, consequence a
 required human action. Notices distinguish review attempts from received reports
 and show repair counts per repository. Economic domain and missing optional tests are
 review focus, not high risk by themselves; assess consequences, safeguards and whether
-automation can close the gap. Required checks remain mandatory. Risk-policy version 4 invalidates evidence
-from the earlier rules; existing terminal deliveries are never silently resumed.
+automation can close the gap. Required checks remain mandatory. A repair worker may defer a locally blocked
+test to required candidate CI only after establishing that the target-base workflow covers the same test;
+it must report the gap and evidence, and the repaired commit still needs its own green checks and independent
+review. If coverage cannot be established or a human decision is needed, it requests human help. Evidence
+policy version 5 invalidates evidence from earlier worker rules; existing terminal deliveries are never silently resumed.
 See [review automation](review-automation.md) for deployment and rollback effects.
 
 Review infrastructure retries respect durable backoff and count consecutive failures

@@ -143,6 +143,9 @@ class Controller:
                     self.workers.launch(snapshot, role, {'repairs': pr['repairs'], 'reason': pr['error'],
                         'risk_focus': focus,
                         'ci': json.loads(record['ci']) if record['ci'] else None,
+                        'candidate_ci_policy': ({key: self.policy['repositories'][pr['repository']][key]
+                                                 for key in ('checks', 'evidence_only', 'candidate_workflow', 'workflow_ref')}
+                                                if role == 'repair' else None),
                         'previous': self.history(pr), 'delivery': self.ledger.item(run['item_id']).get('evidence'),
                         'bot_feedback': {p['repository']: json.loads(p['bot_feedback']) for p in self.prs(run['id'])},
                         'author_checkpoint': self.ledger.item(run['item_id']).get('checkpoint')})

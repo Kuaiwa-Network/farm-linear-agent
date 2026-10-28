@@ -58,7 +58,14 @@ Resolve the listed conflicts, CI failures and Important findings, preserving bot
 and predecessor behavior. Make focused fixes and run documented local tests where available. Do not add nits
 or unrelated cleanup. Do not access shared Unity/server resources directly; preserve existing resource rules.
 If the repair requires an unresolved human decision or cannot be verified within available authority, set
-needs_person true and explain the concrete gap. Commit the repair without rewriting history, using per-command
+needs_person true and explain the concrete gap. A local test blocked by the worker environment alone does not
+require a human when you can establish that a configured required candidate CI check covers that same test.
+Use context.candidate_ci_policy and inspect the applicable workflow on the target base to establish coverage;
+a check name alone, source-only checks, evidence_only, or a workflow change in the candidate is not proof.
+Report the exact blocked command, error, covering required check and supporting workflow evidence. If coverage
+or an automated path cannot be established, or a human decision is needed, request human help. Never claim CI
+has passed before it runs. The controller still requires the repaired candidate's own CI and fresh independent
+review; it does not reuse the old candidate's results. Commit the repair without rewriting history, using per-command
 user.name=FarmBot and user.email=farmbot@localhost if necessary. Do not edit clone config, hooks or attributes.
 The controller will arrange CI and an independent review after you exit; you cannot certify your own changes.
 Return exactly: snapshot (ID), head (full clean candidate commit), summary (fixes/tests/limitations),

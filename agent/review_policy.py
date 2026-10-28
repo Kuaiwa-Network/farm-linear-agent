@@ -144,9 +144,9 @@ def evidence_policy(policy, repositories):
         row = policy['repositories'].get(name)
         selected[name] = ({**row, 'dependencies': sorted(names.intersection(row['dependencies']))}
                           if row else None)
-    # v4 calibrates domain and verification gaps against actual risk.
-    # Never reuse a verdict produced under the old risk instructions.
-    return digest({'version': 4, 'repositories': selected})
+    # v5 includes the repair guidance for CI-covered local verification gaps.
+    # Never reuse evidence produced under the previous worker instructions.
+    return digest({'version': 5, 'repositories': selected})
 
 
 def path_matches(entry, patterns):
