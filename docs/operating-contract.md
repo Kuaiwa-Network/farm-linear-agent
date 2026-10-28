@@ -801,6 +801,17 @@ deadline for an existing Editor to reconnect before escalating to an owned-proce
 restart; it does not treat one missing instance sample as proof of a dead Editor.
 No schema migration or Unity package/cache edit is required.
 
+Readiness rejects every error-severity Console entry returned by Unity, including
+native assertions and errors without C# compiler or exception keywords. Existing
+test output is still archived before the new compilation boundary. Recovery from
+worker execution failure starts a fresh owned Editor after worker/reservation
+detachment and verified old-process exit; an idle Editor or domain reload alone
+cannot establish recovery from a native fault. First-attempt setup recovery keeps
+its reconnect/reuse allowance. Fresh errors or failed identity checks retain the
+hold. The shared MCP broker and all recovery evidence remain intact.
+This requires a controller release, adds no schema, and does not automatically
+resume exhausted jobs. Rolling back restores the older readiness/reuse behavior.
+
 ## Automatic worker cache retention
 
 `serve` runs a separate `worker_retention` loop. By default it starts a backlog

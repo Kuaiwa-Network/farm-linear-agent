@@ -114,6 +114,24 @@ class UnityConsoleTests(unittest.TestCase):
         self.identity.refresh(self.slot)
         self.assertEqual(self.identity.console_errors_since(self.slot, 'same-commit'), self.client.new_errors)
 
+    def test_native_assert_and_plain_errors_block_readiness_without_message_keywords(self):
+        native = 'TLS Allocator ALLOC_TEMP_TLS, underlying allocator ALLOC_TEMP_MAIN has unfreed allocations, size 1052'
+        for entries in ([native, 'Failed to initialize native subsystem'],
+                        {'items': [{'type': 'Assert', 'message': native}]}):
+            with self.subTest(entries=entries):
+                self.client.history = entries
+                errors = self.identity.console_errors_since(self.slot, 'commit')
+                self.assertIn(native, errors)
+                self.assertEqual(len(errors), len(entries) if isinstance(entries, list) else 1)
+                self.assertEqual(self.client.calls[-1][1]['types'], ['error'])
+
+    def test_native_assert_after_compile_is_retained_as_a_readiness_failure(self):
+        self.client.new_errors = ['TLS Allocator ALLOC_TEMP_TLS has unfreed allocations']
+        self.identity.refresh(self.slot)
+        self.client.state['compilation']['last_compile_finished_unix_ms'] = 100000
+        self.identity.wait_quiet(self.slot, 10)
+        self.assertEqual(self.identity.console_errors_since(self.slot, 'commit'), self.client.new_errors)
+
     def test_failed_archive_preserves_console_and_does_not_refresh(self):
         with patch.object(Path, 'write_text', side_effect=OSError('disk full')):
             with self.assertRaisesRegex(OSError, 'disk full'):
