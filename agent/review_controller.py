@@ -51,7 +51,7 @@ class Controller:
 
     def tick(self):
         # Reaping also fences stale workers when disabled or in maintenance.
-        completed = self.workers.reap()
+        self.process_workers()
         if self.policy['mode'] == 'off':
             return
         if self.writes and not Maintenance(self.ledger).requested() and not self.db.execute('SELECT paused FROM review_control').fetchone()[0]:
@@ -74,14 +74,6 @@ class Controller:
                 'ON r.item_id=d.item_id AND r.generation=d.generation WHERE r.id IS NULL ORDER BY d.created_at').fetchall():
             self.store.enroll(dict(delivery), evidence_policy(self.policy,
                               [p['repo'] for p in json.loads(delivery['inputs'])]))
-        for attempt in completed:
-            try:
-                self.completed(attempt)
-            except Exception as exc:
-                candidate = self.store.row('review_candidates', attempt['candidate_id'])
-                self.retry(self.store.row('review_prs', candidate['pr_id']), type(exc).__name__, phase='worker')
-            finally:
-                self.db.execute("UPDATE review_attempts SET state='processed' WHERE id=? AND state='settled'", (attempt['id'],))
         fresh_runs = set()
         for run in self.active():
             if any(p['retry_at'] > self.ledger.clock() for p in self.prs(run['id'])
@@ -151,6 +143,9 @@ class Controller:
                     self.workers.launch(snapshot, role, {'repairs': pr['repairs'], 'reason': pr['error'],
                         'risk_focus': focus,
                         'ci': json.loads(record['ci']) if record['ci'] else None,
+                        'candidate_ci_policy': ({key: self.policy['repositories'][pr['repository']][key]
+                                                 for key in ('checks', 'evidence_only', 'candidate_workflow', 'workflow_ref')}
+                                                if role == 'repair' else None),
                         'previous': self.history(pr), 'delivery': self.ledger.item(run['item_id']).get('evidence'),
                         'bot_feedback': {p['repository']: json.loads(p['bot_feedback']) for p in self.prs(run['id'])},
                         'author_checkpoint': self.ledger.item(run['item_id']).get('checkpoint')})
@@ -169,6 +164,21 @@ class Controller:
             self.notifications()
         if getattr(self, 'retention', None):
             self.retention.tick()
+
+    def process_workers(self):
+        """Handle settled attempts locally; remote checks remain on the full tick."""
+        completed = self.workers.reap()
+        if self.policy['mode'] == 'off':
+            return False
+        for attempt in completed:
+            try:
+                self.completed(attempt)
+            except Exception as exc:
+                candidate = self.store.row('review_candidates', attempt['candidate_id'])
+                self.retry(self.store.row('review_prs', candidate['pr_id']), type(exc).__name__, phase='worker')
+            finally:
+                self.db.execute("UPDATE review_attempts SET state='processed' WHERE id=? AND state='settled'", (attempt['id'],))
+        return bool(completed)
 
     def history(self, pr):
         return [dict(r) for r in self.db.execute('SELECT c.id,c.verdict,a.role,a.result FROM review_candidates c '

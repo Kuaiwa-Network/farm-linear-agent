@@ -519,9 +519,11 @@
     const names = {queued: "等待集成", reviewing: "独立审查", waiting_ci: "等待 GitHub CI",
       repair: "AI 修复", ready: "等待合并", promoting: "发布修复", merging: "确认合并结果",
       merged: "已合并", delivered: "已交付人工", shadow_repair: "影子模式：需要修复"};
+    const attemptNames = {queued: "审查启动中", running: "独立审查", submitted: "报告已提交，等待退出确认",
+      stopping: "等待进程退出确认", settled: "报告待处理"};
     const rows = review.prs.map((pr) => row("two", cell("label", pr.repository),
-      cell("main", `${pr.url} · ${names[pr.state] || pr.state} · 修复 ${pr.repairs} 轮`,
-        el("p", "muted", pr.error || (pr.ci ? `CI: ${pr.ci}` : "尚无候选 CI 结果")))));
+      cell("main", `${pr.url} · ${pr.state === "reviewing" ? (attemptNames[pr.attempt_state] || (pr.error ? "等待重试" : "等待审查")) : (names[pr.state] || pr.state)} · 修复 ${pr.repairs} 轮`,
+        el("p", "muted", pr.error || (pr.ci ? `CI: ${pr.ci}（按控制器轮询更新）` : "尚无候选 CI 结果")))));
     if (review.control.paused) rows.unshift(row("two", cell("label", "自动合并已暂停"), cell("main", review.control.reason)));
     byId("review-rows").replaceChildren(...rows);
   }

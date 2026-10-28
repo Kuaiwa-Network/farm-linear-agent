@@ -227,6 +227,19 @@ class ControllerTests(ReviewFixture):
         self.controller.tick()
         self.assertEqual(self.store.row('review_runs', run['id'])['disposition'], 'auto_merged')
 
+    def test_routine_inventory_ui_change_waits_for_review_and_exact_candidate_ci(self):
+        files = [{'filename': 'Features/Shelf/RestaurantViewInteractions.cs', 'additions': 16, 'deletions': 3}]
+        self.github.files = lambda pr: files
+        self.git.files = lambda snapshot: files
+        run, pr = self.delivery()
+        self.controller.tick()
+        snapshot = self.good()
+        self.controller.tick()
+        self.assertNotEqual(self.store.row('review_runs', run['id'])['disposition'], 'auto_merged')
+        self.github.states[snapshot['commit']] = 'passed'
+        self.controller.tick()
+        self.assertEqual(self.store.row('review_runs', run['id'])['disposition'], 'auto_merged')
+
     def test_sensitive_path_added_by_repair_is_independently_reviewed(self):
         self.controller.policy['repositories']['common']['sensitive'] = ['Core/UI/*']
         run, pr = self.delivery()
@@ -498,6 +511,47 @@ class ControllerTests(ReviewFixture):
         self.controller.tick()  # atomically publish the exact reviewed repair and merge
         self.assertEqual(self.controller.prs()[0]['repairs'], 3)
         self.assertEqual(self.store.row('review_runs', run['id'])['disposition'], 'auto_merged')
+
+    def test_locally_blocked_repair_requires_new_candidate_ci_and_review(self):
+        run, _ = self.delivery()
+        self.controller.tick()
+        old = self.good()
+        self.github.states[old['commit']] = 'failed'
+        self.controller.tick()
+        repair = self.workers.launched[-1]
+        self.assertEqual(repair['role'], 'repair')
+        self.assertEqual(self.workers.contexts[-1]['candidate_ci_policy']['checks'],
+                         [{'name': 'tests', 'app_id': 1}])
+        self.assertFalse(self.workers.contexts[-1]['candidate_ci_policy']['evidence_only'])
+        self.workers.finish(repair, {'snapshot': old['id'], 'head': 'f' * 40,
+                                     'summary': '本地测试权限受限；目标分支工作流的必需 tests 检查覆盖该测试',
+                                     'needs_person': False})
+        self.controller.tick()
+        new_attempt = self.workers.launched[-1]
+        self.assertEqual(new_attempt['role'], 'review')
+        self.assertNotEqual(new_attempt['candidate_id'], old['id'])
+        new = self.good(new_attempt)
+        self.github.states[old['commit']] = 'passed'  # A stale green result is not the repair's CI.
+        self.controller.tick()
+        self.assertNotEqual(self.store.row('review_runs', run['id'])['disposition'], 'auto_merged')
+        self.assertFalse(any(call[0] == 'merge' for call in self.git.calls))
+        self.assertIn(new['commit'], self.github.checked)
+        self.github.states[new['commit']] = 'passed'
+        self.controller.tick()
+        self.assertEqual(self.store.row('review_runs', run['id'])['disposition'], 'auto_merged')
+
+    def test_repair_requesting_human_still_ends_automatic_work(self):
+        run, _ = self.delivery()
+        self.controller.tick()
+        old = self.good()
+        self.github.states[old['commit']] = 'failed'
+        self.controller.tick()
+        repair = self.workers.launched[-1]
+        self.workers.finish(repair, {'snapshot': old['id'], 'head': 'f' * 40,
+                                     'summary': '无法确认自动检查覆盖，需要人工验证', 'needs_person': True})
+        self.controller.tick()
+        self.assertEqual(self.store.row('review_runs', run['id'])['disposition'], 'human_handoff')
+        self.assertFalse(any(call[0] == 'merge' for call in self.git.calls))
 
     def test_lost_merge_response_is_reconciled_without_duplicate_merge(self):
         run, _ = self.delivery()
