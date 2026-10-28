@@ -286,8 +286,9 @@ and wakes on due recovery backoff without repeatedly polling GitHub. Remote refr
 remain bounded by the configured poll interval or a local state transition. The monitor
 distinguishes worker startup, active review, report submission and teardown; CI is the
 last controller observation and may lag GitHub until the next refresh. Successful claim
-receipts report CLI start time and elapsed milliseconds without the token, distinguishing
-time before process startup from time spent inside the CLI.
+receipts report CLI main entry time and elapsed milliseconds without the token. Comparing
+them to tool-call time separates the period before CLI main (including scheduling, process
+startup and imports) from time spent inside it; it cannot identify which earlier step was slow.
 Superseded deliveries are also reported, including the inventory of any partial
 merges. Confirmed merges remain eligible for incident observation after a handoff or
 supersession. Incident polling processes at most ten due deliveries per tick.

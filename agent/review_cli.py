@@ -47,7 +47,8 @@ def main(argv=None):
             with os.fdopen(os.open(token_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w', encoding='utf-8') as handle:
                 token = store.claim(args.attempt, policy['worker_seconds'])
                 handle.write(token)
-            # Distinguish scheduling before CLI startup from time inside the CLI.
+            # Separate time before CLI main (including scheduling, startup and imports)
+            # from time inside it, without disclosing the claim token.
             result = {'claimed': True, 'attempt': args.attempt,
                       'timing': {'cli_started_at': started_at,
                                  'cli_elapsed_ms': round((time.monotonic() - started_clock) * 1000, 1)}}
