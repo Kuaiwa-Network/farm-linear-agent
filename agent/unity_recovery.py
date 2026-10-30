@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from .identity import CHECKS, source_snapshot
-from .slots import SlotError
+from .slots import SlotError, console_failure
 
 
 class SourceMetaReconciled(SlotError):
@@ -12,6 +12,14 @@ class SourceMetaReconciled(SlotError):
 
     def __init__(self, evidence):
         super().__init__('imported .meta changes archived; slot returned closed for an exact-commit retry', stage='git')
+        self.evidence = evidence
+
+
+class CandidateCompileFailure(SlotError):
+    """A fresh environment-recovery Editor isolated a candidate compiler error."""
+
+    def __init__(self, failure, evidence):
+        super().__init__(str(failure), stage='compile')
         self.evidence = evidence
 
 
@@ -56,7 +64,7 @@ class UnityRecovery:
             raise SlotError('late Editor is not idle on the configured project', stage='editor')
         errors = pool.mcp.console_errors_since(slot, commit)
         if errors:
-            raise SlotError(f'late Editor has compilation/console errors: {errors[0]}', stage='compile')
+            raise console_failure(errors, 'late Editor')
         result = pool.mcp.probe(slot, {'repository': str(folder), 'commit_sha': commit,
                                      'build_target': entry.get('build_target')})
         if result.get('aggregate') != 'match' or source_snapshot(folder) != before:
@@ -88,7 +96,8 @@ class UnityRecovery:
                         # Execution failures can leave native process state broken
                         # even after a clean domain reload. A new recovery record
                         # must not give that same Editor another first-attempt reuse.
-                        # Only pre-handoff setup recovery may reuse a quiet Editor.
+                        # Only pre-handoff reconnect recovery may reuse a quiet
+                        # Editor. Console environment faults require a new process.
                         reusable = (recovery.get('recovery_kind') == 'setup'
                                     and recovery.get('attempts', 1) == 1
                                     and pool.worktrees.head(folder) == commit)
@@ -131,7 +140,17 @@ class UnityRecovery:
         pool.refresh_and_wait(slot, entry['quiet_timeout'])
         errors = pool.mcp.console_errors_since(slot, commit)
         if errors:
-            raise SlotError(f'recovered editor has compilation/console errors: {errors[0]}', stage='compile')
+            failure = console_failure(errors, 'recovered editor')
+            if pool.keep_open and recovery.get('recovery_kind') == 'environment' and failure.stage == 'compile':
+                # This path has replaced the old process and refreshed the exact
+                # candidate. Baseline errors and late/reused Editors cannot
+                # trigger this diagnosis. Preserve evidence before changing pins.
+                source = source_snapshot(folder)
+                if source['commit_sha'] != commit:
+                    raise SlotError('recovered compiler diagnostics have changed source HEAD', stage='git')
+                raise CandidateCompileFailure(failure, {'slot_id': slot['slot_id'], 'commit_sha': commit,
+                    'instance': instance, 'errors': errors, 'source': source})
+            raise failure
         result = pool.mcp.probe(slot, {'repository': str(folder), 'commit_sha': commit,
                                        'build_target': entry.get('build_target')})
         if result.get('aggregate') != 'match':
@@ -244,7 +263,7 @@ class UnityRecovery:
         pool.refresh_and_wait(slot, entry['quiet_timeout'])
         errors = pool.mcp.console_errors_since(slot, baseline)
         if errors:
-            raise SlotError(f'baseline compilation failed: {errors[0]}', stage='compile')
+            raise console_failure(errors, 'recovery baseline')
         observation = pool.mcp.probe(slot, {'repository': str(folder), 'commit_sha': baseline,
                                            'build_target': entry.get('build_target')})
         if observation.get('aggregate') != 'match' or source_snapshot(folder)['dirty']:

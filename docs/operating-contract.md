@@ -818,6 +818,37 @@ hold. The shared MCP broker and all recovery evidence remain intact.
 This requires a controller release, adds no schema, and does not automatically
 resume exhausted jobs. Rolling back restores the older readiness/reuse behavior.
 
+Preparation distinguishes C# compiler diagnostics (`error CS` followed by four
+digits) from other error-severity Console entries. Only an all-compiler error
+set takes the compile/candidate-repair path. FMOD device errors, native assertions,
+unclassified errors and mixed compiler/native errors remain readiness failures,
+but use typed `environment` recovery. This shares the existing three preparation
+retries with `setup`, preserves the exact commit and does not reject that SHA as
+bad source. Environment recovery always replaces the owned Editor after verified
+teardown; a clean Console after reload alone cannot certify recovery. Fresh Console
+and source/assembly identity checks still gate reuse, and changed importer metadata
+retains the existing candidate-preservation path. Single workers review retained
+evidence before requesting missing tests again; recovery never declares tests passed.
+
+If that fresh Editor isolates compiler-only errors on the retained candidate,
+the controller saves the full diagnostics and source snapshot, then durably
+converts the recovery to candidate repair. It retains the original environment
+reason in the audit, the same attempt/retry counters and all claim/generation
+fences. The same-generation owner receives the compiler diagnosis; a waiting
+controller-created failed-pin retry is cancelled. The shared slot becomes
+available only after the existing clean-baseline Console and identity checks pass.
+Persistent mixed/native errors keep the bounded environment path; a failed
+baseline stays held without resetting
+the recovery budget. Cancelled, human-waiting and superseded jobs are not resumed,
+and a launched or resumed owner keeps its process registration, claim and progress.
+
+The new kind uses the existing journal column without a schema migration. Existing
+candidate records are not reclassified from their abbreviated error text or an empty
+Console: an authorized host investigation must review retained source and diagnostics
+before correcting an old misclassification. Human-waiting jobs remain waiting.
+Settle environment recoveries before rolling back to a controller that does not
+understand this kind; preserve journals and retry counters.
+
 ## Automatic worker cache retention
 
 `serve` runs a separate `worker_retention` loop. By default it starts a backlog

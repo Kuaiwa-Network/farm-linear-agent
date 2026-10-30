@@ -36,6 +36,28 @@ class RecoveryTests(LedgerBase):
             self.store().complete(repair['id'], repair['attempts'], PIN['commit_sha'], 'healthy')
             self.ledger.cancel(item, 'fixture complete')
 
+    def test_detached_compiler_promotion_preserves_cancel_question_and_new_generation(self):
+        for changed in ('cancel', 'question', 'generation'):
+            with self.subTest(changed=changed):
+                item, _, reservation = self.running_with_slot()
+                self.ledger.hold(reservation['reservation_id'], 'FMOD and compiler errors', recovery_kind='environment')
+                recovery = self.begin()
+                store = self.store()
+                store.detach(recovery['id'], recovery['attempts'])
+                if changed == 'cancel':
+                    self.ledger.cancel(item, 'operator stop')
+                elif changed == 'question':
+                    self.legacy_pause(item, 'Which behavior should the correction preserve?')
+                else:
+                    self.ledger.connection.execute('UPDATE work_items SET generation=generation+1 WHERE id=?', (item,))
+                before = self.ledger.item(item)
+                store.mark_candidate(recovery['id'], recovery['attempts'], reason='recovered editor: error CS0246')
+                after = self.ledger.item(item)
+                for key in ('state', 'stage', 'generation', 'checkpoint'):
+                    self.assertEqual(after[key], before[key])
+                store.complete(recovery['id'], recovery['attempts'], PIN['commit_sha'], 'healthy')
+                self.ledger.cancel(item, 'fixture complete')
+
     def test_upgrade_preserves_existing_retry_counts_and_pending_recovery(self):
         item, _, r = self.running_with_slot()
         self.ledger.hold(r['reservation_id'], 'old execution stalled')
@@ -354,6 +376,24 @@ class RecoveryTests(LedgerBase):
         self.assertIn('MCP project identity mismatch', notice)
         self.assertNotIn('test', notice)
         self.assertEqual(self.ledger.item(item)['checkpoint']['saved'], 'keep me')
+
+    def test_environment_failures_share_setup_budget_across_restart_and_do_not_reject_source(self):
+        item, _, reservation = self.running_with_slot()
+        for kind in ('setup', 'environment', 'setup', 'environment'):
+            self.ledger.hold(reservation['reservation_id'], 'audio output initialization failed', recovery_kind=kind)
+            store = self.store(self.open_ledger())
+            recovery = store.begin(store.pending('test')[0]['id'])
+            store.detach(recovery['id'], recovery['attempts'])
+            store.complete(recovery['id'], recovery['attempts'], 'b' * 40, 'healthy')
+            self.assertEqual(store.job_attempts(item), 0)
+            self.assertFalse(store.rejected_candidate(item, self.ledger.item(item)['generation'], 'b' * 40))
+            if self.ledger.item(item)['state'] != 'failed':
+                reservation = self.ledger.acquire('unity_slot', owner='pool', host='test')
+        self.assertEqual(store.job_attempts(item, recovery_kind='environment'), 3)
+        self.assertEqual(self.ledger.item(item)['state'], 'failed')
+        self.assertEqual(self.ledger.item(item)['checkpoint']['saved'], 'keep me')
+        self.assertIn('slot preparation', store.notifications()[0]['body'])
+        self.assertEqual(self.ledger.reservations(states=('queued', 'active')), [])
 
     def test_legacy_adoption_does_not_consume_worker_recovery_budget(self):
         item, _, r = self.running_with_slot()

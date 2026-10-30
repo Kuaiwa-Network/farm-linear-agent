@@ -52,6 +52,164 @@ class CandidateMcp(FakeMcp):
 
 class CandidateRepairTests(SlotFixture):
     fixed_pool = fixed.FixedEditorPoolTests.fixed_pool
+
+    def test_warm_editor_console_failure_uses_environment_recovery(self):
+        mcp = CandidateMcp(console_errors=['FMOD: Error initializing output device (60)'])
+        pool = self.fixed_pool(1, mcp=mcp)
+        pool.ensure()
+        [record] = RecoveryStore(self.ledger).pending('test')
+        self.assertEqual(record['recovery_kind'], 'environment')
+        self.assertIsNone(record['item_id'])
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
+
+    def test_console_environment_failure_recovers_and_regrants_the_unchanged_candidate(self):
+        self.candidates()
+        self.mcp.failed_commit = None  # Clean source; the audio device is the only failure.
+        self.mcp.console_errors = ['FMOD failed to switch back to normal output ... Error initializing output device (60)']
+        item = self.waiting(ISSUE, self.bad)
+        self.assertEqual(self.pool.grant(), 0)
+        store = RecoveryStore(self.ledger)
+        [record] = store.pending('test')
+        self.assertEqual(record['recovery_kind'], 'environment')
+        self.assertFalse(store.rejected_candidate(item, self.ledger.item(item)['generation'], self.bad))
+        self.assertIsNone(store.known_candidate('test', ['unity_slot:1'], self.bad))
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
+
+        # A new process has a working device. The old process must not be reused
+        # even if it looks idle or a refresh would clear its error.
+        original_start = self.mcp.start
+        def start(slot, entry):
+            self.mcp.console_errors = []
+            return original_start(slot, entry)
+        self.mcp.start = start
+        self.assertEqual(self.controller().tick()['repaired'], 1)
+        self.assertIn(('terminate', 'unity_slot:1'), self.mcp.calls)
+        self.assertEqual(store.job_attempts(item, recovery_kind='setup'), 1)
+        self.assertEqual(store.job_attempts(item), 0)
+        self.assertIsNone(self.ledger.item(item)['candidate_repair'])
+        [replacement] = self.ledger.reservations(states=('queued',))
+        self.assertEqual(replacement['commit_sha'], self.bad)
+        self.assertEqual(self.pool.grant(), 1)
+        self.assertEqual(self.ledger.active_reservation(item)['commit_sha'], self.bad)
+
+    def mixed_console_failure(self, *, single=False, persistent=False):
+        self.candidates()
+        self.mcp.failed_commit = None
+        self.compiler_errors = ['Assets/Candidate.cs(1,1): error CS0246: missing type']
+        mixed = ['FMOD: Error initializing output device (60)', *self.compiler_errors]
+        def errors(slot, commit):
+            if commit != self.bad:
+                return []
+            fresh = sum(name == 'start' for name, _ in self.mcp.calls) > 1
+            return self.compiler_errors if fresh and not persistent else mixed
+        self.mcp.console_errors_since = errors
+        if single:
+            from agent.execution import queue_resource
+            from test_ledger import issue
+            self.ledger.observe_issue(issue(id=ISSUE))
+            self.ledger.ensure_session('mixed-console', ISSUE, delegation=True)
+            self.item = self.ledger.create_work_item(issue_id=ISSUE, session_id='mixed-console', skill='work')['id']
+            self.ledger.set_worker(self.item, 123, 'test')
+            self.claim = self.ledger.claim(self.item, worker_id='sole-owner')['token']
+            self.ledger.checkpoint(self.item, self.claim, {'handoff': 'Preserve candidate and reports'})
+            queue_resource(self.ledger, self.item, self.claim, 'unity_slot', 'interactive', self.bad)
+        else:
+            self.item = self.waiting(ISSUE, self.bad)
+        self.assertEqual(self.pool.grant(), 0)
+        self.store = RecoveryStore(self.ledger)
+        [self.record] = self.store.pending('test')
+        self.assertEqual(self.record['recovery_kind'], 'environment')
+
+    def assert_mixed_console_source_repair(self, *, single):
+        self.mixed_console_failure(single=single)
+        self.assertEqual(self.controller().tick()['repaired'], 1)
+        item = self.ledger.item(self.item)
+        self.assertEqual((item['state'], item['stage']), ('queued', 'unity-candidate-repair'))
+        self.assertEqual(item['candidate_repair']['failed_commit'], self.bad)
+        self.assertIn('error CS0246', item['candidate_repair']['reason'])
+        self.assertNotIn('FMOD', item['candidate_repair']['reason'])
+        self.assertEqual(self.ledger.reservations(states=('queued', 'active')), [])
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'idle_open')
+        self.assertEqual(self.ledger.slot('unity_slot:1')['parked_commit'], self.main)
+        self.assertEqual(self.store.job_attempts(self.item, recovery_kind='setup'), 1)
+        self.assertEqual(self.store.job_attempts(self.item), 0)
+        self.assertEqual(sum(name == 'terminate' for name, _ in self.mcp.calls), 1)
+        self.assertEqual(sum(name == 'start' for name, _ in self.mcp.calls), 2)
+        evidence = json.loads((self.root / 'recovery evidence' / self.record['id'] /
+                               'attempt-1-compiler.json').read_text(encoding='utf-8'))
+        self.assertEqual(evidence['errors'], self.compiler_errors)
+        self.assertEqual(evidence['commit_sha'], self.bad)
+        self.assertEqual(evidence['source']['commit_sha'], self.bad)
+        audit = self.ledger.connection.execute(
+            "SELECT details FROM audit WHERE item_id=? AND kind='unity_candidate_diagnosed'", (self.item,)).fetchone()
+        self.assertEqual(json.loads(audit['details'])['previous_kind'], 'environment')
+        self.assertIn('FMOD', json.loads(audit['details'])['previous_reason'])
+        if single:
+            self.assertEqual(item['checkpoint']['handoff'], 'Preserve candidate and reports')
+            with self.assertRaises(LedgerError):
+                self.ledger.checkpoint(self.item, self.claim, {'summary': 'stale owner'})
+        other = self.waiting(OTHER, self.main)
+        self.assertEqual(self.pool.grant(), 1)
+        self.assertEqual(self.ledger.active_reservation(other)['commit_sha'], self.main)
+
+    def test_mixed_console_errors_become_source_repair_after_fresh_editor_diagnosis(self):
+        self.assert_mixed_console_source_repair(single=False)
+
+    def test_single_worker_mixed_console_errors_return_candidate_repair_and_free_slot(self):
+        self.assert_mixed_console_source_repair(single=True)
+
+    def test_persistent_mixed_console_errors_exhaust_environment_recovery_without_rejecting_source(self):
+        self.mixed_console_failure(persistent=True)
+        for delay in (0, 61, 181):
+            self.advance(delay)
+            self.assertEqual(self.controller().tick()['repaired'], 0)
+        record = self.store.get(self.record['id'])
+        self.assertEqual((record['recovery_kind'], record['state'], record['attempts']),
+                         ('environment', 'exhausted', 3))
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
+        self.assertIsNone(self.ledger.item(self.item)['candidate_repair'])
+        self.assertFalse(self.store.rejected_candidate(self.item, self.ledger.item(self.item)['generation'], self.bad))
+
+    def test_mixed_fault_never_promotes_source_if_old_editor_survives(self):
+        self.mixed_console_failure()
+        self.mcp.terminate = lambda slot, timeout: None
+        self.assertEqual(self.controller().tick()['repaired'], 0)
+        self.assertEqual(self.store.get(self.record['id'])['recovery_kind'], 'environment')
+        self.assertIsNone(self.ledger.item(self.item)['candidate_repair'])
+        self.assertEqual(sum(name == 'start' for name, _ in self.mcp.calls), 1)
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
+
+    def test_mixed_fault_requires_saved_compiler_evidence_before_candidate_transition(self):
+        self.mixed_console_failure()
+        controller = self.controller()
+        save = controller._save
+        def unavailable(record, name, value):
+            if name.endswith('-compiler.json'):
+                raise OSError('evidence storage unavailable')
+            return save(record, name, value)
+        controller._save = unavailable
+        self.assertEqual(controller.tick()['repaired'], 0)
+        self.assertEqual(self.store.get(self.record['id'])['recovery_kind'], 'environment')
+        self.assertIsNone(self.ledger.item(self.item)['candidate_repair'])
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
+        self.assertEqual(self.trees.head(self.pool.folder(self.pool.entries['unity_slot:1'])), self.bad)
+
+    def test_mixed_fault_candidate_transition_survives_failed_baseline_without_resetting_attempts(self):
+        self.mixed_console_failure()
+        errors = self.mcp.console_errors_since
+        self.mcp.console_errors_since = lambda slot, commit: errors(slot, commit) if commit == self.bad else self.compiler_errors
+        self.assertEqual(self.controller().tick()['repaired'], 0)
+        record = self.store.get(self.record['id'])
+        self.assertEqual((record['recovery_kind'], record['state'], record['attempts']), ('candidate', 'pending', 1))
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
+        self.assertEqual(self.ledger.item(self.item)['candidate_repair']['failed_commit'], self.bad)
+        self.mcp.console_errors_since = errors
+        self.advance(61)
+        self.assertEqual(self.controller().tick()['repaired'], 1)
+        self.assertEqual(self.store.get(self.record['id'])['attempts'], 2)
+        self.assertEqual(self.store.job_attempts(self.item, recovery_kind='setup'), 1)
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'idle_open')
+
     def waiting(self, issue_id, commit, mode='interactive'):
         item = fixed.FixedEditorPoolTests.waiting(self, issue_id, commit, mode)
         self.ledger.connection.execute("UPDATE work_items SET root_repo='Farm-Client' WHERE id=?", (item,))
@@ -241,11 +399,11 @@ class CandidateRepairTests(SlotFixture):
         self.candidates()
         self.mcp.failed_commit = None
         self.item = self.waiting(ISSUE, self.bad)
-        self.mcp.console_errors_since = lambda slot, commit: ['candidate CS0246'] if commit == self.bad else []
+        self.mcp.console_errors_since = lambda slot, commit: ['Assets/Candidate.cs(1,1): error CS0246: missing type'] if commit == self.bad else []
         self.assertEqual(self.pool.grant(), 0)
         self.assertEqual(self.controller().tick()['repaired'], 1)
         self.assertEqual(self.ledger.item(self.item)['state'], 'queued')
-        self.assertIn('candidate CS0246', self.ledger.item(self.item)['candidate_repair']['reason'])
+        self.assertIn('error CS0246', self.ledger.item(self.item)['candidate_repair']['reason'])
         self.assertFalse(any(r['item_id'] == self.item for r in self.ledger.reservations(states=('queued',))))
 
     def failed_baseline(self, *, exhausted=False, generated=False):

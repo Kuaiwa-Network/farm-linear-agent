@@ -198,6 +198,58 @@ class SingleWorkerTests(LedgerBase):
         self.assertEqual(item['checkpoint']['handoff'], 'Continue original candidate')
         self.assertEqual(store.job_attempts(self.key), 1)
 
+    def test_environment_recovery_preserves_single_owner_and_allows_original_sha_request(self):
+        from agent.resource_recovery import RecoveryStore
+        self.claim_owner()
+        grant = self.reservation()
+        self.ledger.hold(grant['reservation_id'], 'FMOD output device failed', recovery_kind='environment')
+        with self.assertRaises(LedgerError):
+            self.ledger.checkpoint(self.key, self.token, {'summary': 'stale worker'})
+        store = RecoveryStore(self.ledger)
+        recovery = store.begin(store.pending('test')[0]['id'])
+        store.detach(recovery['id'], recovery['attempts'])
+        store.complete(recovery['id'], recovery['attempts'], SHA, 'healthy')
+        item = self.ledger.item(self.key)
+        self.assertEqual((item['state'], item['stage']), ('queued', 'resource-recovery-review'))
+        self.assertIsNone(item['candidate_repair'])
+        self.assertEqual(item['checkpoint']['handoff'], 'Continue original candidate')
+        self.assertEqual(store.job_attempts(self.key, recovery_kind='setup'), 1)
+        self.assertEqual(store.job_attempts(self.key), 0)
+        claim = self.ledger.claim(self.key, worker_id='resumed-owner')
+        request = queue_resource(self.ledger, self.key, claim['token'], 'unity_slot', 'interactive', SHA)
+        self.assertEqual(self.ledger.reservation(request['reservation_id'])['commit_sha'], SHA)
+
+    def assert_late_compiler_diagnosis_keeps_resumed_owner(self, *, claimed):
+        from agent.resource_recovery import RecoveryStore
+        self.claim_owner()
+        grant = self.reservation()
+        self.ledger.hold(grant['reservation_id'], 'FMOD and compiler errors', recovery_kind='environment')
+        store = RecoveryStore(self.ledger)
+        recovery = store.begin(store.pending('test')[0]['id'])
+        store.detach(recovery['id'], recovery['attempts'])
+        self.ledger.set_worker(self.key, 456, 'test')
+        if claimed:
+            claim = self.ledger.claim(self.key, worker_id='resumed-owner')
+            self.ledger.checkpoint(self.key, claim['token'], {'summary': 'Reviewing saved reports'})
+        before = self.ledger.item(self.key)
+        store.mark_candidate(recovery['id'], recovery['attempts'], reason='recovered editor: error CS0246')
+        after = self.ledger.item(self.key)
+        self.assertEqual(after['stage'], before['stage'])
+        self.assertEqual(after['worker_pid'], 456)
+        self.assertEqual(after['state'], before['state'])
+        self.assertEqual(after['checkpoint'], before['checkpoint'])
+        if not claimed:
+            claim = self.ledger.claim(self.key, worker_id='resumed-owner')
+        self.assertEqual(self.ledger.renew(self.key, claim['token'])['state'], 'running')
+        self.assertIn('error CS0246', after['candidate_repair']['reason'])
+        self.assertEqual(store.job_attempts(self.key, recovery_kind='setup'), 1)
+
+    def test_late_compiler_diagnosis_keeps_resumed_owner_claim_and_progress(self):
+        self.assert_late_compiler_diagnosis_keeps_resumed_owner(claimed=True)
+
+    def test_late_compiler_diagnosis_keeps_launched_unclaimed_owner_registered(self):
+        self.assert_late_compiler_diagnosis_keeps_resumed_owner(claimed=False)
+
     def test_monitor_and_progress_distinguish_live_resource_wait_from_relaunch(self):
         from agent.monitor_view import _display_state
         from agent.session_progress import SessionProgress

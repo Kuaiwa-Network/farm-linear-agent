@@ -374,7 +374,7 @@ class BrokenCheckout:
 
 
 class StageTests(unittest.TestCase):
-    def test_a_slot_error_refuses_a_stage_that_is_not_one_of_the_four(self):
+    def test_a_slot_error_refuses_an_unknown_stage(self):
         """`STAGES` was declared in Task 4 and read by nothing, and Task 6 is the first code to branch on
         `exc.stage`. That branch is string equality: `stage="prob"` at any raise site would fall through the
         probe arm and *release* a slot spec §7 says to hold, silently, on the only slot there is. Validating
@@ -536,6 +536,19 @@ class SwitchTests(SlotFixture):
             pool.switch("unity_slot:1", self.commit("more"), "interactive")
         self.assertEqual((caught.exception.stage, caught.exception.fault), ("probe", "farmbot"))
         self.assertEqual(sum(name == "wait_quiet" for name, _ in pool.mcp.calls), 1)
+
+    def test_non_compiler_console_errors_are_environment_failures(self):
+        for errors in (["FMOD failed to switch back to normal output ... Error initializing output device (60)"],
+                       ["TLS Allocator ALLOC_TEMP_TLS has unfreed allocations"],
+                       ["Unknown native subsystem failure"],
+                       ["Assets/A.cs(3,1): error CS1002: ; expected", "Native assertion"]):
+            with self.subTest(errors=errors):
+                pool = self.pool(mcp=FakeMcp(console_errors=errors))
+                slot = pool.ensure()[0]
+                with self.assertRaises(SlotError) as caught:
+                    pool.switch(slot['slot_id'], slot['parked_commit'], 'interactive')
+                self.assertEqual(caught.exception.stage, 'environment')
+                self.assertIn(errors[0], str(caught.exception))
 
     def test_a_compile_error_fails_the_item_at_its_own_stage_and_leaves_the_slot_usable(self):
         """spec §7 asks for 'zero Console errors'. A project that does not compile is the item's problem: it
