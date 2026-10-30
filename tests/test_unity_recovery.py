@@ -90,10 +90,10 @@ class EditorRecoveryTests(SlotFixture):
         adapter.repair(dict(r, recovery_kind='setup', attempts=2))
         self.assertIn(('terminate', r['slot_id']), mcp.calls)
 
-    def test_execution_recovery_restarts_quiet_editor_on_each_new_recovery(self):
+    def test_execution_and_environment_recovery_restart_quiet_editor_on_each_new_recovery(self):
         adapter, pool, mcp, record = self.setup_repair()
         mcp.quiescent = lambda slot, mode: True
-        for index, kind in enumerate((None, 'execution'), 1):
+        for index, kind in enumerate((None, 'execution', 'environment'), 1):
             with self.subTest(kind=kind):
                 record = dict(record, id=f'recovery-{index}', attempts=1)
                 if kind:

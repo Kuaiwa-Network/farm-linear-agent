@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS resource_watches (
 MAX_JOB_RETRIES = 2
 MAX_SETUP_RETRIES = 3
 MAX_REPAIR_ATTEMPTS = 3
+SETUP_RECOVERY_KINDS = ('setup', 'environment')
 
 
 @contextmanager
@@ -89,7 +90,7 @@ class RecoveryStore:
 
     def request_in_transaction(self, slot_id, reason, *, adopt=False, recovery_kind='execution'):
         """Called by hold() inside its transaction; never infer intent from prose."""
-        if recovery_kind not in ('execution', 'setup', 'candidate'):
+        if recovery_kind not in ('execution', *SETUP_RECOVERY_KINDS, 'candidate'):
             raise ValueError('unknown resource recovery kind')
         slot = self.ledger._slot_row(slot_id)
         existing = self.db.execute("SELECT * FROM resource_recoveries WHERE slot_id=? AND state IN ('pending','repairing')",
@@ -362,9 +363,9 @@ class RecoveryStore:
                             (self.ledger.clock() + 60, self.ledger.clock(), recovery_id))
 
     def job_attempts(self, item_id, *, recovery_kind='execution'):
-        if recovery_kind not in ('execution', 'setup'):
+        if recovery_kind not in ('execution', *SETUP_RECOVERY_KINDS):
             raise ValueError('unknown resource recovery kind')
-        column = 'setup_attempts' if recovery_kind == 'setup' else 'attempts'
+        column = 'setup_attempts' if recovery_kind in SETUP_RECOVERY_KINDS else 'attempts'
         row = self.db.execute(f'SELECT {column} FROM resource_job_retries WHERE item_id=?', (item_id,)).fetchone()
         return row[column] if row else 0
 
@@ -412,7 +413,7 @@ class RecoveryStore:
                                            {'recovery_id': recovery_id, 'failed_commit': old['commit_sha']})
                         self.db.execute('UPDATE resource_recoveries SET detached=1,updated_at=? WHERE id=?', (self.ledger.clock(), recovery_id))
                         return
-                    setup = r['recovery_kind'] == 'setup'
+                    setup = r['recovery_kind'] in SETUP_RECOVERY_KINDS
                     limit = MAX_SETUP_RETRIES if setup else MAX_JOB_RETRIES
                     if self.job_attempts(item['id'], recovery_kind=r['recovery_kind']) >= limit:
                         phase = 'slot preparation' if setup else 'worker execution'

@@ -52,6 +52,46 @@ class CandidateMcp(FakeMcp):
 
 class CandidateRepairTests(SlotFixture):
     fixed_pool = fixed.FixedEditorPoolTests.fixed_pool
+
+    def test_warm_editor_console_failure_uses_environment_recovery(self):
+        mcp = CandidateMcp(console_errors=['FMOD: Error initializing output device (60)'])
+        pool = self.fixed_pool(1, mcp=mcp)
+        pool.ensure()
+        [record] = RecoveryStore(self.ledger).pending('test')
+        self.assertEqual(record['recovery_kind'], 'environment')
+        self.assertIsNone(record['item_id'])
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
+
+    def test_console_environment_failure_recovers_and_regrants_the_unchanged_candidate(self):
+        self.candidates()
+        self.mcp.failed_commit = None  # Clean source; the audio device is the only failure.
+        self.mcp.console_errors = ['FMOD failed to switch back to normal output ... Error initializing output device (60)']
+        item = self.waiting(ISSUE, self.bad)
+        self.assertEqual(self.pool.grant(), 0)
+        store = RecoveryStore(self.ledger)
+        [record] = store.pending('test')
+        self.assertEqual(record['recovery_kind'], 'environment')
+        self.assertFalse(store.rejected_candidate(item, self.ledger.item(item)['generation'], self.bad))
+        self.assertIsNone(store.known_candidate('test', ['unity_slot:1'], self.bad))
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
+
+        # A new process has a working device. The old process must not be reused
+        # even if it looks idle or a refresh would clear its error.
+        original_start = self.mcp.start
+        def start(slot, entry):
+            self.mcp.console_errors = []
+            return original_start(slot, entry)
+        self.mcp.start = start
+        self.assertEqual(self.controller().tick()['repaired'], 1)
+        self.assertIn(('terminate', 'unity_slot:1'), self.mcp.calls)
+        self.assertEqual(store.job_attempts(item, recovery_kind='setup'), 1)
+        self.assertEqual(store.job_attempts(item), 0)
+        self.assertIsNone(self.ledger.item(item)['candidate_repair'])
+        [replacement] = self.ledger.reservations(states=('queued',))
+        self.assertEqual(replacement['commit_sha'], self.bad)
+        self.assertEqual(self.pool.grant(), 1)
+        self.assertEqual(self.ledger.active_reservation(item)['commit_sha'], self.bad)
+
     def waiting(self, issue_id, commit, mode='interactive'):
         item = fixed.FixedEditorPoolTests.waiting(self, issue_id, commit, mode)
         self.ledger.connection.execute("UPDATE work_items SET root_repo='Farm-Client' WHERE id=?", (item,))
@@ -241,11 +281,11 @@ class CandidateRepairTests(SlotFixture):
         self.candidates()
         self.mcp.failed_commit = None
         self.item = self.waiting(ISSUE, self.bad)
-        self.mcp.console_errors_since = lambda slot, commit: ['candidate CS0246'] if commit == self.bad else []
+        self.mcp.console_errors_since = lambda slot, commit: ['Assets/Candidate.cs(1,1): error CS0246: missing type'] if commit == self.bad else []
         self.assertEqual(self.pool.grant(), 0)
         self.assertEqual(self.controller().tick()['repaired'], 1)
         self.assertEqual(self.ledger.item(self.item)['state'], 'queued')
-        self.assertIn('candidate CS0246', self.ledger.item(self.item)['candidate_repair']['reason'])
+        self.assertIn('error CS0246', self.ledger.item(self.item)['candidate_repair']['reason'])
         self.assertFalse(any(r['item_id'] == self.item for r in self.ledger.reservations(states=('queued',))))
 
     def failed_baseline(self, *, exhausted=False, generated=False):

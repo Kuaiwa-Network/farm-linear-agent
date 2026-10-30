@@ -818,6 +818,25 @@ hold. The shared MCP broker and all recovery evidence remain intact.
 This requires a controller release, adds no schema, and does not automatically
 resume exhausted jobs. Rolling back restores the older readiness/reuse behavior.
 
+Preparation distinguishes C# compiler diagnostics (`error CS` followed by four
+digits) from other error-severity Console entries. Only an all-compiler error
+set takes the compile/candidate-repair path. FMOD device errors, native assertions,
+unclassified errors and mixed compiler/native errors remain readiness failures,
+but use typed `environment` recovery. This shares the existing three preparation
+retries with `setup`, preserves the exact commit and does not reject that SHA as
+bad source. Environment recovery always replaces the owned Editor after verified
+teardown; a clean Console after reload alone cannot certify recovery. Fresh Console
+and source/assembly identity checks still gate reuse, and changed importer metadata
+retains the existing candidate-preservation path. Single workers review retained
+evidence before requesting missing tests again; recovery never declares tests passed.
+
+The new kind uses the existing journal column without a schema migration. Existing
+candidate records are not reclassified from their abbreviated error text or an empty
+Console: an authorized host investigation must review retained source and diagnostics
+before correcting an old misclassification. Human-waiting jobs remain waiting.
+Settle environment recoveries before rolling back to a controller that does not
+understand this kind; preserve journals and retry counters.
+
 ## Automatic worker cache retention
 
 `serve` runs a separate `worker_retention` loop. By default it starts a backlog

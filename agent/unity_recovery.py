@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from .identity import CHECKS, source_snapshot
-from .slots import SlotError
+from .slots import SlotError, console_failure
 
 
 class SourceMetaReconciled(SlotError):
@@ -56,7 +56,7 @@ class UnityRecovery:
             raise SlotError('late Editor is not idle on the configured project', stage='editor')
         errors = pool.mcp.console_errors_since(slot, commit)
         if errors:
-            raise SlotError(f'late Editor has compilation/console errors: {errors[0]}', stage='compile')
+            raise console_failure(errors, 'late Editor')
         result = pool.mcp.probe(slot, {'repository': str(folder), 'commit_sha': commit,
                                      'build_target': entry.get('build_target')})
         if result.get('aggregate') != 'match' or source_snapshot(folder) != before:
@@ -88,7 +88,8 @@ class UnityRecovery:
                         # Execution failures can leave native process state broken
                         # even after a clean domain reload. A new recovery record
                         # must not give that same Editor another first-attempt reuse.
-                        # Only pre-handoff setup recovery may reuse a quiet Editor.
+                        # Only pre-handoff reconnect recovery may reuse a quiet
+                        # Editor. Console environment faults require a new process.
                         reusable = (recovery.get('recovery_kind') == 'setup'
                                     and recovery.get('attempts', 1) == 1
                                     and pool.worktrees.head(folder) == commit)
@@ -131,7 +132,7 @@ class UnityRecovery:
         pool.refresh_and_wait(slot, entry['quiet_timeout'])
         errors = pool.mcp.console_errors_since(slot, commit)
         if errors:
-            raise SlotError(f'recovered editor has compilation/console errors: {errors[0]}', stage='compile')
+            raise console_failure(errors, 'recovered editor')
         result = pool.mcp.probe(slot, {'repository': str(folder), 'commit_sha': commit,
                                        'build_target': entry.get('build_target')})
         if result.get('aggregate') != 'match':
@@ -244,7 +245,7 @@ class UnityRecovery:
         pool.refresh_and_wait(slot, entry['quiet_timeout'])
         errors = pool.mcp.console_errors_since(slot, baseline)
         if errors:
-            raise SlotError(f'baseline compilation failed: {errors[0]}', stage='compile')
+            raise console_failure(errors, 'recovery baseline')
         observation = pool.mcp.probe(slot, {'repository': str(folder), 'commit_sha': baseline,
                                            'build_target': entry.get('build_target')})
         if observation.get('aggregate') != 'match' or source_snapshot(folder)['dirty']:

@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import math
 import os
+import re
 import signal
 import subprocess
 import time
@@ -64,7 +65,7 @@ DEFAULTS = {
 
 
 class SlotError(RuntimeError):
-    STAGES = ("git", "editor", "compile", "probe")
+    STAGES = ("git", "editor", "compile", "probe", "environment")
     # A mistake in FarmBot's own code reaches the collaborator handlers below as an ordinary exception — an
     # AttributeError on an mcp that was never wired, say — and would otherwise be reported to the operator
     # as "the Editor never went quiet". The stage, and therefore the hold, is the same either way; only the
@@ -84,6 +85,18 @@ class SlotError(RuntimeError):
         self.stage = stage
         # "external" is git, Unity, the host or the operator; "farmbot" is this codebase's own bug.
         self.fault = fault
+
+
+def console_failure(errors, context):
+    """Every fresh error blocks readiness; only compiler diagnostics blame source.
+
+    A native assertion/device failure (or an unclassified error) needs bounded
+    environment recovery, not a permanent rejection of the candidate SHA.
+    Mixed compiler/native errors also require a fresh process before diagnosis.
+    """
+    compiler_only = all(re.search(r'\berror CS\d{4}\b', error) for error in errors)
+    stage = 'compile' if compiler_only else 'environment'
+    return SlotError(f'{context}: {len(errors)} {stage} error(s): {errors[0]}', stage=stage)
 
 
 def slot_entry(raw):
@@ -324,7 +337,8 @@ class SlotPool:
                     continue
                 with self.ledger._transaction():
                     RecoveryStore(self.ledger).request_in_transaction(slot_id,
-                        f"persistent Editor preparation failed: {type(exc).__name__}: {exc}", recovery_kind="setup")
+                        f"persistent Editor preparation failed: {type(exc).__name__}: {exc}",
+                        recovery_kind='environment' if isinstance(exc, SlotError) and exc.stage == 'environment' else 'setup')
             else:
                 self.ledger.set_slot_state(slot_id, "idle_open", parked_commit=commit)
                 self.ledger.note(slot_id, 'unity_editor_verified', 'persistent Editor baseline verified',
@@ -693,6 +707,10 @@ class SlotPool:
 
     def _switch_failed(self, reservation, exc, *, recovery_kind='setup'):
         reason = str(exc)[:400]
+        if exc.stage == 'environment':
+            self.ledger.hold(reservation['reservation_id'], reason,
+                             recovery_kind='environment' if recovery_kind == 'setup' else recovery_kind)
+            return
         if self.keep_open and (exc.stage == 'compile' or
                 (exc.stage == 'probe' and self.source_candidate_failure(self.last_observation or {}))):
             self.ledger.hold(reservation['reservation_id'], reason, recovery_kind='candidate')
@@ -884,9 +902,7 @@ class SlotPool:
                                            doing="waiting for the Editor to go quiet after the refresh") from exc
         errors = self.mcp.console_errors_since(slot, commit)
         if errors:
-            # Not a probe failure: the slot is fine, the commit does not compile. Keep the slot in the pool.
-            raise SlotError(f"{slot_id}: {len(errors)} compile error(s) at {commit[:7]}: {errors[0]}",
-                            stage="compile")
+            raise console_failure(errors, f'{slot_id} at {commit[:7]}')
         if instance and instance != slot.get("instance"):
             self.ledger.set_slot_state(slot_id, "switching", instance=instance)
             slot = self.ledger.slot(slot_id)

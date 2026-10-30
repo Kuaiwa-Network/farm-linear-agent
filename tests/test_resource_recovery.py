@@ -355,6 +355,24 @@ class RecoveryTests(LedgerBase):
         self.assertNotIn('test', notice)
         self.assertEqual(self.ledger.item(item)['checkpoint']['saved'], 'keep me')
 
+    def test_environment_failures_share_setup_budget_across_restart_and_do_not_reject_source(self):
+        item, _, reservation = self.running_with_slot()
+        for kind in ('setup', 'environment', 'setup', 'environment'):
+            self.ledger.hold(reservation['reservation_id'], 'audio output initialization failed', recovery_kind=kind)
+            store = self.store(self.open_ledger())
+            recovery = store.begin(store.pending('test')[0]['id'])
+            store.detach(recovery['id'], recovery['attempts'])
+            store.complete(recovery['id'], recovery['attempts'], 'b' * 40, 'healthy')
+            self.assertEqual(store.job_attempts(item), 0)
+            self.assertFalse(store.rejected_candidate(item, self.ledger.item(item)['generation'], 'b' * 40))
+            if self.ledger.item(item)['state'] != 'failed':
+                reservation = self.ledger.acquire('unity_slot', owner='pool', host='test')
+        self.assertEqual(store.job_attempts(item, recovery_kind='environment'), 3)
+        self.assertEqual(self.ledger.item(item)['state'], 'failed')
+        self.assertEqual(self.ledger.item(item)['checkpoint']['saved'], 'keep me')
+        self.assertIn('slot preparation', store.notifications()[0]['body'])
+        self.assertEqual(self.ledger.reservations(states=('queued', 'active')), [])
+
     def test_legacy_adoption_does_not_consume_worker_recovery_budget(self):
         item, _, r = self.running_with_slot()
         self.legacy_pause(item, 'Legacy request to operate the Unity host')
