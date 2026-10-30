@@ -36,6 +36,28 @@ class RecoveryTests(LedgerBase):
             self.store().complete(repair['id'], repair['attempts'], PIN['commit_sha'], 'healthy')
             self.ledger.cancel(item, 'fixture complete')
 
+    def test_detached_compiler_promotion_preserves_cancel_question_and_new_generation(self):
+        for changed in ('cancel', 'question', 'generation'):
+            with self.subTest(changed=changed):
+                item, _, reservation = self.running_with_slot()
+                self.ledger.hold(reservation['reservation_id'], 'FMOD and compiler errors', recovery_kind='environment')
+                recovery = self.begin()
+                store = self.store()
+                store.detach(recovery['id'], recovery['attempts'])
+                if changed == 'cancel':
+                    self.ledger.cancel(item, 'operator stop')
+                elif changed == 'question':
+                    self.legacy_pause(item, 'Which behavior should the correction preserve?')
+                else:
+                    self.ledger.connection.execute('UPDATE work_items SET generation=generation+1 WHERE id=?', (item,))
+                before = self.ledger.item(item)
+                store.mark_candidate(recovery['id'], recovery['attempts'], reason='recovered editor: error CS0246')
+                after = self.ledger.item(item)
+                for key in ('state', 'stage', 'generation', 'checkpoint'):
+                    self.assertEqual(after[key], before[key])
+                store.complete(recovery['id'], recovery['attempts'], PIN['commit_sha'], 'healthy')
+                self.ledger.cancel(item, 'fixture complete')
+
     def test_upgrade_preserves_existing_retry_counts_and_pending_recovery(self):
         item, _, r = self.running_with_slot()
         self.ledger.hold(r['reservation_id'], 'old execution stalled')

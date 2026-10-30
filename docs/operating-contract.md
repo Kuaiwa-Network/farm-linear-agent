@@ -830,6 +830,18 @@ and source/assembly identity checks still gate reuse, and changed importer metad
 retains the existing candidate-preservation path. Single workers review retained
 evidence before requesting missing tests again; recovery never declares tests passed.
 
+If that fresh Editor isolates compiler-only errors on the retained candidate,
+the controller saves the full diagnostics and source snapshot, then durably
+converts the recovery to candidate repair. It retains the original environment
+reason in the audit, the same attempt/retry counters and all claim/generation
+fences. The same-generation owner receives the compiler diagnosis; a waiting
+controller-created failed-pin retry is cancelled. The shared slot becomes
+available only after the existing clean-baseline Console and identity checks pass.
+Persistent mixed/native errors keep the bounded environment path; a failed
+baseline stays held without resetting
+the recovery budget. Cancelled, human-waiting and superseded jobs are not resumed,
+and a launched or resumed owner keeps its process registration, claim and progress.
+
 The new kind uses the existing journal column without a schema migration. Existing
 candidate records are not reclassified from their abbreviated error text or an empty
 Console: an authorized host investigation must review retained source and diagnostics

@@ -202,17 +202,24 @@ class RecoveryStore:
             WHERE r.recovery_kind='candidate' AND r.item_id=? AND q.generation=? AND r.commit_sha=? LIMIT 1""",
             (item_id, generation, commit)).fetchone() is not None
 
-    def mark_candidate(self, recovery_id, attempt):
-        """A fenced execution changed only metadata; stop its unchanged-pin retry."""
+    def mark_candidate(self, recovery_id, attempt, *, reason=None):
+        """Preserved metadata or fresh compiler evidence requires source repair."""
         with self.ledger._transaction():
             r = self._attempt(recovery_id, attempt)
-            self.db.execute("UPDATE resource_recoveries SET recovery_kind='candidate' WHERE id=?", (recovery_id,))
+            self.db.execute("UPDATE resource_recoveries SET recovery_kind='candidate',reason=? WHERE id=?",
+                            (reason[:1000] if reason is not None else r['reason'], recovery_id))
+            if reason is not None:
+                self.ledger._audit(r['item_id'] or r['slot_id'], 'unity_candidate_diagnosed', reason[:1000],
+                    {'recovery_id': recovery_id, 'failed_commit': r['commit_sha'],
+                     'previous_kind': r['recovery_kind'], 'previous_reason': r['reason']})
             if r['detached'] and r['item_id'] and r['reservation_id']:
                 old = self.ledger.reservation(r['reservation_id'])
                 item = self.ledger.item(r['item_id'])
                 active = self.db.execute("SELECT 1 FROM reservations WHERE item_id=? AND state IN ('active','cancel_requested')", (item['id'],)).fetchone()
-                if (r['resume_job'] and not active and item['state'] == 'awaiting_resource'
-                        and item['stage'] == 'waiting_for_recovery' and item['generation'] == old['generation']):
+                waiting = ((item['state'], item['stage']) == ('awaiting_resource', 'waiting_for_recovery')
+                           or ((item['state'], item['stage']) == ('queued', 'resource-recovery-review')
+                               and item['worker_pid'] is None))
+                if r['resume_job'] and not active and waiting and item['generation'] == old['generation']:
                     self.db.execute("UPDATE reservations SET state='cancelled',released_at=?,release_reason=? "
                         "WHERE item_id=? AND generation=? AND commit_sha=? AND state='queued'",
                         (self.ledger.clock(), 'candidate source requires correction', item['id'], old['generation'], old['commit_sha']))
@@ -739,7 +746,7 @@ class RecoveryController:
             return 0
 
     def _repair(self, recovery_id):
-        from .unity_recovery import SourceMetaReconciled
+        from .unity_recovery import CandidateCompileFailure, SourceMetaReconciled
 
         recovery = self.store.begin(recovery_id)
         if recovery is None:
@@ -763,6 +770,16 @@ class RecoveryController:
             commit, instance = self.repair(dict(recovery, evidence_dir=str(self.evidence_root / recovery_id)))
             self.store.complete(recovery_id, attempt, commit, instance)
             return 1
+        except CandidateCompileFailure as exc:
+            try:
+                self._save(recovery, f'attempt-{attempt}-compiler.json', exc.evidence)
+                recovery = self.store.mark_candidate(recovery_id, attempt, reason=str(exc))
+                commit, instance = self.repair(dict(recovery, evidence_dir=str(self.evidence_root / recovery_id)))
+                self.store.complete(recovery_id, attempt, commit, instance)
+                return 1
+            except Exception as failure:
+                self.store.failed(recovery_id, attempt, f'{type(failure).__name__}: {failure}')
+                return 0
         except SourceMetaReconciled as exc:
             try:
                 self._save(recovery, 'source-meta-reconciled.json', exc.evidence)

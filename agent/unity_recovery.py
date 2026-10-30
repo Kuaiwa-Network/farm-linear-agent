@@ -15,6 +15,14 @@ class SourceMetaReconciled(SlotError):
         self.evidence = evidence
 
 
+class CandidateCompileFailure(SlotError):
+    """A fresh environment-recovery Editor isolated a candidate compiler error."""
+
+    def __init__(self, failure, evidence):
+        super().__init__(str(failure), stage='compile')
+        self.evidence = evidence
+
+
 class UnityRecovery:
     def __init__(self, pool):
         self.pool = pool
@@ -132,7 +140,17 @@ class UnityRecovery:
         pool.refresh_and_wait(slot, entry['quiet_timeout'])
         errors = pool.mcp.console_errors_since(slot, commit)
         if errors:
-            raise console_failure(errors, 'recovered editor')
+            failure = console_failure(errors, 'recovered editor')
+            if pool.keep_open and recovery.get('recovery_kind') == 'environment' and failure.stage == 'compile':
+                # This path has replaced the old process and refreshed the exact
+                # candidate. Baseline errors and late/reused Editors cannot
+                # trigger this diagnosis. Preserve evidence before changing pins.
+                source = source_snapshot(folder)
+                if source['commit_sha'] != commit:
+                    raise SlotError('recovered compiler diagnostics have changed source HEAD', stage='git')
+                raise CandidateCompileFailure(failure, {'slot_id': slot['slot_id'], 'commit_sha': commit,
+                    'instance': instance, 'errors': errors, 'source': source})
+            raise failure
         result = pool.mcp.probe(slot, {'repository': str(folder), 'commit_sha': commit,
                                        'build_target': entry.get('build_target')})
         if result.get('aggregate') != 'match':
