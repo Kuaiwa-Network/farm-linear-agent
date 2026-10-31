@@ -55,6 +55,17 @@ can gain the issue label during reconciliation without resuming work. Neither
 `待人工审查` nor legacy `needs-person` blocks a new review, including when present
 in an old host's hold-label config; explicit holds such as `hold-auto-merge` still do.
 
+Monitor includes current review runs in its top counts and active list, with one
+task per issue delivery regardless of the number of repository PRs. It displays
+the FARM identifier/title, current-candidate review or repair phase, CI state,
+completed repair rounds, cumulative received reports and partial merges. CI-only
+waits have their own count and do not imply worker occupancy. Terminal handoffs,
+superseded generations and merged runs leave the active list; terminal PR results
+remain in history. Missing/stale heartbeats mark progress as recorded evidence,
+not proof of a live reviewer. No private reports, claim tokens or prompts are
+included in the new projection. This is read-only and needs no schema migration;
+rollback removes the display without changing review execution or evidence.
+
 Review capacity admits eligible repairs before new reviews. Within each role,
 admission uses the latest observed Linear priority (urgent, high, normal, low, then
 no priority), with PR enrollment order breaking ties. Active issue reads refresh

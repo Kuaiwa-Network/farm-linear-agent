@@ -40,6 +40,7 @@
     resource_in_use: ["资源已就绪，同一 worker 继续", "info"],
     resource_released: ["资源已释放，worker 继续处理", "info"],
     resource_held: ["资源已隔离，等待恢复", "warn"],
+    review: ["评审流程", "info"],
     preparing_delivery: ["正在发布交付说明", "info"],
     delivery_posted: ["交付说明已发布，正在完成 finish", "info"],
     legacy_paused: ["旧流程暂停，等待显式接续", "neutral"],
@@ -61,6 +62,18 @@
   const SLOT = {
     idle_closed: ["空闲", "neutral"], idle_open: ["空闲（编辑器已打开）", "ok"], switching: ["切换中", "info"],
     interactive_busy: ["已分配给验证任务", "info"], batch_busy: ["批量测试中", "info"], held: ["已隔离", "bad"],
+  };
+  const REVIEW_PHASE = {
+    integrating: ["等待集成候选", "neutral"], review_queued: ["等待独立审查", "neutral"],
+    review_starting: ["审查启动中", "info"], review_running: ["独立审查中", "info"],
+    repair_queued: ["等待 AI 修复", "warn"], repair_starting: ["修复启动中", "info"],
+    repair_running: ["AI 修复中", "info"], review_finishing: ["审查收尾中", "info"],
+    repair_finishing: ["修复收尾中", "info"], report_pending: ["报告待处理", "info"],
+    waiting_ci: ["等待 GitHub CI", "neutral"], merge_queued: ["等待合并", "neutral"],
+    promoting: ["发布修复中", "info"], merging: ["确认合并结果", "info"],
+    retry_wait: ["等待重试", "warn"], paused: ["评审已暂停", "neutral"],
+    shadow_repair: ["影子模式：需要修复", "warn"], merged: ["已合并", "ok"],
+    human_handoff: ["已交付人工", "warn"], unknown: ["等待控制器更新", "neutral"],
   };
   // Each label receives the attention item and the rendered work document, whose slots may be null.
   const ATTENTION = {
@@ -229,6 +242,7 @@
 
   function renderCounts(work) {
     const tiles = [["处理中", work.counts.running], ["排队", work.counts.queued],
+                   ["等待 CI", work.counts.waiting_ci || 0],
                    ["等待回复", work.counts.awaiting_input], ["等待资源", work.counts.awaiting_resource]];
     byId("counts").replaceChildren(...tiles.map(([label, value]) =>
       cell("tile", el("div", "muted", label), el("div", "number", value))));
@@ -389,6 +403,7 @@
     const target = byId("active-rows");
     if (!work.active.length) return target.replaceChildren(el("div", "empty muted", "目前没有进行中的工作"));
     target.replaceChildren(...work.active.map((job) => {
+      if (job.kind === "review") return reviewJob(job);
       const [label, tone] = STATE[job.display_state] || [job.display_state, "neutral"];
       const verificationStages = {
         "presentation-coordination": "处理子任务问题与已收到的确认",
@@ -424,6 +439,29 @@
       }
       return row("four", cell("ident", link(job.url, job.identifier || "?")), main, status, timing);
     }));
+  }
+
+  function reviewJob(job) {
+    const progress = job.review;
+    const [label, tone] = REVIEW_PHASE[progress.phase] || REVIEW_PHASE.unknown;
+    const main = cell("main", el("div", "title", job.title || ""), el("div", "muted",
+      `评审 · ${progress.total} 个 PR · 已合并 ${progress.merged}/${progress.total} · 累计审查报告 ${progress.reports} 份 · 已完成修复 ${progress.repairs} 轮`));
+    for (const pr of progress.prs) {
+      const [stage] = REVIEW_PHASE[pr.phase] || REVIEW_PHASE.unknown;
+      const ci = {passed: "通过", failed: "失败", waiting: "等待"}[pr.ci] || "暂无结果";
+      main.append(el("div", "review-pr", cell("", link(pr.url, pr.label || pr.repository || "PR"),
+        ` · ${stage} · CI ${ci} · 已修复 ${pr.repairs} 轮`,
+        pr.retry_at ? ` · 重试时间 ${clock(pr.retry_at)}` : null)));
+    }
+    if (progress.stale) main.append(el("div", "urgent", "服务心跳不可用，以上为最后记录的评审进度"));
+    else if (progress.prs.some((pr) => pr.tracked === false)) {
+      main.append(el("div", "muted", "评审进程状态待控制器确认"));
+    }
+    if (progress.paused && progress.phase !== "paused") main.append(el("div", "muted", "维护或评审暂停中，已有进程正在收尾"));
+    return row("four", cell("ident", link(job.url, job.identifier || "?")), main,
+      cell("state", pill(label, tone)), cell("side muted",
+        timed(() => `评审历时 ${since(job.created_at)}`),
+        el("div", "", timed(() => `最近活动 ${ago(progress.updated_at)}`))));
   }
 
   // How a held slot's recovery reads: the slot's row and its slot_held attention line both use these words.
@@ -514,14 +552,16 @@
 
   function renderReview(work) {
     const review = work.review;
-    byId("review-card").hidden = !review || !review.available || review.prs.length === 0;
+    const history = review && review.available ? review.prs.filter((pr) =>
+      pr.disposition || pr.state === "merged" || pr.state === "delivered") : [];
+    byId("review-card").hidden = history.length === 0;
     if (!review || !review.available) return;
     const names = {queued: "等待集成", reviewing: "独立审查", waiting_ci: "等待 GitHub CI",
       repair: "AI 修复", ready: "等待合并", promoting: "发布修复", merging: "确认合并结果",
       merged: "已合并", delivered: "已交付人工", shadow_repair: "影子模式：需要修复"};
     const attemptNames = {queued: "审查启动中", running: "独立审查", submitted: "报告已提交，等待退出确认",
       stopping: "等待进程退出确认", settled: "报告待处理"};
-    const rows = review.prs.map((pr) => row("two", cell("label", pr.repository),
+    const rows = history.map((pr) => row("two", cell("label", pr.repository),
       cell("main", `${pr.url} · ${pr.state === "reviewing" ? (attemptNames[pr.attempt_state] || (pr.error ? "等待重试" : "等待审查")) : (names[pr.state] || pr.state)} · 修复 ${pr.repairs} 轮`,
         el("p", "muted", pr.error || (pr.ci ? `CI: ${pr.ci}（按控制器轮询更新）` : "尚无候选 CI 结果")))));
     if (review.control.paused) rows.unshift(row("two", cell("label", "自动合并已暂停"), cell("main", review.control.reason)));

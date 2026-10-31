@@ -245,7 +245,7 @@ class ActiveWorkTests(ViewBase):
         chat = self.active(document, "FARM-2")
         self.assertEqual((chat["display_state"], chat["state_since"], chat["checkpoint_at"]),
                          ("awaiting_input", NOW - 900, None))
-        self.assertEqual(document["counts"], {"queued": 0, "running": 1, "awaiting_input": 1, "awaiting_resource": 0})
+        self.assertEqual(document["counts"], {"queued": 0, "running": 1, "awaiting_input": 1, "awaiting_resource": 0, "waiting_ci": 0})
 
     def test_queued_work_is_split_into_launching_switching_retry_and_queue_position(self):
         first, second, launching, switching, retrying = (self.job() for _ in range(5))
