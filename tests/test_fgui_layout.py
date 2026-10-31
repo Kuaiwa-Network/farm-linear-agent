@@ -92,6 +92,28 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(report["issues"][0]["code"], "unsupported-fill")
         self.assertEqual(report["issues"][0]["node"], "icon")
 
+    def test_native_fill_spellings_preserve_serialized_modes(self):
+        # FairyGUI source tokens and runtime FillType enum; neither source nor
+        # native bytes may be rewritten to make the comparison succeed.
+        for spelling, native in (("none", 0), ("scale", 1), ("scaleMatchHeight", 2),
+                                 ("scaleMatchWidth", 3), ("scaleFree", 4), ("scaleNoBorder", 5)):
+            with self.subTest(spelling=spelling):
+                self.write(f'<loader id="n1" name="icon" size="128,128" fill="{spelling}"/>')
+                before = self.hashes()
+                self.assertEqual(self.check(fill=native)["status"], "passed")
+                self.assertEqual(before, self.hashes())
+                report = self.check(fill=(native + 1) % 6)
+                self.assertEqual(report["status"], "failed")
+                self.assertEqual(report["issues"][0]["code"], "loader-fill")
+
+    def test_non_native_fill_aliases_cannot_certify_fallback_none(self):
+        for spelling in ("matchHeight", "matchWidth"):
+            with self.subTest(spelling=spelling):
+                self.write(f'<loader id="n1" name="icon" size="128,128" fill="{spelling}"/>')
+                report = self.check(fill=0)
+                self.assertEqual(report["status"], "failed")
+                self.assertEqual(report["issues"][0]["code"], "unsupported-fill")
+
     def test_valid_source_spelling_with_native_none_still_fails(self):
         report = self.check(fill=0)
         self.assertEqual(report["issues"][0]["code"], "loader-fill")

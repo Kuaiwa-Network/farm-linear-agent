@@ -14,7 +14,9 @@ from .ledger import LedgerError
 from .uploads import _read_regular
 from .preview_upload import _plain_path
 
-FILLS = {"none": 0, "scale": 1, "matchHeight": 2, "matchWidth": 3,
+# Native FairyGUI XML spellings, checked against serialized FillType values.
+# The editor treats matchHeight/matchWidth as None; they are not aliases.
+FILLS = {"none": 0, "scale": 1, "scaleMatchHeight": 2, "scaleMatchWidth": 3,
          "scaleFree": 4, "scaleNoBorder": 5}
 MAX_COMPONENTS = 512
 MAX_XML_BYTES = 2 << 20
