@@ -303,6 +303,10 @@ promptly; no extra unchanged review or test round is required. Reconcile real
 authority/input/head changes through the normal checks.
 Use the returned `base_branch` explicitly for the PR. `branch_target` in the launch
 and issue context records the controller-selected branches and starting commits.
+For new version-targeted work labels must use `vMAJOR.MINOR.PATCH` (or `main`).
+The controller uses the exact label name, creating
+an absent branch from each repository's default before launch. Do not add a
+`release/` prefix or create, advance or recreate the target branch yourself.
 Keep source, dependency changes and verification on that version; optional baseline
 comparisons use its saved commit. Do not switch to main, reset work, or retarget a
 PR when the issue's target changes. Preserve work and ask for clarification: restore

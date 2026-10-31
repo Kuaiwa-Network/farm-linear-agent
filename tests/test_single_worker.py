@@ -321,7 +321,7 @@ class SingleWorkerTests(LedgerBase):
         self.owner()
         scheduler = self.scheduler()
         scheduler.version_targets = Mock()
-        scheduler.version_targets.prepare.side_effect = TargetError('common: release/1.0 does not exist')
+        scheduler.version_targets.prepare.side_effect = TargetError('common: explicit target does not exist')
         result = scheduler.tick()
         self.assertEqual(result['launched'], 0)
         self.assertEqual(self.launcher.spawned, [])

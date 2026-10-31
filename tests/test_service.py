@@ -1197,11 +1197,11 @@ class ServeHeartbeatTests(unittest.TestCase):
         events = list(self.events)
         return events[events.index(step):].count(("beat", "serving")) if step in events else 0
 
-    def test_enabled_version_sync_discovers_on_startup_and_joins_on_shutdown(self):
+    def test_enabled_version_sync_maintains_labels_without_git_and_joins_on_shutdown(self):
         self.config.version_targets = {'sync_labels': True}
         synced = threading.Event()
         trees = Mock(remotes={'Farm-Client': 'local'})
-        trees.remote_branches.return_value = {'main': 'a' * 40, 'release/1.0': 'b' * 40}
+        trees.remote_branches.side_effect = AssertionError('label sync must not read Git')
         api = Mock()
         api.sync_target_versions.side_effect = lambda versions: synced.set()
         components = self.components()._replace(worktrees=trees, api=api)
@@ -1211,7 +1211,8 @@ class ServeHeartbeatTests(unittest.TestCase):
         thread.join(20)
         self.assertFalse(thread.is_alive())
         self.assertEqual(problems, [])
-        api.sync_target_versions.assert_called_once_with({'main': 'main', '1.0': 'release/1.0'})
+        api.sync_target_versions.assert_called_once_with({'main': 'main'})
+        trees.remote_branches.assert_not_called()
 
     def test_beats_go_on_while_a_slow_join_drains_and_stopped_is_written_after_it(self):
         """A slot switch running when shutdown begins holds its thread's join for minutes. Beats that stopped with

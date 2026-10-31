@@ -97,6 +97,28 @@ def github_api(endpoint, *, missing_ok=False):
     return data
 
 
+def verify_repository(configured, push_urls, api):
+    """Shared private destination checks for publication and controller branch creation."""
+    expected = github_repository(configured)
+    if len(push_urls) != 1 or github_repository(push_urls[0]).casefold() != expected.casefold():
+        raise PublicationError('effective origin push destination differs from the configured repository')
+    metadata = api('repos/' + expected)
+    if (not isinstance(metadata, dict)
+            or any(not isinstance(metadata.get(key), str) or not metadata[key]
+                   for key in ('full_name', 'html_url', 'default_branch'))
+            or not isinstance(metadata.get('owner'), dict)
+            or not isinstance(metadata['owner'].get('login'), str)
+            or not isinstance(metadata.get('permissions'), dict)):
+        raise PublicationError('GitHub verification returned invalid repository metadata')
+    if (metadata['full_name'].casefold() != expected.casefold()
+            or metadata['owner']['login'].casefold() != expected.split('/')[0].casefold()
+            or metadata['html_url'].rstrip('/').casefold() != ('https://github.com/' + expected).casefold()
+            or metadata.get('private') is not True
+            or metadata['permissions'].get('push') is not True):
+        raise PublicationError('GitHub did not verify the configured private repository and write access')
+    return metadata
+
+
 class StubGitHub:
     """Test double for github_api in offline fixtures, whose worker CLI runs in a subprocess beyond a test's patches.
     Answers GET endpoints from `github.json` in the Linear stub directory and records each call; an endpoint the file
@@ -224,22 +246,7 @@ class PublicationVerifier:
             raise PublicationError('a -config branch adds no commits: its HEAD must already be on another branch of '
                                    'origin; fetch, then check out the farm-common commit that was named')
         push_urls = git('remote', 'get-url', '--push', '--all', 'origin').splitlines()
-        if len(push_urls) != 1 or github_repository(push_urls[0]).casefold() != expected.casefold():
-            raise PublicationError('effective origin push destination differs from the configured repository')
-        metadata = self.api('repos/' + expected)
-        if (not isinstance(metadata, dict)
-                or any(not isinstance(metadata.get(key), str) or not metadata[key]
-                       for key in ('full_name', 'html_url', 'default_branch'))
-                or not isinstance(metadata.get('owner'), dict)
-                or not isinstance(metadata['owner'].get('login'), str)
-                or not isinstance(metadata.get('permissions'), dict)):
-            raise PublicationError('GitHub verification returned invalid repository metadata')
-        if (metadata['full_name'].casefold() != expected.casefold()
-                or metadata['owner']['login'].casefold() != expected.split('/')[0].casefold()
-                or metadata['html_url'].rstrip('/').casefold() != ('https://github.com/' + expected).casefold()
-                or metadata.get('private') is not True
-                or metadata['permissions'].get('push') is not True):
-            raise PublicationError('GitHub did not verify the configured private repository and write access')
+        metadata = verify_repository(configured, push_urls, self.api)
         base_branch = target['branch'] if target else metadata['default_branch']
         if branch in (metadata['default_branch'], base_branch):
             raise PublicationError('publishing to the default branch or selected base branch is not authorized')

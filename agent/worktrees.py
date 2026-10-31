@@ -383,11 +383,11 @@ class Worktrees:
         return result
 
     def resolve_target(self, repo, branch=None, *, prune=True):
-        from .version_targets import TargetError, branch_name
+        from .version_targets import MissingTarget, branch_name
         branch = branch_name(branch or self.default_branch(repo, config=HOOKS_OFF))
         commit = self.remote_branches(repo).get(branch)
         if commit is None:
-            raise TargetError(f'{repo}: target branch {branch} does not exist; correct the issue target or repository mapping')
+            raise MissingTarget(f'{repo}: target branch {branch} does not exist; correct the issue target or repository mapping')
         self.fetch(repo, prune=prune)
         if not self.has_commit(repo, commit):
             _git('fetch', '--quiet', '--no-tags', '--no-prune', '--no-prune-tags',
@@ -396,6 +396,41 @@ class Worktrees:
         if not self.has_commit(repo, commit):
             raise WorktreeError('target branch moved during fetch; retry preparation')
         return {'branch': branch, 'commit': commit}
+
+    def verify_version_creation(self, repo, branch, *, api=None):
+        from .publication import PublicationError, github_api, verify_repository
+        from .version_targets import TargetError, version_name
+        version_name(branch)
+        clone = self.ensure_clone(repo)
+        push_urls = _git('remote', 'get-url', '--push', '--all', 'origin', cwd=clone).splitlines()
+        try:
+            metadata = verify_repository(self.remotes[repo], push_urls, api or github_api)
+        except PublicationError as exc:
+            raise TargetError(str(exc)) from exc
+        if branch == metadata['default_branch']:
+            raise TargetError('automatic version creation cannot replace a repository default branch')
+
+    def create_version_target(self, repo, branch, commit, *, before_push, api=None):
+        """Create exactly one absent version ref; never advance an existing base."""
+        from .version_targets import TargetError
+        self.verify_version_creation(repo, branch, api=api)
+        clone = self.ensure_clone(repo)
+        if not self.has_commit(repo, commit):
+            raise TargetError('version starting commit is unavailable')
+        before_push()
+        ref = 'refs/heads/' + branch
+        try:
+            # An empty expected value requires the ref to be absent on the server,
+            # even when another creator's tip is an ancestor of our source commit.
+            _git('push', '--porcelain', '--no-follow-tags', '--recurse-submodules=no',
+                 '--force-with-lease=' + ref + ':', 'origin', commit + ':' + ref,
+                 cwd=clone, config=HOOKS_OFF)
+        except (WorktreeError, OSError, subprocess.TimeoutExpired) as exc:
+            # Creation may have succeeded before a lost response, or another job
+            # may have won. Re-read authority from the remote, never tracking refs.
+            if branch not in self.remote_branches(repo):
+                raise TargetError(f'{repo}: could not create {branch}; retry after resolving remote access') from exc
+        return self.resolve_target(repo, branch)
 
     def retain_target(self, repo, item_id, commit):
         from .version_targets import TargetError
