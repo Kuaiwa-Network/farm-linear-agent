@@ -746,6 +746,14 @@ FairyGUI `publish-ui` uses the configured pinned native publisher, explicit
 package names/IDs, owned clean source, fresh staging, source revalidation,
 publisher mutex and owned process containment. The main worker installs the
 necessary outputs in its Client and checks GUIDs, bindings and behavior itself.
+
+Loader layout checks use the native XML names `scaleMatchHeight` and
+`scaleMatchWidth` for serialized FillType 2 and 3. Shortened `matchHeight` and
+`matchWidth` spellings are refused: native export can silently fall back to None.
+Actual source/export mismatches still fail. This correction needs no schema or
+asset migration. After deployment, parked work reruns normal `publish-ui` and
+may reuse retained runtime evidence only when the relevant exported hashes match;
+rollback restores the old checker incompatibility, not different UI assets.
 There is no parallel controller-managed UI task in this rollout.
 
 For appearance/layout work, the owner supplies repeatable `--component
