@@ -1,28 +1,31 @@
 import copy
+import json
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+import uuid
+from unittest.mock import Mock, patch
 
 from agent.ledger import Ledger, LedgerError
 from agent.publication import PublicationError, PublicationVerifier
-from agent.version_targets import GROUP, LabelSync, Store, TargetController, TargetError, selection, settings
+from agent.version_targets import GROUP, LabelSync, Store, TargetController, TargetError, digest, selection, settings
 from agent.version_labels import sync
 from agent.workflow import JobWorktrees
-from agent.worktrees import Worktrees
+from agent.worktrees import WorktreeError, Worktrees
 from test_ledger import ISSUE, SESSION, issue
 from test_worktrees import git
 
 
-def selected(version='1.0', **changes):
+def selected(version='v1.0.0', **changes):
     return issue(labels=[version], label_groups=[{'group': GROUP, 'label': version}], **changes)
 
 
 class SelectionTests(unittest.TestCase):
     def test_only_target_group_selects_and_explicit_branch_overrides(self):
-        self.assertEqual(selection(issue(labels=['1.0'])), {'kind': 'default'})
-        self.assertEqual(selection(selected()), {'kind': 'version', 'value': '1.0'})
+        self.assertEqual(selection(issue(labels=['v1.0.0'])), {'kind': 'default'})
+        self.assertEqual(selection(selected()), {'kind': 'version', 'value': 'v1.0.0'})
         self.assertEqual(selection(selected(description='Implement it.\nTarget branch: feature/new-market')),
                          {'kind': 'branch', 'value': 'feature/new-market'})
 
@@ -31,20 +34,25 @@ class SelectionTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(TargetError):
                 selection(issue(description='Target branch: ' + value))
         with self.assertRaises(TargetError):
-            selection(issue(description='Target branch: main\nTarget branch: release/1.0'))
-        with self.assertRaises(TargetError):
-            selection(selected('1.0.1'))
+            selection(issue(description='Target branch: main\nTarget branch: v1.0.0'))
+        for value in ('main', 'v0.0.0', 'v1.2.3', 'v10.20.30'):
+            self.assertEqual(selection(selected(value)), {'kind': 'version', 'value': value})
+        for value in ('1.2.3', '1.0', 'v1.2', 'v01.2.3', 'V1.2.3', 'v1.2.3-rc1', 'feature/new-market',
+                      '1..0', 'version 1.0', 'refs/heads/1.0', '-bad', 'main~1'):
+            with self.subTest(value=value), self.assertRaises(TargetError):
+                selection(selected(value))
         value = selected()
-        value['label_groups'].append({'group': GROUP, 'label': '1.1'})
+        value['label_groups'].append({'group': GROUP, 'label': 'v1.1.0'})
         with self.assertRaises(TargetError):
             selection(value)
 
     def test_settings_validate_every_repository_override(self):
         self.assertFalse(settings({}, {})['sync_labels'])
         self.assertEqual(settings({}, {})['sync_seconds'], 300)
-        for value in ({'sync_labels': 1}, {'sync_labels': True}, {'sync_seconds': 0},
-                      {'overrides': {'1.0': {'unknown': 'main'}}},
-                      {'overrides': {'1.0': {'Farm-Client': '--all'}}}):
+        self.assertTrue(settings({'sync_labels': True, 'source_repo': 'retired'}, {})['sync_labels'])
+        for value in ({'sync_labels': 1}, {'source_repo': None}, {'sync_seconds': 0},
+                      {'overrides': {'v1.0.0': {'unknown': 'main'}}},
+                      {'overrides': {'v1.0.0': {'Farm-Client': '--all'}}}):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 settings(value, {})
 
@@ -62,7 +70,7 @@ class TargetTests(unittest.TestCase):
             (path / 'source.txt').write_text('old version', encoding='utf-8')
             git('add', '.', cwd=path)
             git('commit', '-qm', 'release start', cwd=path)
-            git('branch', 'release/1.0', cwd=path)
+            git('branch', 'v1.0.0', cwd=path)
             (path / 'next.txt').write_text('next version only', encoding='utf-8')
             git('add', '.', cwd=path)
             git('commit', '-qm', 'next version', cwd=path)
@@ -82,11 +90,220 @@ class TargetTests(unittest.TestCase):
         record = record or self.prepare()
         return self.trees.add(repo, self.item['id'], 'farmbot/farm-1', target=record['repositories'][repo])
 
-    def test_release_checkout_is_not_main_and_records_all_repos_before_work(self):
+    def creation_remotes(self):
+        """Stub GitHub transport to real local Git; independently verify identities."""
+        import agent.worktrees as module
+        config = self.root / 'host.gitconfig'
+        lines, metadata = [], {}
+        for repo, origin in self.origins.items():
+            remote = 'https://github.com/example/' + repo + '.git'
+            local = origin.replace('\\', '/')
+            lines.append('[url "' + local + '"]\n\tinsteadOf = ' + remote + '\n'
+                         '[url "' + remote + '"]\n\tpushInsteadOf = ' + remote + '\n')
+            self.trees.remotes[repo] = remote
+            metadata['repos/example/' + repo] = {
+                'full_name': 'example/' + repo, 'html_url': remote[:-4], 'private': True,
+                'owner': {'login': 'example'}, 'permissions': {'push': True}, 'default_branch': 'main'}
+        config.write_text(''.join(lines), encoding='utf-8')
+        self.enterContext(patch.dict(os.environ, {'GIT_CONFIG_GLOBAL': str(config), 'GIT_CONFIG_NOSYSTEM': '1'}))
+        self.controller.github = Mock(side_effect=lambda endpoint: metadata[endpoint])
+        self.controller.preflight = Mock(return_value=True)
+        original = module._git
+        def transport(*args, **kwargs):
+            if args[0] == 'push':
+                self.assertEqual(args[-2], 'origin')
+                repo = Path(kwargs['cwd']).name.removesuffix('.git')
+                args = (*args[:-2], self.origins[repo], args[-1])
+            return original(*args, **kwargs)
+        self.enterContext(patch.object(module, '_git', side_effect=transport))
+        return config, metadata
+
+    def test_missing_version_branch_is_created_from_its_repository_default(self):
+        self.creation_remotes()
+        git('branch', '-D', 'v1.0.0', cwd=self.origins['common'])
+        git('branch', '-m', 'main', 'develop', cwd=self.origins['common'])
         record = self.prepare()
         for repo, target in record['repositories'].items():
-            self.assertEqual(target['branch'], 'release/1.0')
-            self.assertEqual(target['commit'], git('rev-parse', 'release/1.0', cwd=self.origins[repo]))
+            self.assertEqual(target['commit'], git('rev-parse', 'v1.0.0', cwd=self.origins[repo]))
+            self.assertEqual((self.checkout(repo, record) / 'next.txt').exists(), repo == 'common')
+        self.assertEqual(record['repositories']['common']['commit'],
+                         git('rev-parse', 'develop', cwd=self.origins['common']))
+        self.assertEqual(self.prepare(), record)
+        self.controller.preflight.assert_called()
+
+    def test_existing_version_needs_no_creation_or_publishing_access(self):
+        with patch.object(self.trees, 'verify_version_creation', side_effect=AssertionError('must not create')):
+            self.prepare()
+
+    def test_main_and_configured_exceptions_must_exist(self):
+        self.ledger.observe_issue(selected('main'))
+        git('branch', '-m', 'main', 'develop', cwd=self.origins['common'])
+        with self.assertRaisesRegex(TargetError, 'main does not exist'):
+            self.prepare()
+        self.ledger.observe_issue(selected())
+        git('branch', '-D', 'v1.0.0', cwd=self.origins['common'])
+        self.controller = TargetController(self.ledger, self.trees,
+                                          {'overrides': {'v1.0.0': {'common': 'v1.0.0'}}})
+        with self.assertRaisesRegex(TargetError, 'v1.0.0 does not exist'):
+            self.prepare()
+        self.assertIsNone(Store(self.ledger).get(self.item['id']))
+
+    def test_concurrent_creator_is_reused_without_advancing_its_older_tip(self):
+        import agent.worktrees as module
+        self.creation_remotes()
+        self.ledger.observe_issue(selected('v1.1.0'))
+        original = module._git
+        def race(*args, **kwargs):
+            if args[0] == 'push':
+                repo = Path(kwargs['cwd']).name.removesuffix('.git')
+                git('branch', 'v1.1.0', 'v1.0.0', cwd=self.origins[repo])
+            return original(*args, **kwargs)
+        with patch.object(module, '_git', side_effect=race):
+            record = self.prepare()
+        for repo, target in record['repositories'].items():
+            self.assertEqual(target['commit'], git('rev-parse', 'v1.0.0', cwd=self.origins[repo]))
+            self.assertEqual(target['commit'], git('rev-parse', 'v1.1.0', cwd=self.origins[repo]))
+
+    def test_lost_push_response_reconciles_from_actual_remote(self):
+        import agent.worktrees as module
+        self.creation_remotes()
+        self.ledger.observe_issue(selected('v1.1.0'))
+        original = module._git
+        def lost(*args, **kwargs):
+            result = original(*args, **kwargs)
+            if args[0] == 'push':
+                raise subprocess.TimeoutExpired('git push', 600)
+            return result
+        with patch.object(module, '_git', side_effect=lost):
+            record = self.prepare()
+        for repo, target in record['repositories'].items():
+            self.assertEqual(target['commit'], git('rev-parse', 'main', cwd=self.origins[repo]))
+
+    def test_prefixed_patch_version_names_create_exact_branches(self):
+        self.creation_remotes()
+        for version in ('v1.2.3', 'v1.2.4', 'v2.0.0'):
+            with self.subTest(version=version):
+                # Separate fresh jobs select separate versions; prepared jobs may
+                # never be silently retargeted by changing a label.
+                issue_id, session_id = str(uuid.uuid4()), str(uuid.uuid4())
+                self.ledger.observe_issue(selected(version, id=issue_id))
+                self.ledger.ensure_session(session_id, issue_id, delegation=True)
+                self.item = self.ledger.create_work_item(issue_id=issue_id, session_id=session_id, skill='work')
+                record = self.prepare()
+                for repo, target in record['repositories'].items():
+                    self.assertEqual(target['branch'], version)
+                    self.assertEqual(target['commit'], git('rev-parse', version, cwd=self.origins[repo]))
+                    self.assertNotIn('release/' + version, self.trees.remote_branches(repo))
+
+    def test_bare_version_is_refused_before_any_git_lookup_or_creation(self):
+        self.ledger.observe_issue(selected('1.2.3'))
+        with patch.object(self.trees, 'resolve_target', side_effect=AssertionError('invalid selection must not read Git')):
+            with self.assertRaisesRegex(TargetError, 'vMAJOR.MINOR.PATCH'):
+                self.prepare()
+        self.assertIsNone(Store(self.ledger).get(self.item['id']))
+
+    def test_partial_creation_keeps_remote_branch_and_retry_reuses_it(self):
+        import agent.worktrees as module
+        self.creation_remotes()
+        self.ledger.observe_issue(selected('v1.1.0'))
+        original = module._git
+        def reject(*args, **kwargs):
+            if args[0] == 'push' and Path(kwargs['cwd']).name == 'common.git':
+                raise WorktreeError('push rejected')
+            return original(*args, **kwargs)
+        with patch.object(module, '_git', side_effect=reject), self.assertRaisesRegex(TargetError, 'could not create'):
+            self.prepare()
+        first = git('rev-parse', 'v1.1.0', cwd=self.origins['Farm-Client'])
+        self.assertIsNone(Store(self.ledger).get(self.item['id']))
+        self.assertFalse((self.root / 'worktrees' / self.item['id']).exists())
+        git('commit', '--allow-empty', '-qm', 'default advanced', cwd=self.origins['Farm-Client'])
+        record = self.prepare()
+        self.assertEqual(record['repositories']['Farm-Client']['commit'], first)
+        self.assertNotEqual(first, git('rev-parse', 'main', cwd=self.origins['Farm-Client']))
+        events = self.ledger.connection.execute('SELECT kind FROM audit WHERE item_id=?', (self.item['id'],)).fetchall()
+        self.assertIn('version_target_creation_confirmed', [row['kind'] for row in events])
+
+    def test_all_destinations_are_verified_before_any_branch_creation(self):
+        _, metadata = self.creation_remotes()
+        self.ledger.observe_issue(selected('v1.1.0'))
+        metadata['repos/example/common']['private'] = False
+        with patch.object(self.trees, 'create_version_target', side_effect=AssertionError('must validate first')):
+            with self.assertRaisesRegex(TargetError, 'private repository'):
+                self.prepare()
+        self.assertIsNone(Store(self.ledger).get(self.item['id']))
+
+    def test_effective_push_destination_and_default_branch_are_protected(self):
+        config, metadata = self.creation_remotes()
+        self.ledger.observe_issue(selected('v1.1.0'))
+        original = config.read_text(encoding='utf-8')
+        config.write_text(original.replace('[url "https://github.com/example/common.git"]',
+                                           '[url "https://github.com/wrong/common.git"]'), encoding='utf-8')
+        with self.assertRaisesRegex(TargetError, 'push destination'):
+            self.prepare()
+        config.write_text(original, encoding='utf-8')
+        metadata['repos/example/common']['default_branch'] = 'v1.1.0'
+        with self.assertRaisesRegex(TargetError, 'default branch'):
+            self.prepare()
+        self.assertNotIn('v1.1.0', self.trees.remote_branches('Farm-Client'))
+
+    def test_changed_target_or_withdrawn_authority_prevents_creation(self):
+        self.creation_remotes()
+        self.ledger.observe_issue(selected('v1.1.0'))
+        self.controller.preflight.return_value = False
+        with self.assertRaisesRegex(TargetError, 'authority'):
+            self.prepare()
+        def changed(item):
+            self.ledger.observe_issue(selected('v1.2.0'))
+            return True
+        self.controller.preflight.side_effect = changed
+        with self.assertRaisesRegex(TargetError, 'Target changed'):
+            self.prepare()
+        self.assertNotIn('v1.1.0', self.trees.remote_branches('Farm-Client'))
+        self.assertIsNone(Store(self.ledger).get(self.item['id']))
+
+    def test_saved_target_deletion_is_not_recreated_on_retry(self):
+        record = self.prepare()
+        git('branch', '-D', 'v1.0.0', cwd=self.origins['common'])
+        with patch.object(self.trees, 'create_version_target', side_effect=AssertionError('must not recreate')):
+            self.assertEqual(self.prepare(), record)
+
+    def test_saved_prefixed_target_keeps_its_name_after_policy_change(self):
+        for origin in self.origins.values():
+            git('branch', 'release/1.0', 'v1.0.0', cwd=origin)
+        self.controller = TargetController(self.ledger, self.trees, {
+            'overrides': {'v1.0.0': {repo: 'release/1.0' for repo in self.origins}}})
+        record = self.prepare()
+        self.controller = TargetController(self.ledger, self.trees, {})
+        self.assertEqual(self.prepare(), record)
+        self.assertEqual({target['branch'] for target in record['repositories'].values()}, {'release/1.0'})
+
+    def test_saved_bare_version_and_its_continuation_keep_the_original_target(self):
+        record = self.prepare()
+        # A durable record written by the earlier permissive version, before
+        # vMAJOR.MINOR.PATCH became required for fresh selections.
+        record['selection'] = {'kind': 'version', 'value': '1.2.3'}
+        record['selection_hash'] = digest(record['selection'])
+        for repo, target in record['repositories'].items():
+            git('branch', '1.2.3', target['commit'], cwd=self.origins[repo])
+            target['branch'] = '1.2.3'
+        self.ledger.connection.execute('UPDATE work_targets SET record=? WHERE item_id=?',
+                                       (json.dumps(record), self.item['id']))
+        self.ledger.observe_issue(selected('1.2.3'))
+        self.assertEqual(Store(self.ledger).current(self.item['id']), record)
+        self.assertEqual(self.prepare(), record)
+        self.ledger.connection.execute("UPDATE work_items SET state='cancelled' WHERE id=?", (self.item['id'],))
+        self.item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill='work')
+        self.assertEqual(self.prepare(), record)
+        self.assertEqual(Store(self.ledger).current(self.item['id']), record)
+        self.ledger.observe_issue(selected('1.2.4'))
+        with self.assertRaises(TargetError):
+            self.prepare()
+
+    def test_version_checkout_is_not_main_and_records_all_repos_before_work(self):
+        record = self.prepare()
+        for repo, target in record['repositories'].items():
+            self.assertEqual(target['branch'], 'v1.0.0')
+            self.assertEqual(target['commit'], git('rev-parse', 'v1.0.0', cwd=self.origins[repo]))
             path = self.checkout(repo, record)
             self.assertFalse((path / 'next.txt').exists())
             self.assertEqual(self.trees.head(path), target['commit'])
@@ -94,7 +311,8 @@ class TargetTests(unittest.TestCase):
                                  cwd=self.trees.clone_path(repo)), target['commit'])
 
     def test_missing_branch_does_not_save_partial_target_or_create_worktrees(self):
-        git('branch', '-D', 'release/1.0', cwd=self.origins['common'])
+        self.ledger.observe_issue(selected(description='Target branch: v1.0.0'))
+        git('branch', '-D', 'v1.0.0', cwd=self.origins['common'])
         with self.assertRaisesRegex(TargetError, 'common.*does not exist'):
             self.prepare()
         self.assertIsNone(Store(self.ledger).get(self.item['id']))
@@ -110,15 +328,15 @@ class TargetTests(unittest.TestCase):
         with patch.object(Store, 'save', side_effect=TargetError('issue changed before save')):
             with self.assertRaises(TargetError):
                 self.prepare()
-        self.ledger.observe_issue(selected('1.1'))
+        self.ledger.observe_issue(selected('v1.1.0'))
         for origin in self.origins.values():
-            git('branch', 'release/1.1', 'main', cwd=origin)
+            git('branch', 'v1.1.0', 'main', cwd=origin)
         record = self.prepare()
-        self.assertEqual(record['selection']['value'], '1.1')
+        self.assertEqual(record['selection']['value'], 'v1.1.0')
         self.assertTrue((self.checkout(record=record) / 'next.txt').exists())
 
     def test_repository_override_is_explicit_and_saved(self):
-        self.controller = TargetController(self.ledger, self.trees, {'overrides': {'1.0': {'common': 'main'}}})
+        self.controller = TargetController(self.ledger, self.trees, {'overrides': {'v1.0.0': {'common': 'main'}}})
         record = self.prepare()
         self.assertEqual(record['repositories']['common']['branch'], 'main')
         self.assertTrue((self.checkout('common', record) / 'next.txt').exists())
@@ -129,7 +347,7 @@ class TargetTests(unittest.TestCase):
         git('commit', '--allow-empty', '-qm', 'candidate', cwd=path)
         candidate = self.trees.head(path)
         origin = self.origins['Farm-Client']
-        git('switch', '-q', 'release/1.0', cwd=origin)
+        git('switch', '-q', 'v1.0.0', cwd=origin)
         git('commit', '--allow-empty', '-qm', 'later release fix', cwd=origin)
         self.ledger.close()
         self.ledger = Ledger(self.root / 'ledger.sqlite3')
@@ -141,7 +359,7 @@ class TargetTests(unittest.TestCase):
     def test_target_change_blocks_revalidate_and_claim_but_keeps_snapshot(self):
         record = self.prepare()
         token = self.ledger.claim(self.item['id'], worker_id='test')['token']
-        changed = self.ledger.observe_issue(selected('1.1'))
+        changed = self.ledger.observe_issue(selected('v1.1.0'))
         with self.assertRaisesRegex(LedgerError, 'Target changed'):
             self.ledger.revalidate(self.item['id'], token, changed['fingerprint'])
         self.assertEqual(Store(self.ledger).get(self.item['id']), record)
@@ -154,7 +372,7 @@ class TargetTests(unittest.TestCase):
         token = self.ledger.claim(self.item['id'], worker_id='test')['token']
         self.ledger.checkpoint(self.item['id'], token, {'summary': 'saved progress', 'branch_target': {'branch': 'main'}})
         self.assertEqual(Store(self.ledger).get(self.item['id']), record)
-        self.ledger.observe_issue(selected('1.1'))
+        self.ledger.observe_issue(selected('v1.1.0'))
         with self.assertRaisesRegex(LedgerError, 'Target changed'):
             self.ledger.finish(self.item['id'], token, 'delivered',
                 {'summary': 'no change', 'verification': 'checked', 'no_change': 'already fixed'}, check_only=True)
@@ -165,13 +383,13 @@ class TargetTests(unittest.TestCase):
         value = selected()
         value['labels'].append('Bug')
         self.assertEqual(self.ledger.observe_issue(value)['fingerprint'], original)
-        self.assertNotEqual(self.ledger.observe_issue(selected('1.1'))['fingerprint'], original)
+        self.assertNotEqual(self.ledger.observe_issue(selected('v1.1.0'))['fingerprint'], original)
 
     def test_status_refresh_updates_target_and_older_full_snapshot_cannot_undo_it(self):
         first = selected(updated_at='2026-10-26T01:00:00Z')
         self.ledger.observe_issue(first)
         record = self.prepare()
-        later = selected('1.1', updated_at='2026-10-26T02:00:00Z')
+        later = selected('v1.1.0', updated_at='2026-10-26T02:00:00Z')
         self.ledger.apply_issue_status(later)
         self.ledger.observe_issue(first)
         with self.assertRaisesRegex(TargetError, 'Target changed'):
@@ -182,7 +400,7 @@ class TargetTests(unittest.TestCase):
         original = self.trees.resolve_target
         def resolve(repo, branch):
             result = original(repo, branch)
-            self.ledger.observe_issue(selected('1.1'))
+            self.ledger.observe_issue(selected('v1.1.0'))
             return result
         with patch.object(self.trees, 'resolve_target', side_effect=resolve), self.assertRaises(TargetError):
             self.prepare()
@@ -197,7 +415,7 @@ class TargetTests(unittest.TestCase):
         self.ledger.connection.execute("UPDATE work_items SET state='cancelled' WHERE id=?", (self.item['id'],))
         self.item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill='work')
         self.assertEqual(self.prepare(), record)
-        self.ledger.observe_issue(selected('1.1'))
+        self.ledger.observe_issue(selected('v1.1.0'))
         with self.assertRaises(TargetError):
             self.prepare()
 
@@ -241,11 +459,11 @@ class TargetTests(unittest.TestCase):
             url = remote[:-4] + '/pull/1'
             pr = {'html_url': url, 'state': 'open', 'draft': True,
                   'head': {'ref': 'farmbot/farm-1', 'sha': head, 'repo': metadata},
-                  'base': {'ref': 'release/1.0', 'repo': metadata}}
+                  'base': {'ref': 'v1.0.0', 'repo': metadata}}
             change_during_lookup = [False]
             def api(endpoint, **kwargs):
                 if '/branches/' in endpoint and change_during_lookup[0]:
-                    self.ledger.observe_issue(selected('1.1'))
+                    self.ledger.observe_issue(selected('v1.1.0'))
                 return pr if '/pulls/' in endpoint else None if '/branches/' in endpoint else metadata
             verifier = PublicationVerifier(JobWorktrees(self.trees, self.ledger), api=api)
             # FARM-1953: an unrelated deleted branch must not make delivery need
@@ -265,25 +483,25 @@ class TargetTests(unittest.TestCase):
                 self.assertEqual((clone / 'packed-refs').read_bytes(), packed)
             finally:
                 lock.rmdir()
-            self.assertEqual(result['base_branch'], 'release/1.0')
+            self.assertEqual(result['base_branch'], 'v1.0.0')
             self.assertEqual(result['base_commit'], record['repositories']['Farm-Client']['commit'])
             # Upstream report files brought in by an intentional merge are not
             # outgoing private reports. The candidate need not include newer base
             # commits, but when it does, diff against the verified current base.
-            git('switch', '-q', 'release/1.0', cwd=local)
+            git('switch', '-q', 'v1.0.0', cwd=local)
             reports = Path(local) / 'reports'
             reports.mkdir()
             (reports / 'existing.txt').write_text('upstream record', encoding='utf-8')
             git('add', '.', cwd=local)
             git('commit', '-qm', 'upstream report', cwd=local)
             self.trees.fetch('Farm-Client')
-            git('merge', '-q', '--no-edit', 'origin/release/1.0', cwd=path)
+            git('merge', '-q', '--no-edit', 'origin/v1.0.0', cwd=path)
             pr['head']['sha'] = self.trees.head(path)
             self.assertEqual(verifier.verify_pr('Farm-Client', self.item['id'], 'FARM-1', url), url)
             pr['base']['ref'] = 'main'
             with self.assertRaises(PublicationError):
                 verifier.verify_pr('Farm-Client', self.item['id'], 'FARM-1', url)
-            self.ledger.observe_issue(selected('1.1'))
+            self.ledger.observe_issue(selected('v1.1.0'))
             with self.assertRaisesRegex(PublicationError, 'Target changed'):
                 verifier.verify('Farm-Client', self.item['id'], 'FARM-1')
             self.ledger.observe_issue(selected())
@@ -293,7 +511,7 @@ class TargetTests(unittest.TestCase):
             change_during_lookup[0] = False
             self.ledger.observe_issue(selected())
             git('switch', '-q', 'main', cwd=local)
-            git('branch', '-D', 'release/1.0', cwd=local)
+            git('branch', '-D', 'v1.0.0', cwd=local)
             with self.assertRaisesRegex(PublicationError, 'does not exist'):
                 verifier.verify('Farm-Client', self.item['id'], 'FARM-1')
 
@@ -327,41 +545,59 @@ class LabelAPI:
 
 
 class LabelSyncTests(unittest.TestCase):
-    def test_startup_and_five_minute_discovery_filter_only_major_minor_releases(self):
-        class Trees:
-            remotes = {'Farm-Client': 'local'}
-            def remote_branches(self, repo):
-                return dict.fromkeys(['main', 'release/1.0', 'release/2.1', 'release/1.0.1', 'feature/foo'])
+    def test_startup_and_five_minute_sync_never_reads_git(self):
+        trees = Mock(remotes={})
+        trees.remote_branches.side_effect = AssertionError('labels must not read Git')
         api = LabelAPI()
         now = [100]
-        controller = LabelSync(Trees(), api, {'sync_labels': True}, clock=lambda: now[0])
+        controller = LabelSync(trees, api, {'sync_labels': True}, clock=lambda: now[0])
         self.assertTrue(controller.tick())
-        self.assertEqual({v['name'] for v in api.labels}, {GROUP, 'main', '1.0', '2.1'})
+        self.assertEqual({v['name'] for v in api.labels}, {GROUP, 'main'})
+        # A person can add a future choice without any corresponding Git branch.
+        group = api.labels[0]['id']
+        api.labels.append({'id': 'future', 'name': 'v2.1.0', 'parent': {'id': group},
+                           'description': 'Next release'})
         now[0] += 299
         self.assertFalse(controller.tick())
         now[0] += 1
         count = len(api.labels)
         self.assertTrue(controller.tick())
         self.assertEqual(len(api.labels), count)
+        self.assertEqual(api.labels[-1]['description'], 'Next release')
+        trees.remote_branches.assert_not_called()
 
-    def test_removed_branch_retains_label_and_marks_unavailable_then_restores(self):
+    def test_sync_never_creates_bare_versions_and_marks_owned_legacy_labels(self):
         api = LabelAPI()
-        sync(api, {'1.0': 'release/1.0'})
-        label = next(v for v in api.labels if v['name'] == '1.0')
+        result = sync(api, {'main': 'main', '1.2.3': '1.2.3', 'v1.2.3': 'v1.2.3'})
+        self.assertEqual(result['available'], ['main', 'v1.2.3'])
+        self.assertNotIn('1.2.3', [label['name'] for label in api.labels])
+        legacy = {'id': 'legacy', 'name': '1.2.3', 'parent': {'id': result['group_id']},
+                  'description': '[farmbot-version-target] Target branch: 1.2.3'}
+        api.labels.append(legacy)
+        result = sync(api, {'main': 'main'})
+        self.assertNotIn('1.2.3', result['available'])
+        self.assertIn('Unsupported for new work', legacy['description'])
+        self.assertEqual(legacy['name'], '1.2.3')
+        self.assertFalse(any('issueLabelDelete' in query or 'issueUpdate' in query for query, _ in api.calls))
+
+    def test_old_unavailable_description_is_repaired_without_removing_choices(self):
+        api = LabelAPI()
+        sync(api, {'v1.0.0': 'v1.0.0'})
+        label = next(v for v in api.labels if v['name'] == 'v1.0.0')
         original_id = label['id']
+        label['description'] = '[farmbot-version-target] Unavailable: version branch no longer exists.'
         sync(api, {})
-        self.assertIn('Unavailable', label['description'])
-        sync(api, {'1.0': 'release/1.0'})
         self.assertEqual(label['id'], original_id)
         self.assertNotIn('Unavailable', label['description'])
+        self.assertIn('Created from each repository default', label['description'])
         self.assertFalse(any('issueUpdate' in q or 'issueLabelDelete' in q for q, _ in api.calls))
 
     def test_lost_response_reconciles_without_duplicate_and_keeps_human_descriptions(self):
         api = LabelAPI()
         api.lose_create_response = True
         with self.assertRaises(TimeoutError):
-            sync(api, {'1.0': 'release/1.0'})
-        sync(api, {'1.0': 'release/1.0'})
+            sync(api, {'v1.0.0': 'v1.0.0'})
+        sync(api, {'v1.0.0': 'v1.0.0'})
         self.assertEqual(len(api.labels), 2)
         api.labels[1]['description'] = 'Human explanation'
         sync(api, {})
@@ -369,26 +605,26 @@ class LabelSyncTests(unittest.TestCase):
 
     def test_duplicate_group_is_refused_without_mutation(self):
         api = LabelAPI()
-        sync(api, {'1.0': 'release/1.0'})
+        sync(api, {'v1.0.0': 'v1.0.0'})
         api.labels.append({**api.labels[0], 'id': 'duplicate'})
         count = len(api.calls)
         with self.assertRaisesRegex(RuntimeError, 'unambiguous'):
-            sync(api, {'1.1': 'release/1.1'})
+            sync(api, {'v1.1.0': 'v1.1.0'})
         self.assertEqual(len(api.calls), count + 1)
 
     def test_only_designated_sync_instance_writes_and_failures_back_off(self):
-        from unittest.mock import Mock
         trees = Mock(remotes={'Farm-Client': 'local'})
         api = LabelAPI()
         self.assertFalse(LabelSync(trees, api, {}).tick())
         trees.remote_branches.assert_not_called()
         now = [0]
         controller = LabelSync(trees, api, {'sync_labels': True}, clock=lambda: now[0])
-        trees.remote_branches.side_effect = RuntimeError('remote unavailable')
-        with self.assertRaises(RuntimeError):
-            controller.tick()
-        self.assertFalse(controller.tick())
-        self.assertEqual(trees.remote_branches.call_count, 1)
+        with patch.object(api, 'sync_target_versions', side_effect=RuntimeError('Linear unavailable')) as sync_labels:
+            with self.assertRaises(RuntimeError):
+                controller.tick()
+            self.assertFalse(controller.tick())
+            self.assertEqual(sync_labels.call_count, 1)
+        trees.remote_branches.assert_not_called()
 
 
 if __name__ == '__main__':

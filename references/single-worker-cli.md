@@ -166,6 +166,10 @@ A delivered finish uses:
 
 `branch_target` in the job context is the controller's saved per-repository base
 branch, starting commit and remote identity. It survives retries and continuations.
+Fresh version selections require `vMAJOR.MINOR.PATCH` (or `main`) and use that exact
+branch name; the controller creates
+missing version branches before launch. Existing saved targets keep their recorded
+names. Workers must not add prefixes or create/advance the selected base themselves.
 `verify-publication` returns `base_branch`; pass it explicitly when creating the PR.
 An issue target change cannot be accepted through `revalidate`, a checkpoint or PR
 retargeting. Restore the original target or use a new linked issue, retaining the

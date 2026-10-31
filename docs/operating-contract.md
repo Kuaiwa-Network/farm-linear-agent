@@ -265,27 +265,43 @@ No schema migration is required; rollback loses these display refinements only.
 
 ## Per-issue version targets
 
-Select one workspace `Target version` label (`main` or `MAJOR.MINOR`) before
-delegation. A version such as `1.0` selects `release/1.0` across the five source
-repositories. An exact `Target branch: feature/name` line in the issue description
+People manage the workspace `Target version` choices in Linear. New selections
+require `vMAJOR.MINOR.PATCH` (three numeric components without leading zeroes) or
+the special `main` choice. `v1.2.3` selects `v1.2.3` across the five source
+repositories, with no additional prefix. Bare `1.2.3` and other formats hold new
+work before Git lookup/creation. This does not restrict Linear's label editor or
+detect a syntactically valid but unintended version number. When fresh work
+starts, an existing branch is reused; a missing version branch is created from
+that repository's current default branch. The `main` choice must already exist.
+An exact `Target branch: feature/name` line in the issue description
 selects that branch across repositories and overrides the label. Multiple lines,
-invalid branch names, ambiguous version labels and missing branches hold launch
-for clarification; no explicit selection falls back to main. Without either input,
+invalid branch names, ambiguous version labels and missing explicit branches or
+configured exceptions hold launch for clarification. Without either input,
 each repository's current default is selected. Configured per-version repository
 exceptions are resolved before work starts; see [configuration](version-targets.md).
 
-One designated instance can enable `version_targets.sync_labels`. It discovers
-`main` and strictly `release/<major>.<minor>` branches from the configured source
-repository at service startup and every 300 seconds by default. It creates a
-workspace group and missing choices, and updates only descriptions marked as its
-own. It never applies/removes issue labels or deletes existing choices. Missing
-branches are marked unavailable while existing selections remain intact. Remote
-or Linear failures retain choices and retry on the normal interval. TestBot and
+One designated instance can enable `version_targets.sync_labels`. At service
+startup and every 300 seconds by default, it ensures the workspace group and
+`main` choice exist, and updates only descriptions marked as its own. Choices
+come from people in Linear; sync never reads Git or discovers versions. Old managed
+"Unavailable" descriptions are replaced with exact-name creation guidance. Human
+descriptions and existing label IDs are retained. It never applies/removes issue
+labels or deletes existing choices. Linear failures retry on the normal interval.
+Unsupported existing choices are excluded from supported selections and marked
+unsupported only in FarmBot-managed descriptions; they are not renamed or deleted.
+The old `source_repo` setting is accepted but unused. TestBot and
 production read the same group; configure only one writer. Sync is disabled by
 default so upgrading a second instance cannot make it another label writer.
 
-Before fresh single-worker worktrees are prepared, the controller fetches and
-validates every selected remote branch, atomically records the complete target
+Before fresh single-worker worktrees are prepared, the controller resolves all
+repositories and verifies creation destinations, including effective push URLs,
+private repository identity and write access. It rechecks issue authority and the
+selection before each creation. Git creates exactly one absent ref with an empty
+expected-value lease; concurrent creators and lost responses are reconciled from
+the actual remote. An existing branch is never overwritten or advanced. Creation
+attempts and confirmations are audited. Partial remote creation is retained for
+retry, never rolled back by deleting branches. The controller fetches and validates
+every selected remote branch, atomically records the complete target
 map, and retains starting commits under `refs/farmbot/targets/<item>/<sha>`. The additive
 `work_targets` SQLite table records the selection, its hash, remote identities,
 starting commits and selection time. Existing worktrees and recovery commits keep
@@ -303,18 +319,25 @@ linked issue for the new target; no automatic retarget/rebase is provided.
 
 Publication validates the saved remote, base ancestry, actual remote branch
 existence/history and the PR's selected base. The base may advance normally but
-cannot lose the pinned starting commit. Push authority remains only this issue's
-own branch; pushing the selected base itself is refused even when unprotected.
+cannot lose the pinned starting commit. Worker push authority remains only this
+issue's own branch; pushing the selected base itself is refused even when
+unprotected. A deleted saved target is not automatically recreated.
 Candidate testing uses the owned candidate and saved target; no current-main
 integration requirement is introduced. Historical jobs without a target record
 keep default-branch behavior and cannot gain an explicit target implicitly.
 
-Migration creates only an additive table and optional launch fields; it neither
-rewrites historical jobs nor touches Linear during migration. Before rollback,
+The original migration creates only an additive table and optional launch fields;
+it neither rewrites historical jobs nor touches Linear during migration. Before rollback,
 settle all jobs with target records and disable the label sync owner. Older code
 cannot enforce selected release branches and must not resume those jobs. Preserve
 the database, target refs and recovery records; a Git checkout does not reverse
-this migration or changes to shared Linear labels.
+this migration or changes to shared Linear labels. Exact-name branch creation adds
+no schema migration. Existing saved targets, including old `release/1.0` mappings
+and bare version selections, remain unchanged. Retries and same-issue continuations
+retain only the exact saved selection; fresh selections require the new format.
+Fresh jobs use the label name unless explicitly overridden.
+No branches are renamed. Settle targeted jobs before rolling back to prefixed-name
+code, which may also reject newer label formats. Created remote branches remain.
 
 ## Authority
 
