@@ -15,6 +15,7 @@ from .resource_recovery import MAX_REPAIR_ATTEMPTS
 
 SCHEMA_VERSION = 1
 ACTIVE = ("queued", "running", "awaiting_input", "awaiting_resource")
+COUNT_STATES = (*ACTIVE, 'waiting_ci')
 TERMINAL = ("delivered", "blocked", "failed", "cancelled")
 VERDICTS = ("ok", "attention", "starting", "unresponsive", "stopped", "unknown")
 DISPLAY_STATES = ("queued", "launching", "switching_repo", "retry_wait", "running", "awaiting_input",
@@ -22,6 +23,7 @@ DISPLAY_STATES = ("queued", "launching", "switching_repo", "retry_wait", "runnin
                   "acceptance_paused", 'waiting_presentation', 'waiting_parent_repair',
                   'legacy_paused', 'resource_in_use', 'preparing_resource', 'waiting_worker', 'waiting_worker_cleanup')
 DISPLAY_STATES += ('resource_released', 'resource_held', 'preparing_delivery', 'delivery_posted')
+DISPLAY_STATES += ('review',)
 OUTCOMES = ("delivered", "no_change", "blocked", "failed", "cancelled")
 FAILURE_CODES = ("worker_launch_failed", "worker_start_failed", "worker_claim_timeout", "worker_exit_failed",
                  "model_capacity_exhausted", "worker_startup_exhausted", "skill_disabled", "job_failed")
@@ -499,7 +501,7 @@ def _read_ledger(db, now, beat_state, beat, renew_seconds):
     prs = _pull_requests(db, schema, issue_ids)
     queue = _unity_queue(db, schema)
     slots = _slots(db, schema)
-    counts = dict.fromkeys(ACTIVE, 0)
+    counts = dict.fromkeys(COUNT_STATES, 0)
     for row in rows:
         counts[row["state"]] += 1
     service = {}
@@ -636,7 +638,7 @@ def build_status(ledger_path, *, heartbeat, health, instance, monitor_revision, 
     document = {"schema_version": SCHEMA_VERSION, "generated_at": now, "verdict": None, "verdict_since": None,
                 "instance": _instance(instance),
                 "monitor": {"revision": monitor_revision[0], "dirty": monitor_revision[1]},
-                "service": _service(beat_state, beat, health, now), "counts": dict.fromkeys(ACTIVE, 0),
+                "service": _service(beat_state, beat, health, now), "counts": dict.fromkeys(COUNT_STATES, 0),
                 "active": [], "slots": None, "unity_queue": None, "recent": [], "attention": [],
                 "ledger": {"ok": False, "error_type": None, "missing_optional": []}}
     attention = []
@@ -648,6 +650,12 @@ def build_status(ledger_path, *, heartbeat, health, instance, monitor_revision, 
             service['maintenance'] = maintenance_status(db, heartbeat, now)
             from .review_store import summary as review_summary
             sections['review'] = review_summary(db)
+            from .monitor_reviews import active_reviews
+            reviews = active_reviews(db, now, beat_state, beat,
+                                     maintenance=service['maintenance']['state'] != 'off')
+            sections['active'] = reviews + sections['active']
+            for job in reviews:
+                sections['counts'][job['state']] += 1
     except (sqlite3.Error, OSError, ValueError) as exc:
         document["ledger"]["error_type"] = type(exc).__name__
     else:
