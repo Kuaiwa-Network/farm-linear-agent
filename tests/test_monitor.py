@@ -239,6 +239,55 @@ class PageTests(unittest.TestCase):
         self.assertIn("可用物理内存 2.00 GiB，需 8.00 GiB", rendered[6])
         self.assertIn("超过总预算 8.00 GiB", rendered[6])
 
+    def test_review_row_renders_issue_progress_links_and_stale_state(self):
+        from agent.monitor_reviews import PHASE_ORDER
+        self.assert_labelled('REVIEW_PHASE', (*PHASE_ORDER, 'paused'))
+        script = """
+            class Element {
+              constructor(tag) { this.tag = tag; this.children = []; }
+              append(...parts) { this.children.push(...parts); }
+              get textContent() { return this.children.map(p => typeof p === 'object' ? p.textContent : p).join(''); }
+            }
+            const document = {createElement: tag => new Element(tag)};
+            const timed = f => f(), since = () => '2分钟', ago = () => '5秒前', clock = () => '18:00';
+        """
+        script += next(line for line in self.text('monitor.js').splitlines() if 'const SAFE_LINK =' in line)
+        script += 'const REVIEW_PHASE = ' + self.block('const REVIEW_PHASE = {') + ';\n'
+        for signature in ('function el(tag, className, content)', 'function cell(className, ...parts)',
+                          'function row(className, ...cells)', 'function pill(content, tone)',
+                          'function link(url, text)', 'function reviewJob(job)'):
+            script += signature + ' ' + self.block(signature + ' {') + '\n'
+        script += """
+            const rendered = reviewJob(fixture);
+            const links = n => typeof n !== 'object' ? [] : [...(n.href ? [n.href] : []), ...n.children.flatMap(links)];
+            ({text:rendered.textContent, links:links(rendered)});
+        """
+        fixture = {'identifier': 'FARM-2077', 'title': '<img src=x>公会红点',
+                   'url': 'https://linear.app/k/issue/FARM-2077', 'created_at': 1,
+                   'review': {'phase': 'repair_running', 'total': 2, 'merged': 1, 'reports': 2,
+                              'repairs': 1, 'paused': False, 'stale': True, 'updated_at': 2,
+                              'prs': [{'label': 'client#1', 'url': 'https://github.com/o/client/pull/1',
+                                       'phase': 'repair_running', 'ci': 'failed', 'repairs': 1, 'tracked': None},
+                                      {'label': 'other#2', 'url': 'javascript:alert(1)',
+                                       'phase': 'waiting_ci', 'ci': 'waiting', 'repairs': 0, 'retry_at': 3}]}}
+        rendered = self.render_json(script, fixture)
+        for expected in ('FARM-2077', '<img src=x>公会红点', 'AI 修复中', '等待 GitHub CI',
+                         '已合并 1/2', '累计审查报告 2 份', 'CI 失败', '重试时间 18:00', '最后记录的评审进度'):
+            self.assertIn(expected, rendered['text'])
+        self.assertEqual(rendered['links'], [fixture['url'], 'https://github.com/o/client/pull/1'])
+
+    def test_top_counts_include_ci_wait(self):
+        script = """
+            const el = (tag, cls, value) => value, cell = (cls, ...parts) => parts;
+            let rendered;
+            const byId = () => ({replaceChildren: (...rows) => {rendered = rows;}});
+        """
+        signature = 'function renderCounts(work)'
+        script += signature + ' ' + self.block(signature + ' {') + '\nrenderCounts({counts:fixture}); rendered;'
+        self.assertEqual(self.render_json(script, {'running': 2, 'queued': 1, 'waiting_ci': 3,
+                                                   'awaiting_input': 4, 'awaiting_resource': 0}),
+                         [['处理中', 2], ['排队', 1], ['等待 CI', 3], ['等待回复', 4], ['等待资源', 0]])
+
     def test_general_work_describes_one_owner_with_optional_native_subagents(self):
         for enabled in (["chat", "work"], ["chat", "fix", "feature", "work"]):
             with self.subTest(enabled=enabled):

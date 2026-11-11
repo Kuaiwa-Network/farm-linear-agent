@@ -22,6 +22,7 @@
 <div id="banner" class="banner" hidden></div>
 <main id="content">
   <section class="counts" id="counts"></section>
+  <p class="muted count-note">统计包含实施与评审任务；一轮评审的多个 PR 只计一次。等待 CI 不占 worker 名额。</p>
   <section class="card attention" id="attention" hidden>
     <h2>需要关注<span id="attention-count"></span></h2>
     <div class="rows" id="attention-rows"></div>
@@ -30,7 +31,7 @@
   <section class="card" id="no-work" hidden><p class="empty muted">账本无法读取，暂无工作数据</p></section>
   <div id="work">
     <section class="card"><h2>正在处理</h2><div class="rows" id="active-rows"></div></section>
-    <section class="card" id="review-card" hidden><h2>PR 审查与合并</h2><div class="rows" id="review-rows"></div></section>
+    <section class="card" id="review-card" hidden><h2>最近评审结果</h2><div class="rows" id="review-rows"></div></section>
     <section class="card"><h2>资源槽位</h2><div class="rows" id="slot-rows"></div></section>
     <section class="card"><h2>最近 7 天</h2><div class="rows" id="recent-rows"></div></section>
   </div>
