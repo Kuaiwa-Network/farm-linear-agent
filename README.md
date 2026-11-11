@@ -86,15 +86,19 @@ for contents, limits, exit codes and the local debugging workflow.
 
 ## Targeting a release version
 
-Select a **Target version** label such as `1.0` on the issue, then delegate it.
-FarmBot starts from `release/1.0` and opens its PR against that branch. With no
-selection it uses each repository's default branch. A description line such as
+Create/select a **Target version** label such as `v1.2.3` on the issue, then delegate
+it. FarmBot uses that exact branch name, creating it from each repository's default
+branch if missing, and opens its PR against it. Existing branches are reused. With
+no selection it uses each repository's default branch. A description line such as
 `Target branch: feature/new-market` overrides the version label for an occasional
-feature branch. Missing targets stop for clarification rather than falling back.
+existing feature branch. Explicit branches and configured exceptions must exist.
+New version labels must use `vMAJOR.MINOR.PATCH`; bare `1.2.3` is rejected. The
+special `main` choice remains available. FarmBot validates selections when work
+starts; this does not prevent people creating invalid labels in Linear.
 
-Enable automatic discovery on one instance with `version_targets.sync_labels`;
-see [version target configuration and recovery](docs/version-targets.md). New
-release choices are discovered at startup and every five minutes. No deployment,
+People manage version choices in Linear; the picker does not read Git. Optional
+`version_targets.sync_labels` maintains the group and its managed descriptions;
+see [version target configuration and recovery](docs/version-targets.md). No deployment,
 service restart or live label changes are performed by editing this checkout.
 
 ## Maintenance and rollout

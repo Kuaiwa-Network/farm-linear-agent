@@ -270,8 +270,11 @@ Only listed source worktrees and granted Git object/index/ref paths are writable
 hooks or attributes. Keep credentials/tokens and run reports private in state_dir. Preserve owned process containment.
 You may commit with git -c user.name=FarmBot -c user.email=farmbot@localhost commit. Never rewrite published history.
 The host authorizes publishing this issue's changes to the verified private issue branches and draft PRs.
-The branch_target payload records each repository's selected base branch and starting commit. Keep that
-version across source, dependencies, tests and PRs. Use its saved base for any optional comparison; never
+The branch_target payload records each repository's selected base branch and starting commit.
+Use the recorded names exactly. Fresh version labels require vMAJOR.MINOR.PATCH (or main);
+the controller creates missing version
+branches before launch. Do not add a release/ prefix or create, advance or recreate the selected base yourself.
+Keep that version across source, dependencies, tests and PRs. Use its saved base for any optional comparison; never
 substitute main. A changed Target version label or Target branch line does not authorize resetting work,
 retargeting a PR, rewriting history or selecting another base. Preserve progress and request clarification;
 restoring the original selection or a separate linked issue is required for changed targets.

@@ -69,7 +69,7 @@ class SingleWorkerJourneyTests(unittest.TestCase):
             ['file', str(body), title + '\n' + '\n'.join(prs)],
             ['prepare-comment', '--item', '{item}', '--token', '{token}', '--kind', 'delivery', '--body-file', str(body)],
             ['post-comment', '--item', '{item}', '--token', '{token}', '--action-id', '{action_id}'],
-            self.github(changes, 'farmbot/' + identifier.lower(), 'release/' + version if version else 'main'),
+            self.github(changes, 'farmbot/' + identifier.lower(), version or 'main'),
             # A PR number GitHub does not know is refused before the card can move to review.
             ['file', str(unknown), json.dumps({'summary': title, 'verification': str(reports),
                 'prs': [*prs, fixture.ORG + 'Farm-Client/pull/124'], 'comment_action_id': '{action_id}'})],
@@ -96,23 +96,45 @@ class SingleWorkerJourneyTests(unittest.TestCase):
         self.assertEqual(f.c.ledger.issue_context(key)['published_prs'], sorted(prs))
         return key
 
-    def test_release_version_runs_on_selected_sources_and_delivers_release_pr(self):
+    def test_version_runs_on_selected_sources_and_delivers_exact_base_pr(self):
         from test_worktrees import git
         for repo in fixture.REPOS:
             origin = self.f.origins / (repo + '.git')
-            git('branch', 'release/1.0', cwd=origin)
+            git('branch', 'v1.0.0', cwd=origin)
             (origin / 'next-version.txt').write_text('main only', encoding='utf-8')
             git('add', '.', cwd=origin)
             git('commit', '-qm', 'main advances', cwd=origin)
         key = self.journey('fix version 1.0', {'Farm-Client': 'VALUE = 10\n', 'farm-hive': 'VALUE = 10\n'},
             "assert all(not (Path(root) / 'next-version.txt').exists() for root in roots.values())",
-            version='1.0')
+            version='v1.0.0')
         record = self.f.c.ledger.item(key)['branch_target']
         self.assertEqual(set(record['repositories']), set(fixture.REPOS))
-        self.assertTrue(all(v['branch'] == 'release/1.0' for v in record['repositories'].values()))
-        self.f.tick_until(lambda: self.f.cleaned(key), 'release cleanup')
+        self.assertTrue(all(v['branch'] == 'v1.0.0' for v in record['repositories'].values()))
+        self.f.tick_until(lambda: self.f.cleaned(key), 'version cleanup')
         self.f.restart()
         self.assertEqual(self.f.c.ledger.item(key)['branch_target'], record)
+
+    def test_new_version_is_created_before_worker_and_used_as_pr_base(self):
+        import agent.worktrees as module
+        from test_worktrees import git
+        version = 'v1.2.3'
+        (self.f.stub / 'github.json').write_text(
+            self.github(fixture.REPOS, 'farmbot/farm-1', version)[2], encoding='utf-8')
+        self.f.restart()  # Production wiring selects the file-backed GitHub reader.
+        original = module._git
+        def transport(*args, **kwargs):
+            if args[0] == 'push':
+                self.assertEqual(args[-2], 'origin')
+                local = self.f.origins / Path(kwargs['cwd']).name
+                args = (*args[:-2], str(local), args[-1])
+            return original(*args, **kwargs)
+        with patch.object(module, '_git', side_effect=transport):
+            key = self.journey('fix new patch version', {'Farm-Client': 'VALUE = 123\n'},
+                               'assert len(roots) == 1', version=version)
+        record = self.f.c.ledger.item(key)['branch_target']
+        for repo, target in record['repositories'].items():
+            self.assertEqual(target['branch'], version)
+            self.assertEqual(target['commit'], git('rev-parse', version, cwd=self.f.origins / (repo + '.git')))
 
     def test_delivered_owner_resumes_original_branches_and_keeps_its_prs_after_cleanup(self):
         from agent.foreign_work import foreign_work

@@ -231,8 +231,13 @@ class PublisherTests(unittest.TestCase):
             result["files"]["assets/One/View.xml"] = hashlib.sha256(component.read_bytes()).hexdigest()
             return result
 
-        for fill, state in ((0, "failed"), (1, "passed")):
-            self.run = self.root / ("attempt-" + state)
+        for spelling, fill, state in (("scale", 0, "failed"), ("scale", 1, "passed"),
+                                     ("scaleMatchWidth", 0, "failed"), ("scaleMatchWidth", 3, "passed"),
+                                     ("scaleMatchHeight", 2, "passed")):
+            component.write_text('<component size="200,200"><displayList>'
+                f'<loader id="n1" name="icon" size="128,128" fill="{spelling}"/>'
+                '</displayList></component>', encoding="utf-8")
+            self.run = self.root / ("attempt-" + spelling + "-" + state)
             def exported(*args):
                 result = self.export(*args)
                 (args[2] / "staging/One_fui.bytes").write_bytes(package_bytes(items=[

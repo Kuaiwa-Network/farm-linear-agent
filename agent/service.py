@@ -108,7 +108,9 @@ def build(config, runtime_override=None, *, replay_legacy=False):
     scheduler.preflight = preflight
     if not replay_legacy:
         from .version_targets import TargetController
-        scheduler.version_targets = TargetController(ledger, worktrees, config.version_targets)
+        from .publication import github_reader
+        scheduler.version_targets = TargetController(ledger, worktrees, config.version_targets,
+                                                     preflight=preflight, github=github_reader(config))
     receiver = Receiver(paths.ledger, config.webhook_secret,
                         {"oauthClientId": config.client_id, "appUserId": identity["viewer"]["id"],
                          "organizationId": identity["organization"]["id"]},

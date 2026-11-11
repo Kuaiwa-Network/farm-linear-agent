@@ -1,9 +1,8 @@
 """Idempotent workspace label reconciliation, owned by one configured controller.
 
-No issue labels are applied or removed. Deleted Git branches leave their existing
-labels available as historical selections, with an explicit unavailable description.
+People own the version choices. No Git discovery, issue label changes or deletions.
 """
-from .version_targets import GROUP, VERSION
+from .version_targets import GROUP, TargetError, version_name
 
 MARKER = '[farmbot-version-target]'
 
@@ -37,7 +36,7 @@ def sync(api, versions):
         return result['issueLabel']['id']
 
     group = groups[0]['id'] if groups else create({'name': GROUP, 'isGroup': True,
-        'description': MARKER + ' Select the version before delegating work. Leave the issue unlabeled to use repository defaults.'})
+        'description': MARKER + ' Select vMAJOR.MINOR.PATCH (for example v1.2.3) before delegating work. Leave the issue unlabeled to use repository defaults.'})
     children = [v for v in labels if (v.get('parent') or {}).get('id') == group]
     by_name = {}
     for child in children:
@@ -46,13 +45,20 @@ def sync(api, versions):
         by_name[child['name']] = child
     if len(children) + len(set(versions) - set(by_name)) > 250:
         raise RuntimeError('Target version exceeds the Linear group limit; retain existing labels and reconcile manually')
+    available = []
     for name in sorted(set(versions) | set(by_name)):
-        if name != 'main' and not VERSION.fullmatch(name):
-            continue
-        branch = versions.get(name)
-        description = (MARKER + ' Target branch: ' + branch if branch else
-                       MARKER + ' Unavailable: release branch no longer exists. Existing issue selections are retained.')
         existing = by_name.get(name)
+        try:
+            branch = version_name(name)
+        except TargetError:
+            if not existing:
+                continue
+            description = MARKER + ' Unsupported for new work: use vMAJOR.MINOR.PATCH, for example v1.2.3. Saved job targets are retained.'
+        else:
+            available.append(name)
+            description = MARKER + ' Target branch: ' + branch
+            if name != 'main':
+                description += '. Created from each repository default when work starts if missing.'
         if not existing:
             create({'name': name, 'parentId': group, 'description': description})
         elif ((existing.get('description') or '').startswith(MARKER)
@@ -62,4 +68,4 @@ def sync(api, versions):
             }''', {'id': existing['id'], 'input': {'description': description}})['issueLabelUpdate']
             if result.get('success') is not True:
                 raise RuntimeError('Linear did not confirm version label update')
-    return {'group_id': group, 'available': sorted(versions)}
+    return {'group_id': group, 'available': available}
