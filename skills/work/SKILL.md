@@ -39,7 +39,11 @@ Claim once first using `startup.start_argv`; it saves the token privately and
 returns the resume context. Then read [the concise CLI guide](../../references/single-worker-cli.md)
 and relevant repository instructions. Use `execution.python`
 with argument arrays and `--token-file`, never put a token in logs. Renew normally,
-and before expensive operations. Post concise progress when something changes.
+and before expensive operations. After a model/network interruption, run `renew`
+and handle its control flags before resuming publication or delivery. Successful
+`pop-inbox` and `revalidate` also renew a still-valid claim; inbox renewal pauses
+for maintenance/withdrawal. Context reads, local file writes and GitHub calls do
+not renew. Post concise progress when something changes.
 
 The host defaults current work attempts to high reasoning unless explicitly
 configured otherwise. Follow [the reasoning policy](../../references/worker-reasoning.md);

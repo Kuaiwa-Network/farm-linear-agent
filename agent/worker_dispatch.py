@@ -286,8 +286,11 @@ Never push default/protected branches, force-push, merge PRs, deploy, change Lin
 Save concise checkpoints with current progress, candidate SHAs, report paths and next action. Fetch current issue
 facts and handle actual new requests before finishing. Post the delivery through the normal comment outbox,
 then finish with the PR URLs and an honest verification summary. No extra user confirmation is needed.
-Renew before expensive operations and normally within renew_minutes. On maintenance_requested, finish/collect
-an in-flight operation, release resources safely, save a handoff and use maintenance-handoff then exit.
+Renew before expensive operations and normally within renew_minutes. After a model/network interruption,
+run renew and inspect its control flags before resuming publication or delivery. Successful revalidate and
+pop-inbox also renew a still-valid claim (inbox renewal pauses for maintenance/withdrawal). Context reads,
+local file writes and GitHub calls do not. On maintenance_requested, finish/collect an in-flight operation,
+release resources safely, save a handoff and use maintenance-handoff then exit.
 If delegation is withdrawn, publish nothing; checkpoint, withdraw and exit. An unclean Unity release revokes
 the claim: exit and retain evidence for host recovery. Do not improvise host administration.
 """

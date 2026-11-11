@@ -249,6 +249,23 @@ Rollback restores full default output without losing stored evidence; scripts mu
 omit the new `--view` option on older releases. Running workers require the updated
 code/instructions through the normal authorized release to gain this behavior.
 
+Successful authenticated inbox polling and input revalidation renew a still-valid
+claim, using the lease budget recorded for that worker. Empty inbox polls count
+as worker contact. Renewal is atomic with inbox consumption or revalidation and
+its returned control flags; failed authentication, expired claims and failed
+transactions cannot extend a lease. The renewal audit names the command.
+Inbox polling retains its list response, so it does not automatically renew while
+maintenance or withdrawal is pending; the worker must read those controls with
+`renew`. Revalidation returns its normal control flags without clearing them.
+Unauthenticated context reads, host progress reporting, file writes and GitHub
+activity do not extend leases. Workers still run `renew` on their normal cadence,
+before expensive operations and after model/network interruptions, inspecting
+maintenance, withdrawal and request flags before publication or delivery.
+Silent workers still expire through the existing ownership/teardown checks.
+This adds no schema or permissions and does not resume failed jobs. Deploy through
+the normal authorized release; rollback removes automatic renewal on these two
+commands without changing saved work or claim fencing.
+
 No A–G stage matrix, separate semantic verifier, comparison verdict, evidence
 index, UI receipt or technical closeout approval is required. A checkpoint is
 bounded progress data. Finish retains claim, input, resource and delivery checks.
