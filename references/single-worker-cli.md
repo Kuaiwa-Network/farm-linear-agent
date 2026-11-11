@@ -47,8 +47,8 @@ parking or finish, and checkpoints their work. No FarmBot child task is created.
 | `download-uploads` | `--out STATE_DIR/uploads`, optional repeatable `--url UNSIGNED_UPLOAD_URL`: authenticated download of issue and current Project Overview attachments, with a local manifest. Reuse intact files; never fetch private upload URLs anonymously. |
 | `renew` | Keep the claim alive; compact receipt with control/recovery flags, pending questions/inbox and issue-review indicator. Optional `--view full`. |
 | `checkpoint` | `--input FILE`: save bounded JSON progress, candidate SHAs, report paths and next action; compact acknowledgement by default, optional `--view full`. |
-| `pop-inbox` | Read attributed requests. Reuse actual existing answers. |
-| `revalidate` | `--fingerprint VALUE`, only after reviewing changed inputs; compact receipt retains old/new fingerprints. Optional `--view full`. |
+| `pop-inbox` | Read attributed requests and renew the live claim, even when the inbox is empty, unless maintenance or withdrawal is pending. Use `renew` to read control flags. Reuse actual existing answers. |
+| `revalidate` | `--fingerprint VALUE`, only after reviewing changed inputs; renew the live claim and return a compact receipt retaining old/new fingerprints. Optional `--view full`. |
 | `activity` | `--type thought --body-file FILE`: non-blocking progress or already-decided/high-confidence contract decision summary. Questions use `await-input`. |
 | `await-input` | `--question TEXT --reason question\|waiting`: save a checkpoint and release resources first; then exit. Work questions are posted as issue comments; partial answers keep the same thread and round; changed text is posted as a follow-up reply. |
 | `resolve-question` | `--question-id ID --message-id ID` (repeatable), actual attributed replies only. |
