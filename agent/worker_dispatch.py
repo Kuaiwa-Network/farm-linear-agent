@@ -25,7 +25,8 @@ def startup_instruction(*, item, db_path, state_dir, repo_root, **unused):
             'the controller owns startup timeout recovery.\n')
 
 WORKER_STORAGE_AUTHORITY = (
-    'The launcher provides an item-owned content-addressed GOCACHE reused after verified teardown, '
+    'The launcher provides attempt-local TMPDIR/TEMP/TMP for writable temporary files, '
+    'an item-owned content-addressed GOCACHE reused after verified teardown, '
     'attempt-local GOTMPDIR for temporary Go data and '
     'FARMBOT_BUILD_ROOT for disposable build outputs when the repository supports an external '
     'output layout. Keep those locations. Go validates compiler inputs/toolchain in its cache; a warm cache '
@@ -290,7 +291,9 @@ Save concise checkpoints with current progress, candidate SHAs, report paths and
 facts and handle actual new requests before finishing. Post the delivery through the normal comment outbox,
 then finish with the PR URLs and an honest verification summary. No extra user confirmation is needed.
 Renew before expensive operations and normally within renew_minutes. After a model/network interruption,
-run renew and inspect its control flags before resuming publication or delivery. Successful revalidate and
+run renew as the first action and inspect its control flags before any more reads, edits, publication or delivery.
+Also renew first after any long gap when the renewal deadline has passed or is uncertain; local tool output
+does not renew the claim. If renewal reports an expired or retired claim, stop immediately. Successful revalidate and
 pop-inbox also renew a still-valid claim (inbox renewal pauses for maintenance/withdrawal). Context reads,
 local file writes and GitHub calls do not. On maintenance_requested, finish/collect an in-flight operation,
 release resources safely, save a handoff and use maintenance-handoff then exit.

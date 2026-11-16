@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 from agent.launcher import Launcher, RUNTIMES
 from agent.worker_retention import retire_attempt
 from agent.worker_cache import compiler_cache
@@ -50,6 +51,40 @@ class CacheReuseTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,'incomplete launch'):
             self.launcher.spawn('one','prompt',{},20,self.root)
         self.assertTrue((attempt/'process.json').exists())
+
+    def test_real_children_use_private_temp_despite_invalid_host_and_override_paths(self):
+        code = ('import json,os,tempfile;from pathlib import Path;'
+                'f=tempfile.NamedTemporaryFile(delete=False);f.write(b"scratch");f.close();'
+                'print(json.dumps({"file":f.name,"temp":tempfile.gettempdir(),'
+                '"env":{k:os.environ[k] for k in ("TMPDIR","TEMP","TMP")}}))')
+        self.launcher.runtime = RUNTIMES['fake']._replace(command=[sys.executable,'-c',code.replace('{','{{').replace('}','}}')])
+        invalid = str(self.root/'not a directory')
+        Path(invalid).write_text('host path is unusable',encoding='utf-8')
+        outcomes = []
+        with patch.dict(os.environ,{k:invalid for k in ('TMPDIR','TEMP','TMP')}):
+            for item in ('one','one','two'):
+                handle = self.launcher.spawn(item,'prompt',{},20,self.root,
+                    extra_env={k:invalid for k in ('TMPDIR','TEMP','TMP','temp')})
+                self.addCleanup(self.launcher.poll)
+                self.addCleanup(self.launcher.stop,item,1)
+                deadline = time.monotonic()+10
+                while not self.launcher.poll() and time.monotonic()<deadline:
+                    time.sleep(.02)
+                self.assertEqual(self.launcher.running(),{})
+                data = json.loads((handle.run_dir/'stdout.log').read_text(encoding='utf-8'))
+                scratch = handle.run_dir/'disposable/tmp'
+                self.assertEqual(Path(data['temp']),scratch)
+                self.assertTrue(all(Path(v)==scratch for v in data['env'].values()))
+                self.assertEqual(Path(data['file']).parent,scratch)
+                self.assertEqual(Path(data['file']).read_bytes(),b'scratch')
+                outcomes.append((handle,Path(data['file'])))
+        self.assertEqual(len({path.parent for _,path in outcomes}),3)
+        first, temporary = outcomes[0]
+        result = retire_attempt(self.launcher.runs_root,first.run_dir,apply=True,now=time.time()+48*3600)
+        self.assertEqual(result['status'],'complete',result)
+        self.assertFalse(temporary.exists())
+        self.assertTrue(all(path.exists() for _,path in outcomes[1:]))
+        self.assertEqual(Path(invalid).read_text(encoding='utf-8'),'host path is unusable')
 
     def directory_link(self, link, target):
         if os.name == 'nt':

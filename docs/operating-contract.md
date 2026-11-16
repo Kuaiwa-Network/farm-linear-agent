@@ -644,6 +644,34 @@ required. This classification change needs no schema migration; older releases
 can read the same state but may treat these exits as ordinary failures. Already
 failed jobs are not automatically resumed by deploying the change.
 
+## Expired worker recovery
+
+When a current `work` owner's lease expires, the controller stops only its
+verified process tree, consumes the old launcher handle and proves all recorded
+attempts quiescent before settling it. Uncertain ownership or descendants retain
+the expired claim, PID and evidence for the next recovery pass. A live process,
+local tool output or reconnect log never extends a lease. After a connection or
+long execution gap, workers renew and handle controls before any further reads,
+edits or publication; an expired or retired claim requires immediate exit.
+
+A settled owner without open resource reservations, withdrawal, maintenance or
+an archived/terminal issue is requeued with its candidates, uncommitted work,
+reports and checkpoint preserved. Lease recovery shares `capacity_retries` with
+model/approval capacity recovery: at most three retries after 60, 180 and 600
+seconds per allowance. A natural exit after lease expiry uses the same bound;
+runtime budget exhaustion is a failure and is not retried. Ordinary failures
+before expiry keep their existing handling. Open reservations and stop controls
+keep the existing failure/resource-recovery path; this recovery never releases a
+shared Editor or service. Historical staged workers keep their existing behavior.
+
+Each settlement rechecks PID, generation, expired lease and current state in one
+transaction. Cancellation or a newer attempt wins over stale recovery. Queue
+admission still checks teardown, delegation, maintenance and resource cleanup.
+Exhaustion preserves work and requires an explicit retry, which resets the shared
+allowance. No schema or configuration migration is needed. Already failed jobs
+remain failed until an authorized retry. Older releases can read queued retries
+but do not implement this bounded expiry recovery; settle workers before rollback.
+
 ## Approval-review capacity recovery
 
 When automatic approval review returns the complete `Selected model is at capacity`
@@ -921,13 +949,16 @@ Only these regenerable paths are eligible inside a worker attempt:
 
 - `home/cache/remote_plugin_catalog`, `home/cache/codex_apps_tools` and
   `home/plugins/cache`: downloaded Codex catalogs, tool descriptions and plugin bundles.
-- `disposable/go-cache` (historical), `disposable/go-tmp` and `disposable/build`:
-  attempt-local Go temporary files and disposable build outputs.
+- `disposable/go-cache` (historical), `disposable/tmp`, `disposable/go-tmp` and
+  `disposable/build`: attempt-local temporary files and disposable build outputs.
 
 The launcher supplies absolute `GOCACHE` at the same item's
 `compiler-cache-v1/go-cache`, reusing Go's content-addressed compilation cache only
 after every previous attempt is proved quiescent. It supplies attempt-local
-`GOTMPDIR` and `FARMBOT_BUILD_ROOT`; arbitrary binaries/build trees are not silently
+`TMPDIR`/`TEMP`/`TMP`, `GOTMPDIR` and `FARMBOT_BUILD_ROOT`. The general temporary
+directory stays inside the existing item write grant, including before a claim
+from a read-only release; inherited host temporary paths are replaced.
+Arbitrary binaries/build trees are not silently
 reused. Item roots never share writable caches. The optional
 [operator-published compilation seed](go-build-cache.md) copies verified artifacts
 one way into private caches for writable farm-hive workers. It is pinned to the

@@ -40,7 +40,9 @@ returns the resume context. Then read [the concise CLI guide](../../references/s
 and relevant repository instructions. Use `execution.python`
 with argument arrays and `--token-file`, never put a token in logs. Renew normally,
 and before expensive operations. After a model/network interruption, run `renew`
-and handle its control flags before resuming publication or delivery. Successful
+as the first action and handle its control flags before any more reads, edits,
+publication or delivery. Renew first after a long gap if the renewal deadline has
+passed or is uncertain. Stop immediately if the claim is expired or retired. Successful
 `pop-inbox` and `revalidate` also renew a still-valid claim; inbox renewal pauses
 for maintenance/withdrawal. Context reads, local file writes and GitHub calls do
 not renew. Post concise progress when something changes.

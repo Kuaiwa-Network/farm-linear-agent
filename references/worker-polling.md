@@ -46,7 +46,9 @@ Successful `pop-inbox` (including an empty inbox) and `revalidate` also renew th
 current claim atomically with their work. Inbox polling does not extend a claim
 while maintenance or withdrawal is pending; use `renew` to read those controls.
 After a model/network interruption, run `renew` and inspect its control flags
-before resuming publication or delivery.
+as the first action before any more reads, edits, publication or delivery. Do the
+same after a long gap if the renewal deadline has passed or is uncertain. Stop
+immediately if renewal reports an expired or retired claim; the controller owns recovery.
 Context reads, local checkpoint-file writes, GitHub calls and host progress
 reports do not renew. An expired claim cannot be revived by any of these calls.
 

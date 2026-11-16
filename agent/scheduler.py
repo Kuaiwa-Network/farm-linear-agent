@@ -655,8 +655,11 @@ class Scheduler:
     def _reap(self):
         reaped = 0
         for finished in self.launcher.poll():
-            self.active.pop(finished.item_id, None)
             item = self.ledger.item(finished.item_id)
+            if (finished.worker_pid is not None and item['worker_pid'] is not None
+                    and finished.worker_pid != item['worker_pid']):
+                continue  # an old attempt cannot retire or recover its successor
+            self.active.pop(finished.item_id, None)
             state = item["state"]
             if Maintenance(self.ledger).pending(finished.item_id):
                 # The claim was retired deliberately. settle() still proves all descendants gone.
@@ -695,7 +698,12 @@ class Scheduler:
                     state = "failed"
             if state == "running":
                 item = self.ledger.item(finished.item_id)
-                if item["lease_expires_at"] is not None and item["lease_expires_at"] <= self.ledger.clock():
+                expired = item["lease_expires_at"] is not None and item["lease_expires_at"] <= self.ledger.clock()
+                if expired and single(item) and item['skill'] == 'work' and finished.reason != 'budget':
+                    self._recover_expired_owner(item)
+                    reaped += 1
+                    continue
+                if expired and (finished.reason != 'budget' or not (single(item) and item['skill'] == 'work')):
                     self.ledger.recover(finished.item_id, f"worker exited with an expired lease ({finished.reason}, code {finished.returncode})")
                     self._notify(finished.item_id, "thought", "工作进程在租约过期后退出，已重新排队，等待新的 worker 接手。")
                     state = "queued"
@@ -784,6 +792,43 @@ class Scheduler:
             self._retire(item_id, 'failed')
         return result is not None
 
+    def _recover_expired_owner(self, item):
+        """Settle an expired owner without extending its claim or trusting reconnect logs."""
+        item_id, pid = item['id'], item['worker_pid']
+        current = self.ledger.item(item_id)
+        if (not pid or current['host'] != self.host or current['state'] != 'running'
+                or current['worker_pid'] != pid or current['generation'] != item['generation']
+                or current['lease_expires_at'] is None or current['lease_expires_at'] > self.ledger.clock()):
+            return False
+        try:
+            handle = self.launcher.running().get(item_id)
+            if handle and handle.pid != pid:
+                return False
+            if item_id in self.active or handle:
+                self.launcher.stop(item_id)
+            if item_id in self.launcher.running():
+                return False  # poll must consume the old handle before the retry is queued
+            recorded = []
+            certified = self.launcher.certified_pids(item_id) if hasattr(self.launcher, 'certified_pids') else set()
+            if pid not in certified and self.launcher.alive(pid):
+                if not self.launcher.owned_pid(pid, item_id):
+                    return False
+                recorded = self.launcher.kill_owned_attempt(item_id, pid)
+            self.launcher.assert_quiescent(item_id, pid, recorded)
+        except Exception:
+            return False  # retain the expired claim, PID and evidence until teardown is proved
+        result = self.ledger.recover_expired_worker(item_id, pid, item['generation'])
+        if not result:
+            return False  # a concurrent cancellation/control change owns the new state
+        self.active.pop(item_id, None)
+        if result['status'] == 'queued':
+            self._notify(item_id, 'thought', f"工作进程租约过期；已确认安全退出，进度已保留，"
+                         f"将在 {result['delay_seconds']} 秒后自动重试（共享重试 {result['attempt']}/3）。")
+        else:
+            self._notify(item_id, 'error', '工作进程租约过期，自动重试条件不满足或 3 次共享重试已用尽；进度已保留。')
+            self._retire(item_id, 'failed')
+        return True
+
     def _recover(self):
         recovered = 0
         now = self.ledger.clock()
@@ -808,6 +853,9 @@ class Scheduler:
                 continue
         for item_id in self.ledger.status()["recovery_required"]:
             item = self.ledger.item(item_id)
+            if single(item) and item['skill'] == 'work':
+                recovered += int(self._recover_expired_owner(item))
+                continue
             pid = item["worker_pid"]
             if pid and self.launcher.alive(pid) and item_id not in self.active and not self.launcher.owned_pid(pid, item_id):
                 continue  # A live PID we cannot identify is not a dead worker.
