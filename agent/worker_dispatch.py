@@ -25,7 +25,8 @@ def startup_instruction(*, item, db_path, state_dir, repo_root, **unused):
             'the controller owns startup timeout recovery.\n')
 
 WORKER_STORAGE_AUTHORITY = (
-    'The launcher provides an item-owned content-addressed GOCACHE reused after verified teardown, '
+    'The launcher provides attempt-local TMPDIR/TEMP/TMP for writable temporary files, '
+    'an item-owned content-addressed GOCACHE reused after verified teardown, '
     'attempt-local GOTMPDIR for temporary Go data and '
     'FARMBOT_BUILD_ROOT for disposable build outputs when the repository supports an external '
     'output layout. Keep those locations. Go validates compiler inputs/toolchain in its cache; a warm cache '

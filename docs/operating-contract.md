@@ -949,13 +949,16 @@ Only these regenerable paths are eligible inside a worker attempt:
 
 - `home/cache/remote_plugin_catalog`, `home/cache/codex_apps_tools` and
   `home/plugins/cache`: downloaded Codex catalogs, tool descriptions and plugin bundles.
-- `disposable/go-cache` (historical), `disposable/go-tmp` and `disposable/build`:
-  attempt-local Go temporary files and disposable build outputs.
+- `disposable/go-cache` (historical), `disposable/tmp`, `disposable/go-tmp` and
+  `disposable/build`: attempt-local temporary files and disposable build outputs.
 
 The launcher supplies absolute `GOCACHE` at the same item's
 `compiler-cache-v1/go-cache`, reusing Go's content-addressed compilation cache only
 after every previous attempt is proved quiescent. It supplies attempt-local
-`GOTMPDIR` and `FARMBOT_BUILD_ROOT`; arbitrary binaries/build trees are not silently
+`TMPDIR`/`TEMP`/`TMP`, `GOTMPDIR` and `FARMBOT_BUILD_ROOT`. The general temporary
+directory stays inside the existing item write grant, including before a claim
+from a read-only release; inherited host temporary paths are replaced.
+Arbitrary binaries/build trees are not silently
 reused. Item roots never share writable caches. The optional
 [operator-published compilation seed](go-build-cache.md) copies verified artifacts
 one way into private caches for writable farm-hive workers. It is pinned to the

@@ -352,8 +352,16 @@ class Launcher:
         # The compiler cache belongs to this item; scratch and arbitrary build
         # outputs belong to this attempt. Neither may hold durable evidence.
         disposable = run_dir.absolute() / 'disposable'
-        for child in ('go-tmp', 'build'):
+        for child in ('tmp', 'go-tmp', 'build'):
             (disposable / child).mkdir(parents=True)
+        # Host temp paths may be outside the worker sandbox, while startup runs
+        # from a read-only release. Python and native tools need writable scratch
+        # before the worker can claim; keep it within the existing item grant.
+        scratch = str(disposable / 'tmp')
+        for key in list(env):
+            if key.upper() in ('TMPDIR', 'TEMP', 'TMP'):
+                del env[key]
+        env.update(TMPDIR=scratch, TEMP=scratch, TMP=scratch)
         env.update(GOCACHE=str(go_cache), GOTMPDIR=str(disposable / 'go-tmp'),
                    FARMBOT_BUILD_ROOT=str(disposable / 'build'))
         if cache_seed is not None:

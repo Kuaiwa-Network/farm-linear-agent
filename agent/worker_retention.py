@@ -20,7 +20,7 @@ from .runtime_retention import (
 DEFAULTS = {'enabled': True, 'keep_hours': 24, 'sweep_seconds': 3600}
 # No generic bin/obj, global cache, module source, Unity Library or home deletion.
 CACHE_ROOTS = ('home/cache/remote_plugin_catalog', 'home/cache/codex_apps_tools', 'home/plugins/cache',
-               'disposable/go-cache', 'disposable/go-tmp', 'disposable/build')
+               'disposable/go-cache', 'disposable/go-tmp', 'disposable/build', 'disposable/tmp')
 # Earlier Scheduler versions put Go's worker caches here. No other job paths
 # are inferred from names, file extensions or disk size.
 JOB_CACHE_ROOTS = ('server-tests/go-cache', 'server-tests/tmp', 'compiler-cache-v1/go-cache')
