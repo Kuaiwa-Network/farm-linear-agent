@@ -42,6 +42,14 @@ the cadence cannot carry the worker past either deadline. A successful
 that status is unchanged. While another operation runs, use a separate normal
 renewal when needed. Respect operation timeouts and earlier control deadlines.
 
+Successful `pop-inbox` (including an empty inbox) and `revalidate` also renew the
+current claim atomically with their work. Inbox polling does not extend a claim
+while maintenance or withdrawal is pending; use `renew` to read those controls.
+After a model/network interruption, run `renew` and inspect its control flags
+before resuming publication or delivery.
+Context reads, local checkpoint-file writes, GitHub calls and host progress
+reports do not renew. An expired claim cannot be revived by any of these calls.
+
 Inspect every returned result for errors, maintenance, cancellation, withdrawal
 and new requests. Handle them immediately using the existing CLI and resource
 rules. When only a pending tool handle is returning, continue the normal renewal

@@ -1408,10 +1408,22 @@ class Ledger:
     def renew(self, item_id, token, *, include_controls=False):
         with self._transaction():
             row = self._owned(item_id, token)
-            self.connection.execute("UPDATE work_items SET lease_expires_at=?,updated_at=? WHERE id=?",
-                                    (self.clock() + (row["lease_seconds"] or self.lease_seconds), self.clock(), row["id"]))
-            self._audit(row["id"], "renew")
+            self._renew_owned(row)
             return self._view(self._row(row["id"]), include_controls=include_controls)
+
+    def _renew_owned(self, row, command=""):
+        """Renew an authenticated row inside its command's transaction, never after expiry.
+
+        Inbox polling and input revalidation are worker heartbeats too. Keep their
+        renewal atomic with consuming requests/updating inputs and reading controls.
+        Host observation and unauthenticated context reads never call this helper.
+        """
+        now = self.clock()
+        if row["lease_expires_at"] <= now:
+            raise LedgerError("lease expired; the launcher recovers expired work, workers must stop")
+        self.connection.execute("UPDATE work_items SET lease_expires_at=?,updated_at=? WHERE id=?",
+                                (now + (row["lease_seconds"] or self.lease_seconds), now, row["id"]))
+        self._audit(row["id"], "renew", command)
 
     def set_worker(self, item_id, pid, host, lease_seconds=None):
         """Record the launched worker and, with it, the lease this item's skill budgets."""
@@ -1651,6 +1663,7 @@ class Ledger:
             self.connection.execute("UPDATE work_items SET claimed_fingerprint=?,revalidated_fingerprint=?,updated_at=? "
                                     "WHERE id=?", (fingerprint, fingerprint, self.clock(), row["id"]))
             self._audit(row["id"], "revalidate", "", {"from": row["claimed_fingerprint"], "to": fingerprint})
+            self._renew_owned(row, "revalidate")
             return {**self._view(self._row(row["id"]), include_controls=include_controls), "claimed_fingerprint": fingerprint,
                     "previous_fingerprint": row["claimed_fingerprint"]}
 
@@ -3930,6 +3943,12 @@ class Ledger:
             row = self._owned(item_id, token)
             rows = self.connection.execute("SELECT id,body FROM inbox WHERE item_id=? AND consumed_at IS NULL ORDER BY id", (row["id"],)).fetchall()
             self.connection.execute("UPDATE inbox SET consumed_at=? WHERE item_id=? AND consumed_at IS NULL", (self.clock(), row["id"]))
+            # The legacy list response carries no control flags. Do not let
+            # polling alone postpone a requested maintenance/withdrawal stop;
+            # the worker must use renew to receive and handle those controls.
+            from .maintenance import Maintenance
+            if row["withdraw_deadline"] is None and not Maintenance(self).requested(item_id):
+                self._renew_owned(row, "pop-inbox")
             return [r["body"] for r in rows]
 
     def issue_context(self, item_id):
