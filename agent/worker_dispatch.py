@@ -290,7 +290,9 @@ Save concise checkpoints with current progress, candidate SHAs, report paths and
 facts and handle actual new requests before finishing. Post the delivery through the normal comment outbox,
 then finish with the PR URLs and an honest verification summary. No extra user confirmation is needed.
 Renew before expensive operations and normally within renew_minutes. After a model/network interruption,
-run renew and inspect its control flags before resuming publication or delivery. Successful revalidate and
+run renew as the first action and inspect its control flags before any more reads, edits, publication or delivery.
+Also renew first after any long gap when the renewal deadline has passed or is uncertain; local tool output
+does not renew the claim. If renewal reports an expired or retired claim, stop immediately. Successful revalidate and
 pop-inbox also renew a still-valid claim (inbox renewal pauses for maintenance/withdrawal). Context reads,
 local file writes and GitHub calls do not. On maintenance_requested, finish/collect an in-flight operation,
 release resources safely, save a handoff and use maintenance-handoff then exit.

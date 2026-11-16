@@ -3205,6 +3205,40 @@ class Ledger:
             self._set_state(row["id"], "queued", reason, token=None, lease_expires_at=None, worker_pid=None, resume_authorized=1)
             return self._view(self._row(row["id"]))
 
+    def recover_expired_worker(self, item_id, expected_pid, expected_generation):
+        """Host-only settlement after verified teardown of an expired current work owner.
+
+        Share the bounded capacity allowance, preserving candidates and checkpoints.
+        The caller must certify every attempt's descendants before calling this;
+        neither a dead parent nor log activity is a heartbeat or teardown proof.
+        """
+        from .maintenance import Maintenance
+        delays = (60, 180, 600)
+        with self._transaction():
+            row = self._row(item_id)
+            if (not single(row) or row['skill'] != 'work' or row['state'] != 'running'
+                    or not expected_pid or row['worker_pid'] != expected_pid
+                    or row['generation'] != expected_generation or row['lease_expires_at'] is None
+                    or row['lease_expires_at'] > self.clock()):
+                return None
+            reserved = self.connection.execute(
+                "SELECT 1 FROM reservations WHERE item_id=? AND state IN ('queued','active','cancel_requested')",
+                (item_id,)).fetchone()
+            attempts = row['capacity_retries']
+            if (reserved or row['withdraw_deadline'] is not None or Maintenance(self).requested(item_id)
+                    or not _in_scope(json.loads(self._issue_row(row['issue_id'])['metadata']))):
+                reason = 'worker lease expired; automatic retry unavailable with resources or stop controls'
+            elif attempts >= len(delays):
+                reason = 'worker lease expired; shared automatic retries exhausted (3)'
+            else:
+                delay = delays[attempts]
+                self._set_state(item_id, 'queued', 'worker lease expired; delayed automatic retry',
+                                token=None, lease_expires_at=None, worker_pid=None, resume_authorized=1,
+                                capacity_retries=attempts + 1, retry_not_before=self.clock() + delay)
+                return {'status': 'queued', 'attempt': attempts + 1, 'delay_seconds': delay}
+            self._set_state(item_id, 'failed', reason, token=None, lease_expires_at=None, worker_pid=None)
+            return {'status': 'failed', 'reason': reason}
+
     def defer_capacity_retry(self, item_id, expected_pid):
         """Host-only recovery for a confirmed capacity exit; keep all issue work and reservations.
 
