@@ -1289,14 +1289,57 @@ class Worktrees:
         """Tracked files only: Library/, Temp/ and Logs/ are Unity's and are never part of the check (spec §7)."""
         return _git("status", "--porcelain=v1", "--untracked-files=no", cwd=path, env=SLOT_ENV) == ""
 
-    def reconcile_slot_meta(self, repo, path, recovery_id, evidence_dir):
+    def _slot_changes_in_candidate(self, path, before, commit):
+        """Prove every changed tracked file is already present verbatim in a pinned correction."""
+        if not self.COMMIT.fullmatch(commit or '') or commit == before['commit_sha']:
+            return False
+        env = {**SLOT_ENV, 'GIT_NO_REPLACE_OBJECTS': '1'}
+        for row in before['dirty']:
+            relative = row['path']
+            if (not relative.startswith('Assets/') or row['status'] != ' M'
+                    or row['sha256'] is None):
+                return False
+            source = path / relative
+            if not source.resolve().is_relative_to(path):
+                return False
+            current = source
+            while current != path:
+                if _is_link(current):
+                    return False
+                current = current.parent
+            status = source.stat()
+            if not stat.S_ISREG(status.st_mode) or status.st_nlink != 1:
+                return False
+            entries = []
+            for revision in (before['commit_sha'], commit):
+                entry = _git('--literal-pathspecs', 'ls-tree', '-z', revision, '--', relative,
+                             cwd=path, env=env)
+                if not entry.endswith('\0') or entry.count('\0') != 1:
+                    return False
+                header, name = entry[:-1].split('\t', 1)
+                mode, kind, oid = header.split()
+                if name != relative or kind != 'blob' or mode not in ('100644', '100755'):
+                    return False
+                entries.append((mode, oid))
+            if entries[0][0] != entries[1][0]:
+                return False
+            if os.name != 'nt' and bool(status.st_mode & 0o111) != (entries[0][0] == '100755'):
+                return False
+            # No clean filters, EOL conversion or whitespace normalization: a pointer,
+            # normalized approximation, symlink or staged intermediate state is not proof.
+            if _git('hash-object', '--no-filters', '--', relative, cwd=path, env=env) != entries[1][1]:
+                return False
+        return bool(before['dirty'])
+
+    def reconcile_slot_meta(self, repo, path, recovery_id, evidence_dir, *, committed_candidate=None):
         """Archive importer-dirty Assets metadata before restoring the controlled slot.
 
         A dedicated slot starts clean at switch time. If Unity later changes only existing or
         newly generated .meta files, the requested commit cannot pass source identity. Keep
         the exact tracked tree under an immutable recovery ref and copy untracked metadata
         before restoring it. The caller proves the Editor exited or is idle with automatic
-        refresh suspended. Any other change remains quarantined for human review.
+        refresh suspended. A validated successor may also archive tracked Assets changes
+        already contained byte-for-byte in committed_candidate. Other changes stay held.
         """
         from .identity import source_snapshot
 
@@ -1309,12 +1352,14 @@ class Worktrees:
         changed = before["dirty"]
         if not changed:
             return None
-        if any(
+        metadata_only = not any(
                 not row["path"].startswith("Assets/")
                 or not row["path"].casefold().endswith(".meta")
                 or row["status"] not in (" M", "M ", "MM", "??")
-                or row["sha256"] is None for row in changed):
-            return None
+                or row["sha256"] is None for row in changed)
+        if not metadata_only:
+            if committed_candidate is None or not self._slot_changes_in_candidate(path, before, committed_candidate):
+                return None
 
         evidence_dir.mkdir(parents=True, exist_ok=True)
         tracked, untracked = [], []
@@ -1355,10 +1400,12 @@ class Worktrees:
             if _git("rev-parse", ref, cwd=common, env=SLOT_ENV) != (existing_ref or saved):
                 raise WorktreeError("saved slot metadata ref could not be verified")
 
-        manifest = evidence_dir / "source-meta.json"
+        manifest = evidence_dir / ("source-meta.json" if metadata_only else "source-candidate.json")
         manifest.write_text(json.dumps({"slot": str(path), "head": before["commit_sha"],
                                         "tracked_ref": ref, "changes": changed,
-                                        "untracked_backup": untracked}, ensure_ascii=False, indent=2),
+                                        "untracked_backup": untracked,
+                                        **({"committed_candidate": committed_candidate} if not metadata_only else {})},
+                                       ensure_ascii=False, indent=2),
                             encoding="utf-8")
         if source_snapshot(path) != before:
             raise WorktreeError("slot source changed while preserving metadata")
