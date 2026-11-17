@@ -18,6 +18,10 @@ class ReviewError(ValueError):
     pass
 
 
+class ReviewTargetError(ReviewError):
+    """The delivery's target does not qualify for automated review."""
+
+
 class ReviewUnavailable(RuntimeError):
     """Missing infrastructure evidence; never a negative safety verdict."""
 

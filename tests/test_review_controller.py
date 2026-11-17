@@ -3,7 +3,7 @@ import json
 from types import SimpleNamespace
 
 from agent.review_controller import Controller
-from agent.review_policy import ReviewError, digest
+from agent.review_policy import ReviewError, ReviewTargetError, digest
 from test_review import APP, BASE, HEAD, ReviewFixture, policy
 
 
@@ -28,9 +28,11 @@ class GitHub:
     def authority(self, repo, owner):
         pass
 
-    def validate_pr(self, pr, value):
+    def validate_pr(self, pr, value, *, version_target=False):
         if value['head']['sha'] != pr['source_head'] or value['merged']:
             raise ReviewError('head changed')
+        if pr['target'] != 'main' and not version_target:
+            raise ReviewTargetError('target not authorized')
 
     def blockers(self, pr):
         return pr['url'] in self.blocked
@@ -174,6 +176,106 @@ class ControllerTests(ReviewFixture):
 
     def launched_prs(self):
         return [self.store.row('review_candidates', a['candidate_id'])['pr_id'] for a in self.workers.launched]
+
+    def version_delivery(self, number=1, *, branch='v1.2.3', explicit=False):
+        selection = {'kind': 'branch' if explicit else 'version', 'value': branch if explicit else 'v1.2.3'}
+        inputs = ({'description': 'Target branch: ' + branch} if explicit else
+                  {'labels': ['v1.2.3'], 'label_groups': [{'group': 'Target version', 'label': 'v1.2.3'}]})
+        targets = {repo: {'branch': branch, 'remote': remote, 'commit': BASE}
+                   for repo, remote in self.config.repos.items()}
+        return self.delivery(number, branch_target={'selection': selection, 'repositories': targets}, **inputs)
+
+    def test_nondefault_branches_require_a_saved_version_target(self):
+        explicit, _ = self.version_delivery(1, branch='feature/explicit', explicit=True)
+        feature, _ = self.version_delivery(2, branch='feature/override')
+        changed, pr = self.version_delivery(3)
+        self.store.db.execute('UPDATE review_prs SET target=? WHERE id=?', ('main', pr['id']))
+        self.controller.tick()
+        for run in (explicit, feature, changed):
+            row = self.store.row('review_runs', run['id'])
+            self.assertEqual(row['disposition'], 'human_handoff')
+            self.assertIn('目标分支', row['reason'])
+        self.assertEqual(self.workers.launched, [])
+
+    def test_rewritten_version_branch_does_not_get_new_evidence(self):
+        run, _ = self.version_delivery()
+        self.controller.tick()
+        old = self.good()
+        self.github.base = 'e' * 40
+        self.github.states[old['commit']] = 'passed'
+        self.controller.tick()
+        row = self.store.row('review_runs', run['id'])
+        self.assertEqual(row['disposition'], 'human_handoff')
+        self.assertIn('历史已变化', row['reason'])
+        self.assertEqual(len(self.workers.launched), 1)
+        self.assertFalse(any(call[0] == 'merge' for call in self.git.calls))
+
+    def test_version_review_keeps_branch_protection(self):
+        run, _ = self.version_delivery()
+        self.github.protected = lambda pr: pr['target'] == 'v1.2.3'
+        self.controller.tick()
+        snapshot = self.good()
+        self.github.states[snapshot['commit']] = 'passed'
+        self.controller.tick()
+        row = self.store.row('review_runs', run['id'])
+        self.assertEqual(row['disposition'], 'human_handoff')
+        self.assertIn('目标分支受到保护', row['reason'])
+        self.assertFalse(any(call[0] == 'merge' for call in self.git.calls))
+
+    def test_legacy_version_replay_runs_a_review_without_publishing_or_merging(self):
+        run, pr = self.version_delivery()
+        previous = f"PR 已变化、关闭或不再符合已验证的交付身份：{pr['url']}；需人工核对最新提交与目标分支。"
+        self.store.handoff(run['id'], previous)
+        self.api.create_comment = lambda *args: 'posted-original'
+        with self.assertRaisesRegex(ReviewError, 'notification to settle'):
+            self.store.replay_version_review(run['id'], self.controller.policy, self.config.repos, 'too early')
+        self.controller.tick()
+        original_marker = next(value for call, value in self.github.calls if call == 'notify')
+        self.store.replay_version_review(run['id'], self.controller.policy, self.config.repos, 'operator selected')
+        self.controller.tick()
+        self.assertEqual([a['role'] for a in self.workers.launched], ['review'])
+        self.good()
+        self.controller.tick()
+        row = self.store.row('review_runs', run['id'])
+        self.assertEqual(row['disposition'], 'human_handoff')
+        self.assertIn('已完成补跑', row['reason'])
+        self.assertIn('No introduced defects found', self.controller.notification_body(row))
+        self.assertFalse(self.git.calls)
+        self.assertFalse(self.github.checked)
+        markers = [value for call, value in self.github.calls if call == 'notify']
+        self.assertEqual(len(set(markers)), 2)
+        self.assertIn(original_marker, markers)
+        archived = self.store.db.execute("SELECT details FROM audit WHERE kind='review_version_replay'").fetchone()
+        self.assertEqual(json.loads(archived['details'])['prior_handoff']['reason'], previous)
+        with self.assertRaisesRegex(ReviewError, 'unreplayed'):
+            self.store.replay_version_review(run['id'], self.controller.policy, self.config.repos, 'duplicate')
+
+    def test_legacy_version_replay_revalidates_the_original_source(self):
+        run, pr = self.version_delivery()
+        self.store.handoff(run['id'],
+            f"PR 已变化、关闭或不再符合已验证的交付身份：{pr['url']}；需人工核对最新提交与目标分支。")
+        self.api.create_comment = lambda *args: 'posted-original'
+        self.controller.tick()
+        self.store.replay_version_review(run['id'], self.controller.policy, self.config.repos, 'operator selected')
+        self.github.heads[pr['url']] = 'e' * 40
+        self.controller.tick()
+        self.assertFalse(self.workers.launched)
+        self.assertEqual(self.store.row('review_runs', run['id'])['disposition'], 'human_handoff')
+
+    def test_legacy_version_replay_has_no_speculative_merge_edges(self):
+        run, replay = self.version_delivery()
+        self.store.handoff(run['id'],
+            f"PR 已变化、关闭或不再符合已验证的交付身份：{replay['url']}；需人工核对最新提交与目标分支。")
+        self.api.create_comment = lambda *args: 'posted-original'
+        self.controller.tick()
+        self.store.replay_version_review(run['id'], self.controller.policy, self.config.repos, 'operator selected')
+        _, regular = self.version_delivery(2)
+        self.controller.tick()
+        self.assertEqual(len(self.workers.launched), 2)
+        for pr in (replay, regular):
+            candidate = self.controller.candidate(self.store.row('review_prs', pr['id']))
+            self.assertEqual(candidate['predecessors'], [])
+            self.assertEqual(candidate['prefix'], BASE)
 
     def test_legacy_pr_and_issue_status_labels_do_not_block_new_review(self):
         self.config.auto_merge['hold_labels'] = ['needs-person', '待人工审查', 'hold-auto-merge']
@@ -594,14 +696,14 @@ class ControllerTests(ReviewFixture):
         self.assertNotEqual(self.controller.prs()[0]['candidate_id'], old['id'])
         self.assertFalse(any(c[0] == 'merge' for c in self.git.calls))
 
-    def multi_delivery(self):
+    def multi_delivery(self, *, version=False):
         repo_policy = self.config.auto_merge['repositories']['common']
         self.config.auto_merge = policy(mode='merge', repositories={
             'common': repo_policy, 'server': {**repo_policy, 'dependencies': ['common'],
                 'pin': {'repository': 'common', 'path': 'pin.env', 'key': 'COMMON_COMMIT'}}})
         self.config.repos['server'] = 'unused'
         self.controller = Controller(self.ledger, self.config, self.api, self.github, self.git, self.workers)
-        run, common = self.delivery()
+        run, common = self.version_delivery() if version else self.delivery()
         server = {**common, 'id': digest(['server', run['id']]), 'repository': 'server',
                   'url': 'https://github.com/example/server/pull/2'}
         self.store.db.execute('INSERT INTO review_prs(id,run_id,repository,url,target,source_head,source_branch) VALUES(?,?,?,?,?,?,?)',
@@ -618,6 +720,16 @@ class ControllerTests(ReviewFixture):
         self.controller.tick()
         self.assertEqual([call[1] for call in self.git.calls if call[0] == 'merge'],
             ['https://github.com/example/common/pull/1', 'https://github.com/example/server/pull/2'])
+        self.assertEqual(self.store.row('review_runs', run['id'])['disposition'], 'auto_merged')
+
+    def test_version_dependency_pin_uses_the_saved_dependency_branch(self):
+        run = self.multi_delivery(version=True)
+        self.github.default_head = lambda repo: self.fail(f'{repo} must use its saved version branch')
+        self.controller.tick()
+        for attempt in self.workers.launched:
+            snapshot = self.good(attempt)
+            self.github.states[snapshot['commit']] = 'passed'
+        self.controller.tick()
         self.assertEqual(self.store.row('review_runs', run['id'])['disposition'], 'auto_merged')
 
     def test_invalid_pin_hands_off_before_common_can_merge(self):

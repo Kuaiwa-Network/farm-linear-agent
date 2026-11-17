@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from urllib.parse import quote
 
 from .publication import github_repository, PublicationUnavailable
-from .review_policy import PR, ReviewError, commit, encoded
+from .review_policy import PR, ReviewError, ReviewTargetError, commit, encoded
 
 
 class GitHub:
@@ -75,7 +75,7 @@ class GitHub:
     def pr(self, row):
         return self.request('GET', self.endpoint(row['repository'], '/pulls/' + str(self.number(row['repository'], row['url']))))
 
-    def validate_pr(self, row, value):
+    def validate_pr(self, row, value, *, version_target=False):
         repository = self.repositories[row['repository']]
         if (not isinstance(value, dict) or value.get('html_url') != row['url']
                 or value.get('state') != 'open' or value.get('head', {}).get('sha') != row['source_head']
@@ -86,9 +86,10 @@ class GitHub:
             raise ReviewError('review PR identity, head, target or state changed')
         meta = self.request('GET', self.endpoint(row['repository']))
         if (meta.get('private') is not True or str(meta.get('full_name')).casefold() != repository.casefold()
-                or meta.get('permissions', {}).get('push') is not True
-                or meta.get('default_branch') != row['target'] or meta.get('archived')):
-            raise ReviewError('review repository identity or default branch changed')
+                or meta.get('permissions', {}).get('push') is not True or meta.get('archived')):
+            raise ReviewError('review repository identity or permissions changed')
+        if meta.get('default_branch') != row['target'] and not version_target:
+            raise ReviewTargetError('review target is neither the default branch nor an authorized version branch')
 
     def pages(self, repo, suffix, key=None):
         rows, expected_count = [], 0
@@ -228,14 +229,16 @@ class GitHub:
             raise ReviewError('Branch protection could not be determined')
         return value['protected']
 
-    def default_head(self, repo):
+    def default_head(self, repo, *, expected=None):
         metadata = self.request('GET', self.endpoint(repo))
+        if expected is not None and metadata['default_branch'] != expected:
+            raise ReviewTargetError(f'{repo} 的依赖目标 `{expected}` 不是仓库默认分支或版本分支')
         return self.target({'repository': repo, 'target': metadata['default_branch']})
 
-    def reverts(self, repo, sha, since):
+    def reverts(self, repo, target, sha, since):
         timestamp = datetime.fromtimestamp(since, timezone.utc).isoformat()
-        # The commits endpoint defaults to the repository's default branch.
-        rows = self.pages(repo, '/commits?since=' + quote(timestamp, safe=''))
+        rows = self.pages(repo, '/commits?sha=' + quote('refs/heads/' + target, safe='')
+                          + '&since=' + quote(timestamp, safe=''))
         prefix = 'This reverts commit ' + commit(sha)
         # git revert -m emits the second form for the merge commits this backend
         # publishes. Checking only the ordinary single-parent message misses them.

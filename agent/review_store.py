@@ -4,7 +4,7 @@ import json
 import secrets
 from uuid import uuid4
 
-from .review_policy import ReviewError, commit, digest, encoded, validate_verdict
+from .review_policy import ReviewError, commit, digest, encoded, evidence_policy, validate_verdict
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS review_deliveries (
@@ -92,7 +92,7 @@ def summary(connection):
     return {'available': True,
             'runs': {r[0]: r[1] for r in connection.execute('SELECT state,count(*) FROM review_runs GROUP BY state')},
             'attempts': {r[0]: r[1] for r in connection.execute('SELECT state,count(*) FROM review_attempts GROUP BY state')},
-            'prs': [dict(r) for r in connection.execute('SELECT p.repository,p.url,p.state,p.repairs,p.rebuilds,p.error,'
+            'prs': [dict(r) for r in connection.execute('SELECT p.run_id,p.repository,p.url,p.target,p.state,p.repairs,p.rebuilds,p.error,'
                 'c.id AS candidate,json_extract(c.snapshot,\'$.commit\') AS commit_sha,json_extract(c.ci,\'$.state\') AS ci,'
                 '(SELECT a.state FROM review_attempts a WHERE a.candidate_id=c.id ORDER BY a.created_at DESC,a.rowid DESC LIMIT 1) AS attempt_state,'
                 'r.disposition FROM review_prs p JOIN review_runs r ON r.id=p.run_id '
@@ -141,6 +141,44 @@ class ReviewStore:
                     'VALUES(?,?,?,?,?,?,?)', (pr_id, run_id, value['repo'], value['url'], value['base_branch'],
                                            commit(value['head']), value['branch']))
         return self.row('review_runs', run_id)
+
+    def replay_only(self, run):
+        return bool(self.db.execute("SELECT 1 FROM audit WHERE item_id=? AND kind='review_version_replay' "
+                                   "AND json_extract(details,'$.run')=?", (run['item_id'], run['id'])).fetchone())
+
+    def replay_version_review(self, run_id, policy, repositories, reason):
+        """Retry one pre-review handoff with its original delivery and audit trail."""
+        from .version_targets import VERSION, is_version_selection, require_current
+
+        with self.ledger._transaction():
+            run = self.row('review_runs', run_id)
+            if (run['state'] != 'delivered' or run['disposition'] != 'human_handoff'
+                    or self.replay_only(run) or not self.current({**run, 'state': 'queued'})):
+                raise ReviewError('replay requires a current, previously unreplayed human handoff')
+            if not run['notified']:
+                raise ReviewError('wait for the original handoff notification to settle before replaying')
+            saved = require_current(self.ledger, run['item_id'])
+            if not saved or not is_version_selection(saved['selection']):
+                raise ReviewError('replay requires a saved version selection')
+            prs = [dict(row) for row in self.db.execute('SELECT * FROM review_prs WHERE run_id=?', (run_id,))]
+            targets = saved['repositories']
+            if not prs or any(
+                    pr['state'] != 'delivered' or pr['repository'] not in policy['repositories']
+                    or targets.get(pr['repository'], {}).get('branch') != pr['target']
+                    or targets.get(pr['repository'], {}).get('remote') != repositories.get(pr['repository'])
+                    or self.db.execute('SELECT 1 FROM review_candidates WHERE pr_id=?', (pr['id'],)).fetchone()
+                    for pr in prs):
+                raise ReviewError('replay requires intact original PRs and no previous candidate')
+            if not any(VERSION.fullmatch(pr['target']) and run['reason'] ==
+                       f"PR 已变化、关闭或不再符合已验证的交付身份：{pr['url']}；需人工核对最新提交与目标分支。"
+                       for pr in prs):
+                raise ReviewError('replay is limited to the legacy pre-review version-target handoff')
+            self.ledger._audit(run['item_id'], 'review_version_replay', reason,
+                               {'run': run_id, 'prior_handoff': run})
+            self.db.execute("UPDATE review_runs SET state='queued',disposition=NULL,reason='',policy=?,"
+                            'notified=0,updated_at=? WHERE id=?',
+                            (evidence_policy(policy, [pr['repository'] for pr in prs]), self.ledger.clock(), run_id))
+            self.db.execute("UPDATE review_prs SET state='queued',error='' WHERE run_id=?", (run_id,))
 
     def invalidate(self, candidate_id, reason):
         """Caller holds transaction. Fence all descendants before scheduling any rebuild."""

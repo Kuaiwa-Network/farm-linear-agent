@@ -39,6 +39,10 @@ def version_name(value):
     return value
 
 
+def is_version_selection(requested):
+    return requested['kind'] in ('version', 'branch') and VERSION.fullmatch(requested['value']) is not None
+
+
 def settings(block, repos):
     if not isinstance(block, dict) or set(block) - {'source_repo', 'sync_labels', 'sync_seconds', 'overrides'}:
         raise ValueError('version_targets accepts source_repo, sync_labels, sync_seconds and overrides')

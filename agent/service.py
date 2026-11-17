@@ -533,7 +533,7 @@ def main(argv=None):
     parser.add_argument("command", choices=["configure", "serve", "status", "seed-clones", "install-launchd",
                                             "enqueue", "slots", "doctor", "export-diagnostics", "recover-worker-cleanup", "monitor",
                                             "recover-server-slot", "maintenance-pause", "maintenance-status",
-                                            "review-status", "review-pause", "review-resume", "review-incident",
+                                            "review-status", "review-pause", "review-resume", "review-incident", "review-replay-version",
                                             "maintenance-resume", "adopt-single-worker", "resume-ui-scope", "resume-ui-source", "resume-comparison", "resume-server-evidence"])
     parser.add_argument("--config")
     parser.add_argument("--from", dest="source_root", help="directory holding local checkouts to seed from")
@@ -545,7 +545,7 @@ def main(argv=None):
     parser.add_argument("--item", help="work item selected for recovery or export-diagnostics")
     parser.add_argument("--slot", help="held server slot to reconcile through verified Docker cleanup")
     parser.add_argument("--reason", help="operator explanation for maintenance or recovery")
-    parser.add_argument('--review-run', help='review run selected for an attributed incident')
+    parser.add_argument('--review-run', help='review run selected for an attributed incident or version replay')
     parser.add_argument('--event-id', help='stable deduplication identity for an incident')
     parser.add_argument('--incident-kind', choices=('revert', 'reopen'))
     parser.add_argument("--evidence-manifest", help="host-reviewed retained server evidence manifest")

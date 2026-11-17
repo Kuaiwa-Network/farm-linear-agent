@@ -19,7 +19,7 @@ from test_review import APP, ReviewFixture, policy
 
 
 class ReviewJourneyTests(ReviewFixture):
-    def test_controller_integrates_reviews_and_atomically_merges_real_local_git_candidates(self):
+    def test_controller_merges_exact_candidates_on_separate_default_and_version_queues(self):
         from test_review_git import CandidateGitTests
         from test_review_controller import GitHub, Workers
         from test_worktrees import git
@@ -40,15 +40,26 @@ class ReviewJourneyTests(ReviewFixture):
                                  instance_id='test', local_root=self.path.parent)
         controller = Controller(self.ledger, config, SimpleNamespace(app_user_id=APP, fetch_issue=self.ledger.issue),
                                 github, fixture.git, workers)
+        branch = 'v1.2.3'
+        git('push', '-q', 'origin', 'main:refs/heads/' + branch, cwd=fixture.author)
+        target = {'selection': {'kind': 'version', 'value': branch}, 'repositories': {
+            'common': {'remote': str(fixture.remote), 'branch': branch, 'commit': fixture.base}}}
         runs = []
-        for number in (1, 2):
+        for number in (1, 2, 3):
             source = fixture.source(number, 'feature-' + str(number) + '.txt', str(number))
-            run, pr = self.delivery(number)
+            if number == 1:
+                run, pr = self.delivery(number)
+            elif number == 2:
+                explicit = {**target, 'selection': {'kind': 'branch', 'value': branch}}
+                run, pr = self.delivery(number, branch_target=explicit, description='Target branch: ' + branch)
+            else:
+                run, pr = self.delivery(number, branch_target=target, labels=[branch],
+                                        label_groups=[{'group': 'Target version', 'label': branch}])
             runs.append(run)
             self.store.db.execute('UPDATE review_runs SET policy=? WHERE id=?', (controller.run_policy(run['id']), run['id']))
             self.store.db.execute('UPDATE review_prs SET source_head=? WHERE id=?', (source['source_head'], pr['id']))
         controller.tick()
-        self.assertEqual(len(workers.launched), 2)
+        self.assertEqual(len(workers.launched), 3)
         snapshots = []
         for attempt in workers.launched:
             snapshot = json.loads(self.store.row('review_candidates', attempt['candidate_id'])['snapshot'])
@@ -56,8 +67,12 @@ class ReviewJourneyTests(ReviewFixture):
             workers.finish(attempt, self.verdict(snapshot))
             github.states[snapshot['commit']] = 'passed'
         controller.tick()
-        self.assertEqual(git('rev-parse', 'main', cwd=fixture.remote), snapshots[-1]['commit'])
-        self.assertEqual([self.store.row('review_runs', run['id'])['disposition'] for run in runs], ['auto_merged'] * 2)
+        self.assertEqual([s['target'] for s in snapshots], ['main', branch, branch])
+        self.assertEqual(snapshots[1]['prefix'], fixture.base)
+        self.assertEqual(snapshots[2]['prefix'], snapshots[1]['commit'])
+        self.assertEqual(git('rev-parse', 'main', cwd=fixture.remote), snapshots[0]['commit'])
+        self.assertEqual(git('rev-parse', branch, cwd=fixture.remote), snapshots[2]['commit'])
+        self.assertEqual([self.store.row('review_runs', run['id'])['disposition'] for run in runs], ['auto_merged'] * 3)
         for snapshot in snapshots:
             self.assertEqual(git('rev-parse', snapshot['source_branch'], cwd=fixture.remote), snapshot['commit'])
 
