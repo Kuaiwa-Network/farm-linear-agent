@@ -250,7 +250,8 @@ class UnityRecovery:
             if before['dirty']:
                 archive_id = recovery['id'] if before['commit_sha'] == recovery['commit_sha'] else f"{recovery['id']}-baseline-{recovery['attempts']}"
                 archive = pool.worktrees.reconcile_slot_meta(entry['repo'], folder, archive_id,
-                    evidence_dir if archive_id == recovery['id'] else evidence_dir / archive_id)
+                    evidence_dir if archive_id == recovery['id'] else evidence_dir / archive_id,
+                    **({'committed_candidate': baseline} if plan.get('previous_recovery_id') else {}))
                 if archive is None:
                     raise SlotError('non-metadata source changes retained for human review', stage='git')
             if pool.worktrees.head(folder) != baseline:

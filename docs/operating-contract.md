@@ -870,6 +870,16 @@ operation during maintenance may select the original issue's clean corrected HEA
 to recover an already exhausted slot without reviving its cancelled request.
 Both old and new recovery locks fence this transition and any immediate repair.
 
+A successor may recover tracked non-metadata Assets changes only when every dirty
+file is an unstaged regular file whose raw bytes and Git file mode match the pinned
+corrected commit. Staged changes, additions, deletions, links, extra edits and
+normalization-only matches remain quarantined. The host archives the tracked tree
+under its immutable recovery ref and records `source-candidate.json` before
+restoration; it rechecks the complete source/index snapshot before changing files.
+This exception applies only to a validated successor, after the existing Editor
+quiescence/termination fence. Fresh import, Console and identity checks still gate
+reuse. Existing exhausted recoveries are not automatically retried by deployment.
+
 No schema migration is required. The successor uses existing recovery and audit
 tables plus its private baseline plan. Before rollback, settle pending successor
 repairs: older code cannot preserve metadata from the previous baseline when a

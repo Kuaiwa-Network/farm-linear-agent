@@ -357,6 +357,43 @@ class CandidateRepairTests(SlotFixture):
         self.assertEqual((folder / 'README.md').read_text(), 'preserve authored source')
         self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
 
+    def test_corrected_serialized_assets_recover_only_through_validated_successor(self):
+        from agent.execution import queue_resource
+        # Preserve both the asset LF bytes and the fake importer's native metadata
+        # bytes in Git, independently of the host's core.autocrlf setting.
+        (self.origin / '.gitattributes').write_bytes(b'Assets/** -text\n')
+        assets = ['Assets/幕布 Atlas.asset', 'Assets/幕布 Material.mat']
+        (self.origin / 'Assets').mkdir()
+        for relative in assets:
+            (self.origin / relative).write_bytes(b'emptyField:\n')
+        git('add', '.', cwd=self.origin)
+        git('commit', '-qm', 'serialized assets', cwd=self.origin)
+        self.fail_candidate()
+        folder = self.pool.folder(self.pool.entries['unity_slot:1'])
+        for relative in assets:
+            (folder / relative).write_bytes(b'emptyField: \n')
+        self.assertEqual(self.controller().tick()['repaired'], 0)
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
+        correction = self.trees.add_stage('Farm-Client', self.item, 'farmbot/farm-1', self.bad)
+        for relative in [*assets, self.meta]:
+            (correction / relative).write_bytes((folder / relative).read_bytes())
+        git('add', '.', cwd=correction)
+        git('commit', '-qm', 'retain native asset serialization', cwd=correction)
+        corrected = self.trees.head(correction)
+        self.ledger.connection.execute("UPDATE work_items SET execution_contract='single-worker-v1',skill='work' WHERE id=?", (self.item,))
+        self.ledger.set_worker(self.item, 123, 'test')
+        token = self.ledger.claim(self.item, worker_id='correcting-owner')['token']
+        self.advance(1)
+        request = queue_resource(self.ledger, self.item, token, 'unity_slot', 'interactive', corrected)
+        self.assertEqual(self.controller().tick()['repaired'], 1)
+        self.assertEqual(self.ledger.slot('unity_slot:1')['parked_commit'], corrected)
+        self.assertFalse(source_snapshot(folder)['dirty'])
+        self.assertEqual(self.ledger.reservation(request['reservation_id'])['state'], 'queued')
+        successor = self.ledger.connection.execute('SELECT * FROM resource_recoveries ORDER BY rowid DESC LIMIT 1').fetchone()
+        manifest = json.loads((Path(successor['evidence']) / 'source-candidate.json').read_text(encoding='utf-8'))
+        self.assertEqual(manifest['committed_candidate'], corrected)
+        self.assertEqual(self.store.get(self.record['id'])['state'], 'superseded')
+
     def test_failed_allow_refresh_is_restarted_before_publishing_the_slot(self):
         self.fail_candidate()
         @contextmanager
