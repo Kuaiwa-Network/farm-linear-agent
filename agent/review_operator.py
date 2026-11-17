@@ -31,6 +31,11 @@ def control(config, command, *, reason=None, run=None, event=None, kind=None):
             ReviewStore(ledger).incident(event, run, kind, settings(config.auto_merge, config.repos))
             ledger.note(ledger.connection.execute('SELECT item_id FROM review_runs WHERE id=?', (run,)).fetchone()[0],
                         'review_incident', reason)
+        elif command == 'review-replay-version':
+            policy = settings(config.auto_merge, config.repos)
+            if not run or policy['mode'] != 'merge' or config.instance_id != policy['authority']:
+                raise ValueError('review-replay-version requires --review-run and the designated merge controller')
+            ReviewStore(ledger).replay_version_review(run, policy, config.repos, reason)
         else:
             raise ValueError('unknown review control command')
         return summary(ledger.connection)

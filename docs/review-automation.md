@@ -10,6 +10,16 @@ Verified single-worker delivery records the exact PR URLs, repositories, branche
 source commits and generation in the same transaction as `delivered`. Old deliveries
 are not backfilled. `chat` and no-change deliveries create no review work.
 
+The queue accepts PRs targeting a repository's default branch or the exact
+`vMAJOR.MINOR.PATCH` branch saved for that repository by the [issue's target
+selection](version-targets.md), whether selected by a label or an explicit
+`Target branch:` line. A version override can use another version branch or the
+repository default branch. Other non-default branches require human handoff.
+Each repository and target branch has its own speculative queue. Version
+candidates must still include the saved starting commit. Dependency pins must be
+present on the dependency's saved target, including when the dependency has no
+PR in the delivery. The same configured review, CI and protection checks apply.
+
 The service retains its configured general-worker capacity. Review has an additional
 three-slot budget, shared by repair attempts and independent read-only reviews.
 Setting general capacity to eight therefore permits eleven main processes. Each
@@ -83,6 +93,8 @@ stays In Review. PR notifications do not create status labels. `待人工审查`
 automation has delivered to a human reviewer; `待回复` means AI is waiting for an answer.
 Humans own subsequent review, edits and merge. Green checks, human approvals and
 removing a hold cannot resume that run. A new explicit request uses normal intake.
+Operators can also request a review-only replay for an eligible legacy version
+handoff as described below.
 
 The designated merge-mode controller reconciles the issue label, records ownership
 before writing it and retries failures. New implementation work or issue closure
@@ -158,15 +170,12 @@ are retained and reported; the controller never automatically reverts them.
 Every delivery PR must have a clean routine review and green configured evidence
 before any of its PRs merge. Repository dependencies constrain merge order. Pin
 rules read `KEY=SHA` files, check membership in the delivery's dependency PR before
-merging anything, and verify ancestry on the dependency default branch before the
-consumer lands. The independent reviewer must additionally verify that the pin
+merging anything, and verify ancestry on the dependency's target branch before
+the consumer lands. The independent reviewer must additionally verify that the pin
 contains all of the issue's own table changes; a digest is not that proof.
 
 ## Remaining implementation and rollout limits
 
-- Review currently targets repository default branches. Deliveries targeting a
-  version/release branch use human handoff; the existing version-target publication
-  checks remain in force.
 - `github_queue` is a **shadow-only merge backend**. Squash and rebase remain
   configured with that backend; their native merge-group review/CI attestation and
   promotion integration are not implemented. The ordinary GitHub merge API is not
@@ -185,8 +194,8 @@ contains all of the issue's own table changes; a digest is not that proof.
   controller-driven GitHub CI. They cannot yet request the general worker's shared
   Unity/server resource bridge. A repair requiring those resources must report its
   verification gap and hand off; it must not start a shared Editor/service directly.
-- Revert detection recognizes standard Git revert commit messages on the default
-  branch. Reopen detection requires observing the issue completed and later reopened.
+- Revert detection recognizes standard Git revert commit messages on the branch
+  where the candidate merged. Reopen detection requires observing the issue completed and later reopened.
   Other regressions can be attributed with `review-incident`; semantic/partial
   reverts are not inferred automatically.
 - The implementation is off by default. No production config, webhook, workflow,
@@ -282,6 +291,7 @@ python -m agent.service review-status --config C:\private\farmbot.json
 python -m agent.service review-pause --config C:\private\farmbot.json --reason "Investigating regressions"
 python -m agent.service review-resume --config C:\private\farmbot.json --reason "Regression investigation complete"
 python -m agent.service review-incident --config C:\private\farmbot.json --review-run RUN_ID --event-id EVENT_ID --incident-kind revert --reason "Confirmed regression"
+python -m agent.service review-replay-version --config C:\private\farmbot.json --review-run RUN_ID --reason "Review the existing version PR"
 ```
 
 On macOS use `python3` and the host's own config path. `review-status` is read-only.
@@ -290,6 +300,15 @@ in seven days. Duplicate signals do not count twice. Resume clears the pause, no
 terminal human handoffs. Maintenance also stops new review admission and merging,
 and holds drain readiness until review attempts prove quiescent. Unverifiable process
 ownership retains capacity and evidence; never free slots by deleting run records.
+Use `review-status` to find the run ID by PR URL. After deploying the version
+review support to the designated merge controller, `review-replay-version` can
+queue one operator-selected delivery that reached the old version-target handoff
+before any candidate was created and whose handoff notification has settled.
+It archives the prior handoff in the audit log
+and uses the original PRs, source SHAs, target branches and issue generation.
+The current issue and PR checks still apply. The replay produces an independent
+AI review report for manual follow-up and does not publish CI refs, repair or merge.
+Ordinary new version deliveries use the full configured pipeline.
 The controller checks local worker completion and pending deliveries every five seconds,
 and wakes on due recovery backoff without repeatedly polling GitHub. Remote refreshes
 remain bounded by the configured poll interval or a local state transition. The monitor
@@ -327,6 +346,9 @@ intermediate development database adds these nullable columns, and verdicts with
 the bindings cannot authorize a merge. PR rows also gain `bot_feedback`; new review
 bindings include its digest. Old bindings require fresh review. Earlier development
 versions' whole-config policy hashes cannot authorize current evidence and hand off.
+
+Version review and replay add no schema migration. Settle version runs and replays
+before rollback because older controllers hand version targets back to people.
 
 Before rollback: stop new intake, pause review, drain both worker pools through
 verified containment, reconcile every pending merge against Git and GitHub, and

@@ -45,8 +45,13 @@ out older code neither reverses Linear status changes nor removes saved requests
 The optional [review and merge controller](review-automation.md) starts from verified
 single-worker delivery. It keeps the general-worker budget and adds a separate
 three-attempt review/repair budget. GitHub CI waits release AI capacity. Candidates
-speculate in repository order and are invalidated when predecessors change. Human
-handoff is terminal delivered work; humans own subsequent review and merge.
+speculate separately for each repository and target branch and are invalidated
+when predecessors change. The repository default or a saved version branch can
+use automatic review and exact-candidate merge, subject to the same policy,
+dependency, CI and protection checks. Human handoff is terminal delivered work.
+An operator can explicitly request one review-only replay of a legacy version
+handoff that stopped before candidate creation. The original handoff stays in
+the audit history and the report goes back to human review and merge.
 The yellow Linear issue label `待人工审查` marks that handoff; `待回复` instead means
 AI needs an answer. PR reports do not add status labels. The designated merge-mode
 controller reconciles its managed issue label, clearing it for new implementation

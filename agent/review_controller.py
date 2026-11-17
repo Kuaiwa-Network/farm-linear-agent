@@ -7,8 +7,9 @@ import json
 
 from .attention import reconcile_review_label
 from .maintenance import Maintenance
-from .review_policy import ReviewError, commit, digest, encoded, evidence_policy, review_focus, risk, settings
+from .review_policy import ReviewError, ReviewTargetError, commit, digest, encoded, evidence_policy, review_focus, risk, settings
 from .review_store import ReviewStore
+from .version_targets import VERSION, Store as TargetStore, is_version_selection
 
 
 class Controller:
@@ -244,6 +245,27 @@ class Controller:
             return None
         return issue
 
+    def version_targets(self, run):
+        saved = TargetStore(self.ledger).get(run['item_id'])
+        if saved and is_version_selection(saved['selection']):
+            return saved['repositories']
+        return {}
+
+    def validate_pr(self, run, pr, metadata):
+        targets = self.version_targets(run)
+        target = targets.get(pr['repository'])
+        if targets and (not target or target['branch'] != pr['target']
+                        or target['remote'] != self.config.repos.get(pr['repository'])):
+            self.store.handoff(run['id'], f"PR {pr['url']} 的目标分支或仓库与已授权的交付记录不一致；需人工核对。")
+            return False
+        try:
+            self.github.validate_pr(pr, metadata, version_target=bool(target and VERSION.fullmatch(pr['target'])))
+        except ReviewTargetError:
+            self.store.handoff(run['id'], f"PR {pr['url']} 的目标分支 `{pr['target']}` 不符合自动审查条件。"
+                               '仅仓库默认分支和交付记录中已授权的版本分支可进入自动审查。')
+            return False
+        return True
+
     def refresh(self, run):
         if run['policy'] != self.run_policy(run['id']):
             self.store.handoff(run['id'], '审查或合并策略已变化，旧证据不能沿用；如需重新自动审查，必须通过新请求重新交付。')
@@ -260,13 +282,14 @@ class Controller:
             return
         if not self.live_issue(run):
             return
+        replay_only = self.store.replay_only(run)
         for pr in self.prs(run['id']):
             if pr['state'] in ('merged', 'merging'):
                 continue
             if pr['repository'] not in self.policy['repositories']:
                 self.store.handoff(run['id'], f"仓库 {pr['repository']} 未配置审查策略，无法确认自动合并条件；本次交付由人工审查与合并。")
                 return
-            if self.writes and self.policy['repositories'][pr['repository']]['backend'] != 'git_ff':
+            if self.writes and not replay_only and self.policy['repositories'][pr['repository']]['backend'] != 'git_ff':
                 self.store.handoff(run['id'], f"仓库 {pr['repository']} 配置的合并后端尚未实现安全自动合并；本次交付由人工合并，避免跨仓库部分提交。")
                 return
             value = self.github.pr(pr)
@@ -275,7 +298,8 @@ class Controller:
                 self.store.handoff(run['id'], f"PR 已在本队列之外合并：{pr['url']}；现有整合证据失效，剩余 PR 由人工确认依赖并合并。")
                 return
             try:
-                self.github.validate_pr(pr, value)
+                if not self.validate_pr(run, pr, value):
+                    return
             except ReviewError:
                 self.store.handoff(run['id'], f"PR 已变化、关闭或不再符合已验证的交付身份：{pr['url']}；需人工核对最新提交与目标分支。")
                 return
@@ -312,29 +336,45 @@ class Controller:
                         self.store.invalidate(snapshot['id'], 'Target branch changed outside this candidate prefix')
 
     def frontier(self, pr):
-        rows = [p for p in self.prs(active_only=True) if p['repository'] == pr['repository'] and p['target'] == pr['target']
-                and p['state'] not in ('merged', 'delivered')
-                and self.store.current(self.store.row('review_runs', p['run_id']))]
+        rows = []
+        for candidate in self.prs(active_only=True):
+            if candidate['repository'] != pr['repository'] or candidate['target'] != pr['target']:
+                continue
+            run = self.store.row('review_runs', candidate['run_id'])
+            if not self.store.replay_only(run) and self.store.current(run):
+                rows.append(candidate)
         return rows, next((i for i, p in enumerate(rows) if p['id'] == pr['id']), -1)
 
     def advance(self, pr):
         pr = self.store.row('review_prs', pr['id'])
-        if not self.store.current(self.store.row('review_runs', pr['run_id'])):
+        run = self.store.row('review_runs', pr['run_id'])
+        if not self.store.current(run):
             return
+        replay_only = self.store.replay_only(run)
         policy = self.policy['repositories'][pr['repository']]
         if pr['state'] == 'queued':
             if pr['rebuilds'] > self.policy['retry_limit'] * self.policy['depth']:
                 self.store.handoff(pr['run_id'], f"PR {pr['url']} 的整合候选已重建 {pr['rebuilds']} 次，超过恢复上限；需人工协调并行 PR 的基线与合并顺序。")
                 return
-            queue, position = self.frontier(pr)
-            if position < 0 or position >= self.policy['depth']:
-                return
-            predecessor = self.candidate(queue[position - 1]) if position else None
-            if position and (not predecessor or predecessor['conflicts'] or queue[position - 1]['state'] == 'repair'):
-                return
+            predecessor = None
+            if not replay_only:
+                queue, position = self.frontier(pr)
+                if position < 0 or position >= self.policy['depth']:
+                    return
+                if position:
+                    prior = queue[position - 1]
+                    predecessor = self.candidate(prior)
+                    if not predecessor or predecessor['conflicts'] or prior['state'] == 'repair':
+                        return
             metadata = self.github.pr(pr)
-            self.github.validate_pr(pr, metadata)
+            if not self.validate_pr(run, pr, metadata):
+                return
             snapshot = self.git.prepare(pr, metadata, predecessor)
+            target = self.version_targets(run).get(pr['repository'])
+            if target and not self.git.ancestor(pr['repository'], target['commit'], snapshot['base']):
+                self.store.handoff(pr['run_id'], f"PR {pr['url']} 的交付目标分支历史已变化，当前基线不再包含选定提交 "
+                                   f"`{target['commit']}`；需人工核对版本分支。")
+                return
             snapshot['policy'] = self.run_policy(pr['run_id'])
             snapshot['checks'] = policy['checks']
             # Record the complete delivery identity even when its other candidates are not ready yet.
@@ -359,6 +399,13 @@ class Controller:
             record['verdict'] = None
         if record['verdict'] and json.loads(record['verdict'])['risk'] == 'high':
             self.high_risk(pr, json.loads(record['verdict']))
+            return
+        if replay_only:
+            if self.store.inputs_current(run['id'], record['review_inputs']) and all(
+                    p['candidate_id'] and self.store.inputs_current(
+                        run['id'], self.store.row('review_candidates', p['candidate_id'])['review_inputs'])
+                    for p in self.prs(run['id'])):
+                self.store.handoff(run['id'], '已完成补跑的独立 AI 审查。请结合下方审查结论和 CI 人工决定是否合并。')
             return
         if self.writes and record['state'] == 'prepared':
             # Each ref is immutable and unique. Crash retries publish the identical commit.
@@ -421,6 +468,9 @@ class Controller:
 
     def need_repair(self, pr, reason):
         if pr['state'] == 'repair':
+            return
+        if self.store.replay_only(self.store.row('review_runs', pr['run_id'])):
+            self.store.handoff(pr['run_id'], f"PR {pr['url']}：{reason}。本次补跑由人工处理修复与合并。")
             return
         if pr['repairs'] >= self.policy['repair_limit']:
             self.store.handoff(pr['run_id'], f"PR {pr['url']}：{reason}；已完成 {pr['repairs']} 轮 AI 修复，达到配置上限 "
@@ -488,6 +538,7 @@ class Controller:
 
     def pins(self, run, *, merging=None):
         prs = {p['repository']: p for p in self.prs(run['id'])}
+        targets = self.version_targets(run)
         for repo, pr in prs.items():
             pin = self.policy['repositories'][repo]['pin']
             snapshot = self.candidate(pr)
@@ -502,10 +553,24 @@ class Controller:
                 if sha not in commits:
                     raise ReviewError(f"{repo} 的依赖锁定文件 {pin['path']} 未指向本次交付中 {pin['repository']} PR 的提交；需人工核对版本配套关系。")
             if merging == repo or not dependency:
-                base = self.github.default_head(pin['repository'])
-                self.git.worktrees.fetch(pin['repository'])
-                if not self.git.ancestor(pin['repository'], sha, base):
-                    raise ReviewError(f"{repo} 锁定的依赖提交 {sha} 尚未合入 {pin['repository']} 默认分支；需人工确认依赖版本与合并顺序。")
+                dep_repo = pin['repository']
+                target = targets.get(dep_repo)
+                if targets:
+                    if not target or target['remote'] != self.config.repos.get(dep_repo):
+                        raise ReviewError(f'{dep_repo} 缺少可信的版本分支记录')
+                    selected_branch = target['branch']
+                    base = (self.github.target({'repository': dep_repo, 'target': selected_branch})
+                            if VERSION.fullmatch(selected_branch)
+                            else self.github.default_head(dep_repo, expected=selected_branch))
+                    branch = f"`{selected_branch}`"
+                else:
+                    base = self.github.default_head(dep_repo)
+                    branch = '默认分支'
+                self.git.worktrees.fetch(dep_repo)
+                if target and not self.git.ancestor(dep_repo, target['commit'], base):
+                    raise ReviewError(f'{dep_repo} 的目标分支 {branch} 已不包含选定基线')
+                if not self.git.ancestor(dep_repo, sha, base):
+                    raise ReviewError(f"{repo} 锁定的依赖提交 {sha} 尚未合入 {dep_repo} 的 {branch}；需人工确认依赖版本与合并顺序。")
 
     def merge(self, pr):
         pr = self.store.row('review_prs', pr['id'])
@@ -515,7 +580,7 @@ class Controller:
         if policy['backend'] != 'git_ff' or not self.writes or pr['repository'] not in self.authorized:
             return  # Never approximate a native queue with the unfenced ordinary merge API.
         run = self.store.row('review_runs', pr['run_id'])
-        if not self.all_reviewed(run) or not self.live_issue(run):
+        if self.store.replay_only(run) or not self.all_reviewed(run) or not self.live_issue(run):
             return
         queue, position = self.frontier(pr)
         if position != 0:
@@ -535,7 +600,8 @@ class Controller:
             if self.store.row('review_candidates', predecessor)['state'] != 'merged':
                 return
         metadata = self.github.pr(pr)
-        self.github.validate_pr(pr, metadata)
+        if not self.validate_pr(run, pr, metadata):
+            return
         if self.github.protected(pr):
             self.store.handoff(run['id'], f"PR {pr['url']} 的目标分支受到保护，当前精确提交推送后端不能绕过保护规则；需人工按仓库规则合并。")
             return
@@ -658,7 +724,7 @@ class Controller:
         for row in self.db.execute("SELECT * FROM review_runs WHERE state IN ('delivered','superseded') AND notified=0").fetchall():
             run = dict(row)
             try:
-                marker = '<!-- farmbot-review:' + run['id'] + ' -->'
+                marker = '<!-- farmbot-review:' + self.notice_key(run) + ' -->'
                 body = self.notification_body(run)
                 item = self.ledger.item(run['item_id'])
                 try:
@@ -674,11 +740,15 @@ class Controller:
             except Exception:
                 continue  # Durable idempotency markers reconcile an uncertain notification response.
 
+    def notice_key(self, run):
+        return digest([run['id'], 'version-replay']) if self.store.replay_only(run) else run['id']
+
     def linear_notice(self, run, body):
         """Controller notice uses the existing outbox exclusion from issue fingerprints."""
         item = self.ledger.item(run['item_id'])
-        request_id = 'review-' + run['id'][:48]
-        marker = '[farmbot:' + digest(['review-notice', run['id']]) + ']'
+        key = self.notice_key(run)
+        request_id = 'review-' + key[:48]
+        marker = '[farmbot:' + digest(['review-notice', key]) + ']'
         with self.ledger._transaction():
             self.db.execute('INSERT OR IGNORE INTO notices(item_id,request_id,issue_id,kind,marker,body,created_at) VALUES(?,?,?,?,?,?,?)',
                 (run['item_id'], request_id, item['issue_id'], 'review', marker, body + '\n\n' + marker, self.ledger.clock()))
@@ -722,7 +792,7 @@ class Controller:
                     snapshot = self.candidate(pr)
                     if snapshot and self.db.execute("SELECT 1 FROM review_merges WHERE candidate_id=? AND state='confirmed'",
                                                      (snapshot['id'],)).fetchone():
-                        for event in self.github.reverts(pr['repository'], snapshot['commit'], cutoff):
+                        for event in self.github.reverts(pr['repository'], pr['target'], snapshot['commit'], cutoff):
                             self.store.incident(event, run['id'], 'revert', self.policy)
             except Exception:
                 continue

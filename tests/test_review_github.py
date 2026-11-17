@@ -3,7 +3,7 @@ import unittest
 
 from agent.publication import PublicationUnavailable
 from agent.review_github import GitHub
-from agent.review_policy import ReviewError, encoded
+from agent.review_policy import ReviewError, ReviewTargetError, encoded
 
 SHA = 'a' * 40
 REPOS = {'common': 'https://github.com/example/common.git'}
@@ -16,6 +16,38 @@ def check(identity=1, **changes):
 
 
 class GitHubTests(unittest.TestCase):
+    def test_version_opt_in_preserves_all_pr_and_repository_identity_checks(self):
+        repository = 'example/common'
+        row = {'repository': 'common', 'url': 'https://github.com/example/common/pull/1',
+               'source_head': SHA, 'source_branch': 'farmbot/farm-1', 'target': 'v1.2.3'}
+        repo = {'full_name': repository, 'default_branch': 'main', 'private': True,
+                'permissions': {'push': True}, 'archived': False}
+        value = {'html_url': row['url'], 'state': 'open',
+                 'head': {'sha': SHA, 'ref': row['source_branch'], 'repo': {'full_name': repository}},
+                 'base': {'ref': row['target'], 'repo': {'full_name': repository}}}
+        github = GitHub(REPOS, lambda *a, **kw: repo)
+        with self.assertRaises(ReviewTargetError):
+            github.validate_pr(row, value)
+        github.validate_pr(row, value, version_target=True)
+        for changes in ({'state': 'closed'}, {'head': {**value['head'], 'sha': 'b' * 40}},
+                        {'base': {**value['base'], 'ref': 'main'}}):
+            with self.subTest(changes=changes), self.assertRaises(ReviewError):
+                github.validate_pr(row, {**value, **changes}, version_target=True)
+        for key, replacement in (('private', False), ('archived', True), ('permissions', {'push': False})):
+            with self.subTest(key=key), self.assertRaises(ReviewError):
+                GitHub(REPOS, lambda *a, **kw: {**repo, key: replacement}).validate_pr(row, value, version_target=True)
+
+    def test_default_branch_pin_cannot_fall_back_from_an_unapproved_override(self):
+        def request(method, endpoint, **kwargs):
+            if endpoint == 'repos/example/common':
+                return {'default_branch': 'main'}
+            self.assertTrue(endpoint.endswith('/git/ref/heads/main'))
+            return {'object': {'sha': SHA}}
+        github = GitHub(REPOS, request)
+        self.assertEqual(github.default_head('common', expected='main'), SHA)
+        with self.assertRaises(ReviewTargetError):
+            github.default_head('common', expected='feature/override')
+
     def test_check_pagination_and_latest_trusted_producer_only(self):
         first = [check(n, app={'id': 99}) for n in range(1, 101)]
         second = [check(101), check(102, conclusion='failure')]
@@ -146,5 +178,10 @@ class GitHubTests(unittest.TestCase):
             {'sha': 'c' * 40, 'commit': {'message': 'Revert merge\n\nThis reverts commit ' + SHA + ', reversing\nchanges made to ' + 'd' * 40 + '.'}},
             {'sha': 'e' * 40, 'commit': {'message': 'Revert part of ' + SHA}},
         ]
-        github = GitHub(REPOS, lambda *a, **kw: rows)
-        self.assertEqual(github.reverts('common', SHA, 0), ['revert:example/common:' + 'b' * 40, 'revert:example/common:' + 'c' * 40])
+        calls = []
+        def request(method, endpoint, **kwargs):
+            calls.append(endpoint)
+            return rows
+        self.assertEqual(GitHub(REPOS, request).reverts('common', 'v1.2.3', SHA, 0),
+                         ['revert:example/common:' + 'b' * 40, 'revert:example/common:' + 'c' * 40])
+        self.assertIn('sha=refs%2Fheads%2Fv1.2.3&', calls[0])

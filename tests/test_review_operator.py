@@ -10,7 +10,8 @@ class OperatorTests(ReviewFixture):
     def call(self, command, **kwargs):
         with patch('agent.review_operator.check_ownership'), \
                 patch('agent.review_operator.Paths', return_value=SimpleNamespace(ledger=self.path)):
-            return control(SimpleNamespace(auto_merge=policy(), repos={'common': 'unused'}), command, **kwargs)
+            return control(SimpleNamespace(auto_merge=policy(), repos={'common': 'unused'}, instance_id='test'),
+                           command, **kwargs)
 
     def test_pause_resume_is_audited_and_never_revives_human_handoffs(self):
         run, _ = self.delivery()
@@ -26,6 +27,10 @@ class OperatorTests(ReviewFixture):
             with self.assertRaisesRegex(ValueError, 'host-operator'):
                 self.call('review-resume', reason='worker asked')
             ledger.assert_not_called()
+
+    def test_only_merge_authority_can_replay_a_legacy_version_run(self):
+        with self.assertRaisesRegex(ValueError, 'designated merge controller'):
+            self.call('review-replay-version', run='run', reason='operator selected')
 
     def test_distinct_regressions_trip_circuit_but_replayed_events_do_not_repause(self):
         runs = [self.delivery(n)[0] for n in (1, 2)]

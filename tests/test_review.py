@@ -30,20 +30,24 @@ class ReviewFixture(unittest.TestCase):
         self.addCleanup(self.ledger.close)
         self.store = ReviewStore(self.ledger)
 
-    def delivery(self, number=1, **changes):
+    def delivery(self, number=1, *, branch_target=None, **changes):
         identifier = f'FARM-{number}'
         issue_id = str(uuid4())
         self.ledger.observe_issue(issue(id=issue_id, identifier=identifier, delegate_id=APP, **changes))
         session = 'session-' + str(number)
         self.ledger.ensure_session(session, issue_id, delegation=True)
         item = self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill='work')
+        if branch_target:
+            from agent.version_targets import Store
+            Store(self.ledger).save(item, branch_target)
         token = self.ledger.claim(item['id'], worker_id='author')['token']
         self.ledger.checkpoint(item['id'], token, {'summary': 'implemented'})
         url = f'https://github.com/example/common/pull/{number}'
         comment = self.ledger.prepare_comment(item['id'], token, 'delivery', 'Delivered ' + url)
         self.ledger.confirm_comment(comment['action_id'], 'comment-' + str(number))
         inputs = [{'repo': 'common', 'url': url, 'head': HEAD, 'base': BASE,
-                   'base_branch': 'main', 'branch': 'farmbot/' + identifier.lower()}]
+                   'base_branch': branch_target['repositories']['common']['branch'] if branch_target else 'main',
+                   'branch': 'farmbot/' + identifier.lower()}]
         self.ledger.finish(item['id'], token, 'delivered', {'summary': 'done', 'verification': 'tests passed',
             'prs': [url], 'comment_action_id': comment['action_id']}, verified_prs=[url], review_inputs=inputs)
         delivery = dict(self.ledger.connection.execute('SELECT * FROM review_deliveries WHERE item_id=?', (item['id'],)).fetchone())
