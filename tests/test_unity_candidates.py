@@ -359,6 +359,9 @@ class CandidateRepairTests(SlotFixture):
 
     def test_corrected_serialized_assets_recover_only_through_validated_successor(self):
         from agent.execution import queue_resource
+        # Preserve both the asset LF bytes and the fake importer's native metadata
+        # bytes in Git, independently of the host's core.autocrlf setting.
+        (self.origin / '.gitattributes').write_bytes(b'Assets/** -text\n')
         assets = ['Assets/幕布 Atlas.asset', 'Assets/幕布 Material.mat']
         (self.origin / 'Assets').mkdir()
         for relative in assets:

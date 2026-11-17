@@ -14,6 +14,8 @@ from test_slots import SlotFixture, git
 class CommittedSourceTests(SlotFixture):
     def setUp(self):
         super().setUp()
+        # These fixtures compare raw importer bytes, including line endings.
+        (self.origin / '.gitattributes').write_bytes(b'Assets/** -text\n')
         self.relative = Path('Assets/幕布 [curtain]/Atlas.asset')
         asset = self.origin / self.relative
         asset.parent.mkdir(parents=True)
