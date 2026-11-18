@@ -94,6 +94,8 @@ def build(config, runtime_override=None, *, replay_legacy=False):
                           publication=PublicationVerifier(JobWorktrees(worktrees, ledger), issue_prefix=config.issue_prefix))
     from .review_policy import settings as review_settings
     review_policy = review_settings(config.auto_merge, config.repos)
+    from .owner_review import enabled as owner_review_enabled
+    scheduler.owner_review = owner_review_enabled(config, review_policy)
     review_labels = review_policy['mode'] == 'merge' and config.instance_id == review_policy['authority']
     lifecycle = Lifecycle(Ledger(paths.ledger, check_same_thread=False), api, scheduler,
                           interval=config.reconcile_seconds, review_labels=review_labels)

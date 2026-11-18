@@ -41,6 +41,7 @@ class Scheduler:
                  config_path=None, issue_prefix='FARM', bot_name='FarmBot', kw_ops=None, enabled_skills=None,
                  lark_cli=None, default_server_environment="公共测试服", server_slots_root=None, go_dependencies=None,
                  unity_pool=None, replay_legacy=False):
+        self.owner_review = False
         self.replay_legacy = replay_legacy
         self.publication = publication
         self.preflight = preflight
@@ -481,6 +482,8 @@ class Scheduler:
             return None
         if getattr(self.launcher, 'go_build_cache', None) is not None:
             options['seed_go_cache'] = 'farm-hive' in write_repos
+        if self.owner_review and single(item) and item['skill'] == 'work':
+            options['owner_review'] = True
         handle = self.launcher.spawn(item["id"], message, servers, int(skill.budget["max_hours"] * 3600), cwd=primary,
                                      extra_env=worker_env,
                                      writable=[Path(self.db_path).parent, *source_roots],

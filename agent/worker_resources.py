@@ -131,6 +131,11 @@ def unity(args, ledger, config, token, *, client_factory=None):
         if (not current.get('ready') or current.get('reservation_id') != reservation['reservation_id']
                 or current.get('commit_sha') != result['commit_sha']):
             raise LedgerError('Unity reservation changed during report collection')
+        if (report.get('available') is True and report.get('status') == 'succeeded'
+                and report.get('summary', {}).get('passed', 0) > 0 and report['summary'].get('failed') == 0):
+            ledger.note(args.item, 'unity_test_passed', details={
+                'reservation': reservation['reservation_id'], 'commit': result['commit_sha'],
+                'job': args.job_id, 'mode': report.get('mode'), 'summary': report['summary']})
         return {'reservation_id': reservation['reservation_id'], 'commit_sha': result['commit_sha'],
                 'instance': slot['instance'], 'report': report}
     if args.name == 'set_active_instance':

@@ -19,6 +19,7 @@ class ReviewLoop:
         if controller.policy['mode'] != 'off':
             pending = bool(controller.db.execute('SELECT 1 FROM review_deliveries d LEFT JOIN review_runs r '
                 'ON r.item_id=d.item_id AND r.generation=d.generation WHERE r.id IS NULL LIMIT 1').fetchone())
+            pending = pending or bool(controller.db.execute('SELECT 1 FROM review_owners WHERE wake=1 LIMIT 1').fetchone())
             row = controller.db.execute("SELECT min(p.retry_at) FROM review_prs p JOIN review_runs r ON r.id=p.run_id "
                 "WHERE r.state NOT IN ('delivered','superseded') AND p.state NOT IN ('merged','delivered') "
                 "AND p.retry_at>?", (self.last_full,)).fetchone()

@@ -284,7 +284,12 @@ Create PRs with the returned base_branch explicitly; do not rely on GitHub's def
 Prepare final PR descriptions and verification summaries together during independent pending work; mark results
 pending until observed. After final review publish each affected repo with fresh verification before each push
 or PR update; batching preparation never reuses publication authority. Avoid cosmetic update cycles when facts
-are unchanged. Refresh issue/inbox, reconcile actual changes and run finish --check-ready on final PR heads;
+are unchanged. After opening all PRs and before finish, run owner-review with every --pr.
+When enabled you stay the issue owner. Poll owner-review, launch a fresh independent read-only native subagent
+for each review ticket on its controller-prepared snapshots and submit the verbatim verdict with its unique ID.
+Use the review instructions in skills/work/SKILL.md. For repair tasks fix your issue branch yourself, commit,
+verify the new Client SHA with an owned Unity slot, release, republish and resubmit the complete PR set.
+Each new ticket needs a new reviewer. The controller runs CI and merges. Refresh issue/inbox, reconcile actual changes and run finish --check-ready on final PR heads;
 confirm the delivery outbox comment and finish promptly. Do not add another unchanged review/test round.
 Never push default/protected branches, force-push, merge PRs, deploy, change Linear status or assignee.
 Save concise checkpoints with current progress, candidate SHAs, report paths and next action. Fetch current issue

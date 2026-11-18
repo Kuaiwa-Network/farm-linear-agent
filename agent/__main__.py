@@ -86,6 +86,11 @@ def parser():
     answer_task.add_argument("--message-id", type=int, required=True)
     retry_task_parser = cmd("retry-task", "--item", "--task", token=True)
     retry_task_parser.add_argument("--message-id", type=int, required=True)
+    owner_review = cmd('owner-review', '--item', token=True)
+    owner_action = owner_review.add_mutually_exclusive_group()
+    owner_action.add_argument('--pr', action='append', help='all published PRs, repeated once per destination')
+    owner_action.add_argument('--handoff', help='concrete reason human assistance is needed')
+    owner_action.add_argument('--report', help='fresh helper ID, ticket and verbatim verdict JSON')
     cmd("verify-publication", "--item", "--repo", token=True)
     cmd("retry-approval", "--item", "--error-file", token=True)
     cmd("foreign-work", "--item", token=True)
@@ -391,7 +396,9 @@ def verify_delivered_prs(ledger, args, token, item, urls):
     verifier = PublicationVerifier(JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger),
                                    api=github_reader(config), issue_prefix=config.issue_prefix)
     from .review_policy import settings as review_settings
-    capture = review_settings(config.auto_merge, config.repos)['mode'] != 'off'
+    from .owner_review import enabled
+    policy = review_settings(config.auto_merge, config.repos)
+    capture = policy['mode'] != 'off'
     proofs = []
     for url in urls:
         repo = repository(url)
@@ -399,6 +406,8 @@ def verify_delivered_prs(ledger, args, token, item, urls):
         proof = verify_with_retries(lambda: verifier.verify_pr(repo, args.item, identifier, url, delivered=True, **options),
                                     lambda: ledger.renew(args.item, token))
         if capture:
+            if item['skill'] == 'work' and enabled(config, policy):
+                proof['owner_review_required'] = True
             proofs.append(proof)
     ledger.renew(args.item, token)  # network checks cannot outlive cancellation or the claim
     return proofs
@@ -594,6 +603,33 @@ def run(args, ledger, api_factory):
     from .execution import RETIRED_COMMANDS
     if c in RETIRED_COMMANDS and single(ledger.item(args.item)):
         raise LedgerError('this staged command is retired for single-worker jobs; continue in the current worker')
+    if c == 'owner-review':
+        from .owner_review import command, enabled
+        from .owner_review_evidence import verify_native_report
+        from .review_policy import settings
+        token = resolve_token(args)
+        ledger.renew(args.item, token)
+        item = ledger.item(args.item)
+        config = load_config(secure_permissions=False)
+        if not single(item) or item['skill'] != 'work' or Path(args.db).resolve() != Paths(config).ledger.resolve():
+            raise LedgerError('owner-review requires the configured single-worker work item')
+        policy = settings(config.auto_merge, config.repos)
+        if not enabled(config, policy):
+            return {'state': 'disabled'}
+        proofs = None
+        if args.pr:
+            if len(set(args.pr)) != len(args.pr):
+                raise LedgerError('repeat --pr once per distinct PR')
+            proofs = verify_delivered_prs(ledger, args, token, item, args.pr)
+            # A Linear attachment for our newly published PR may arrive during review.
+            # Reconcile only verified outputs through the normal checkpoint fingerprint fence.
+            ledger.checkpoint(args.item, token, {**item['checkpoint'], 'published_prs': args.pr}, verified_prs=args.pr)
+        report = read_json(args.report) if args.report else None
+        if args.report and not isinstance(report, dict):
+            raise LedgerError('owner review report must be an object')
+        if report is not None:
+            report['reviewer'] = verify_native_report(Paths(config).runs / args.item, report, config.runtime)
+        return command(ledger, args.item, token, policy, proofs, report, args.handoff)
     if c in ('resource-status', 'unity-tools', 'unity-read', 'unity-tool', 'unity-test-result'):
         from . import worker_resources
         function = worker_resources.status if c == 'resource-status' else worker_resources.unity
@@ -1477,7 +1513,7 @@ def run(args, ledger, api_factory):
                     raise LedgerError('parent integration delivery must use the configured host ledger')
                 verify_parent_head(ledger, item, config)
         if args.check_ready:
-            return {**ledger.finish(args.item, token, args.outcome, evidence, check_only=True, verified_prs=verified_prs),
+            return {**ledger.finish(args.item, token, args.outcome, evidence, check_only=True, verified_prs=verified_prs, review_inputs=review_inputs),
                     'maintenance_requested': item['maintenance_requested']}
         if item["skill"] == "fgui" and args.outcome == "delivered" and not evidence.get("no_change"):
             from .fgui_workflow import UiWorkflow

@@ -270,7 +270,7 @@ class Launcher:
 
     @_serialize_retention
     def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=(), cancelled=None,
-              model_settings=None, withheld_env=(), lark_cli_access=False, seed_go_cache=True):
+              model_settings=None, withheld_env=(), lark_cli_access=False, seed_go_cache=True, owner_review=False):
         # Read only the controller's configured source, before overrides; fail before creating an attempt.
         lark_env = worker_credentials(self.lark_cli, self.runtime.name, os.environ) if lark_cli_access else {}
         if self.runtime.name == "codex":
@@ -288,6 +288,9 @@ class Launcher:
         run_dir = self.state_dir(item_id) / (time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(self.clock())) + "-" + uuid4().hex[:12])
         home = run_dir / "home"
         home.mkdir(parents=True, exist_ok=True)
+        if owner_review:
+            from .owner_review_evidence import prepare
+            prepare(home, self.runtime.name)
         process_record = run_dir / "process.json"
         process_record.write_text(json.dumps({"state": "preparing"}), encoding="utf-8")
         for source, relative in self.runtime.seed_files.items():

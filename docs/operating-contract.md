@@ -117,7 +117,7 @@ The feature defaults to off. The implemented `git_ff` backend uses controller-on
 atomic, ancestry-checked source/target compare-and-swap updates to publish the exact
 reviewed merge commit; it refuses protected targets. Workers cannot invoke it.
 Squash/rebase native queue attestation, forwarding from independent instances, and
-shared Unity/server admission for review repair workers remain unimplemented; see
+direct Unity/server admission for standalone review repair workers remain unimplemented; see
 the linked limits before enabling any host. Production deployment and live TestBot
 validation require separate operational authorization.
 
@@ -705,6 +705,16 @@ It uses existing `capacity_retries` and `retry_not_before` fields; no schema mig
 is required. Older code understands the queued state and counters but lacks the new
 worker command/instructions; settle workers before changing releases. Existing
 `awaiting_input` jobs require an explicitly authorized resume.
+
+## Review before work delivery
+
+On the designated merge host the issue owner registers its published PRs through
+`owner-review` before finishing. The controller prepares the integrated candidates, including
+queue predecessors, policy, related candidates and bot feedback. The owner gives each review
+ticket to a fresh read-only native subagent. It relays the child's completed verdict and
+repairs its own issue branches. A Client repair uses the owner's Unity lease at the new SHA.
+The controller checks CI and only promotes after verified delivery and original worker teardown.
+See [review automation](review-automation.md) for recovery and prior runs.
 
 ## Resource ownership
 
