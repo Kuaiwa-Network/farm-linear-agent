@@ -290,7 +290,7 @@ class Launcher:
         home.mkdir(parents=True, exist_ok=True)
         if owner_review:
             from .owner_review_evidence import prepare
-            prepare(home, self.runtime.name)
+            prepare(home, self.runtime.name, [cwd, self.state_dir(item_id), *writable])
         process_record = run_dir / "process.json"
         process_record.write_text(json.dumps({"state": "preparing"}), encoding="utf-8")
         for source, relative in self.runtime.seed_files.items():

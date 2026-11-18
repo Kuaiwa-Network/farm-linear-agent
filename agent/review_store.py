@@ -136,8 +136,9 @@ class ReviewStore:
         issue = self.db.execute('SELECT fingerprint,metadata FROM issues WHERE id=?', (item['issue_id'],)).fetchone()
         other = self.db.execute("SELECT 1 FROM work_items WHERE issue_id=? AND id<>? AND (predecessor_id=? OR state IN "
                                "('queued','running','awaiting_input','awaiting_resource'))", (item['issue_id'], item['id'], item['id'])).fetchone()
-        return (run['state'] not in ('delivered', 'superseded') and (item['state'] == 'delivered'
-                or (item['state'] in ('running','queued','awaiting_resource','awaiting_input') and self.owner_pending(run['id'])))
+        eligible = item['state'] == 'delivered' or (
+            item['state'] in ('running', 'queued', 'awaiting_resource', 'awaiting_input') and self.owner_pending(run['id']))
+        return (run['state'] not in ('delivered', 'superseded') and eligible
                 and item['generation'] == run['generation'] and issue['fingerprint'] == run['fingerprint']
                 and item['withdraw_deadline'] is None and not other)
 

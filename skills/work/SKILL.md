@@ -351,7 +351,9 @@ the same PR. Register the complete PR set again and assign the next review ticke
 If a speculative predecessor is required, keep its changes off the issue branch and wait for the target
 to advance. For a genuine human-only decision or unrecoverable verification gap, request
 `owner-review --handoff REASON` with the evidence. At ready or human_handoff, report the actual outcome,
-run finish preflight, confirm the delivery comment and finish. The controller owns CI and promotion.
+run finish preflight, confirm the delivery comment and finish. If an unpublishable local repair prevents PR
+head verification, preserve the commit and evidence and finish blocked. On supersession, respect withdrawn
+authority and changed issue inputs; settle work and record the actual blocker. The controller owns CI and promotion.
 
 After successful delivery, settle helpers and exit. An enabled internal review
 controller owns later conflict/CI repairs, independent review and supported merges;

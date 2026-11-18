@@ -40,6 +40,7 @@ controller reports readiness or human handoff. Merge requires successful work de
 quiescence of the author and descendants. Changed integration inputs invalidate review tickets.
 After delivery, newly changed inputs follow normal controller recovery.
 
+Owner verdicts use a distinct policy hash so an older controller cannot promote them.
 The additive review_owners and review_owner_packets tables persist registrations and reports
 across controller restart. Existing post-delivery runs keep their standalone review attempts.
 Observe and shadow hosts retain their existing workflow. Settle active owner reviews

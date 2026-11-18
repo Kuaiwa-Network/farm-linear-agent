@@ -21,7 +21,11 @@ class Controller:
         self.authorized, self.authority_checks = set(), {}
 
     def run_policy(self, run_id):
-        return evidence_policy(self.policy, [p['repository'] for p in self.prs(run_id)])
+        repositories = [p['repository'] for p in self.prs(run_id)]
+        if self.db.execute('SELECT 1 FROM review_owners WHERE run_id=?', (run_id,)).fetchone():
+            from .owner_review import policy_hash
+            return policy_hash(self.policy, repositories)
+        return evidence_policy(self.policy, repositories)
 
     @property
     def writes(self):
@@ -307,6 +311,8 @@ class Controller:
                 self.store.handoff(run['id'], f"仓库 {pr['repository']} 配置的合并后端尚未实现安全自动合并；本次交付由人工合并，避免跨仓库部分提交。")
                 return
             value = self.github.pr(pr)
+            if self.store.row('review_prs', pr['id'])['source_head'] != pr['source_head']:
+                continue
             if value.get('merged') is True:
                 self.db.execute("UPDATE review_prs SET state='merged',error='Merged outside the review queue' WHERE id=?", (pr['id'],))
                 self.store.handoff(run['id'], f"PR 已在本队列之外合并：{pr['url']}；现有整合证据失效，剩余 PR 由人工确认依赖并合并。")

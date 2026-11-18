@@ -10,8 +10,12 @@ from .version_targets import require_current
 
 
 def enabled(config, policy):
-    return (policy['mode'] == 'merge' and config.instance_id == policy['authority']
-            and config.runtime in ('codex', 'claude', 'fake'))
+    return policy['mode'] == 'merge' and config.instance_id == policy['authority']
+
+
+def policy_hash(policy, repositories):
+    # Older controllers cannot consume a verdict produced by the parent/helper protocol.
+    return digest(['owner-review-v1', evidence_policy(policy, repositories)])
 
 
 def prepare_packet(controller, pr, snapshot, context):
@@ -22,7 +26,7 @@ def prepare_packet(controller, pr, snapshot, context):
                         (snapshot['id'], inputs)).fetchone():
         return
     candidates = [controller.candidate(p) for p in controller.prs(pr['run_id'])]
-    sources = {s['repository']: str(controller.git.read(s)) for s in candidates}
+    sources = {s['id']: str(controller.git.read(s)) for s in candidates}
     packet = {**context, 'snapshot': store.review_snapshot(snapshot['id']), 'sources': sources,
               'related_snapshots': candidates, 'ticket': digest([snapshot['id'], inputs])}
     store.db.execute('INSERT OR IGNORE INTO review_owner_packets(candidate_id,inputs,context) VALUES(?,?,?)',
@@ -38,7 +42,7 @@ def register(store, item, proofs, policy):
     if not store.db.execute('SELECT 1 FROM review_runs WHERE id=?', (run_id,)).fetchone():
         run = store.enroll_locked({'item_id': item['id'], 'generation': item['generation'],
                                    'fingerprint': item['claimed_fingerprint'], 'inputs': encoded(proofs)},
-                                  evidence_policy(policy, [p['repo'] for p in proofs]))
+                                  policy_hash(policy, [p['repo'] for p in proofs]))
         store.db.execute('INSERT INTO review_owners(run_id) VALUES(?)', (run['id'],))
         return
     run = store.row('review_runs', run_id)
@@ -106,13 +110,15 @@ def command(ledger, item_id, token, policy, proofs=None, report=None, handoff=No
         if ledger.requires_issue_review(item_id) or Maintenance(ledger).requested(item_id):
             raise ReviewError('settle changed inputs or maintenance before owner review')
         run_id = digest([item_id, item['generation']])
+        # Terminal status is idempotent even if the final --pr response was lost.
+        existing = store.db.execute('SELECT disposition,reason FROM review_runs WHERE id=?', (run_id,)).fetchone()
+        if existing and existing['disposition'] and store.owner_pending(run_id):
+            return {'state': existing['disposition'], 'reason': existing['reason']}
         if proofs:
             register(store, item, proofs, policy)
         run = store.row('review_runs', run_id)
         if not store.owner_pending(run_id):
             raise ReviewError('run is not an owner review')
-        if run['disposition']:
-            return {'state': run['disposition'], 'reason': run['reason']}
         if not store.current(run):
             raise ReviewError('owner review inputs changed')
         if handoff is not None:
@@ -145,6 +151,8 @@ def command(ledger, item_id, token, policy, proofs=None, report=None, handoff=No
                     if packet['result'] != encoded(result) or packet['reviewer'] != reviewer:
                         raise ReviewError('review packet already completed')
                 else:
+                    if store.db.execute('SELECT 1 FROM review_owner_packets WHERE reviewer=?', (reviewer,)).fetchone():
+                        raise ReviewError('each review ticket requires a fresh native subagent')
                     store.db.execute('UPDATE review_owner_packets SET reviewer=?,result=? WHERE candidate_id=? AND inputs=?',
                                      (reviewer, encoded(result), pr['candidate_id'], inputs))
                     store.db.execute('UPDATE review_candidates SET verdict=?,review_inputs=? WHERE id=?',

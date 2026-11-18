@@ -84,7 +84,8 @@ class OwnerReviewJourney(ReviewFixture):
         first, = self.cli()['tasks']
         finding = dict(id='recovery', severity='important', path='Guild.cs', line=10, claim='missed effect',
                        evidence='recovery clears pending', verification='independent checks')
-        self.submit(first, findings=[finding])
+        initial_reviewer = str(uuid4())
+        self.submit(first, initial_reviewer, findings=[finding])
         self.controller.tick()
         task, = self.cli()['tasks']
         self.assertEqual(task['action'], 'repair')
@@ -110,7 +111,10 @@ class OwnerReviewJourney(ReviewFixture):
         self.assertEqual(second['snapshot']['open_findings'], [finding])
         with self.assertRaisesRegex(ReviewError, 'stale'):
             self.cli('--report', str(self.report_path))
-        self.submit(second, responses=[dict(id='recovery', status='fixed', evidence='new result dispatches once')])
+        responses = [dict(id='recovery', status='fixed', evidence='new result dispatches once')]
+        with self.assertRaisesRegex(ReviewError, 'fresh native subagent'):
+            self.submit(second, initial_reviewer, responses=responses)
+        self.submit(second, responses=responses)
         self.github.states[second['snapshot']['commit']] = 'passed'
         self.controller.tick()
         self.assertEqual(self.cli()['state'], 'ready')
@@ -124,6 +128,24 @@ class OwnerReviewJourney(ReviewFixture):
         self.controller.tick()
         self.assertEqual(self.github.merged, {self.url})
         self.assertEqual(self.workers.launched, [])
+
+    def test_transcript_target_cannot_share_a_worker_write_root(self):
+        home = self.home.parent.parent / '20261118T131313Z-0123456789ab' / 'home'
+        home.mkdir(parents=True)
+        target = owner_review_evidence.evidence_root(home.parent.parent)
+        with self.assertRaisesRegex(ReviewError, 'outside worker write roots'):
+            owner_review_evidence.prepare(home, 'codex', [target])
+        self.assertFalse((target / home.parent.name).exists())
+
+    def test_reported_handoff_can_be_polled_and_finished(self):
+        self.cli('--pr', self.url)
+        self.cli('--handoff', 'Independent review unavailable')
+        self.controller.tick()
+        self.assertEqual(self.cli()['state'], 'human_handoff')
+        self.assertEqual(self.cli('--pr', self.url), self.cli())
+        self.finish(check=False)
+        self.controller.tick()
+        self.assertFalse(self.github.merged)
 
     def test_unobserved_or_edited_child_verdict_cannot_pass(self):
         self.cli('--pr', self.url)

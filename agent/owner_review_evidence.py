@@ -13,12 +13,15 @@ def evidence_root(state_dir):
     return state_dir.parent.parent / 'review-transcripts' / state_dir.name
 
 
-def prepare(home, runtime):
+def prepare(home, runtime, writable_roots=()):
     directory = 'projects' if runtime == 'claude' else 'sessions'
     # Only the native CLI writes the target. Always read from the controller-selected
     # location, even if a worker subsequently replaces its in-home directory link.
     attempt = home.parent
     target = evidence_root(attempt.parent) / attempt.name
+    if (any(target.resolve().is_relative_to(Path(root).resolve()) for root in writable_roots)
+            or any(_is_link(p) for p in (target.parent, target.parent.parent))):
+        raise ReviewError('native review transcripts require a controller-owned location outside worker write roots')
     target.mkdir(parents=True, exist_ok=False)
     if os.name == 'nt':
         import _winapi
