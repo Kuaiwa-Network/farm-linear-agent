@@ -3747,6 +3747,14 @@ class Ledger:
                 if outcome == 'delivered':
                     from .request_scope import require_reviewed
                     require_reviewed(self, item_id)
+                if outcome == 'delivered':
+                    from .owner_review import require_finish
+                    from .review_policy import digest
+                    from .review_store import ReviewStore
+                    store = ReviewStore(self)
+                    if (any(p.get('owner_review_required') for p in review_inputs)
+                            or store.owner_pending(digest([item_id, row['generation']]))):
+                        require_finish(store, row, review_inputs)
                 self.require_no_reservation(item_id)
                 if outcome == 'delivered' and self.human_question(item_id):
                     raise LedgerError('resolve the actual human question before delivery')

@@ -12,7 +12,7 @@ class ReviewLoopTests(unittest.TestCase):
         self.addCleanup(self.db.close)
         self.db.executescript('CREATE TABLE review_deliveries(item_id,generation); '
             'CREATE TABLE review_runs(id,item_id,generation,state); '
-            'CREATE TABLE review_prs(run_id,state,retry_at);')
+            'CREATE TABLE review_prs(run_id,state,retry_at); CREATE TABLE review_owners(wake);')
         self.now = 1000.0
         self.controller = SimpleNamespace(db=self.db, policy={'mode': 'merge', 'poll_seconds': 300},
                                           tick=Mock(), process_workers=Mock(return_value=False),

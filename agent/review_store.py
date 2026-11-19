@@ -50,6 +50,13 @@ CREATE TABLE IF NOT EXISTS review_control (
  reason TEXT NOT NULL DEFAULT ''
 );
 INSERT OR IGNORE INTO review_control(singleton) VALUES(1);
+CREATE TABLE IF NOT EXISTS review_owners (
+ run_id TEXT PRIMARY KEY REFERENCES review_runs(id), wake INTEGER NOT NULL DEFAULT 1, handoff TEXT
+);
+CREATE TABLE IF NOT EXISTS review_owner_packets (
+ candidate_id TEXT NOT NULL REFERENCES review_candidates(id), inputs TEXT NOT NULL,
+ context TEXT NOT NULL, reviewer TEXT UNIQUE, result TEXT, PRIMARY KEY(candidate_id,inputs)
+);
 CREATE TABLE IF NOT EXISTS review_incidents (
  event_id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES review_runs(id), kind TEXT NOT NULL,
  created_at REAL NOT NULL
@@ -119,27 +126,37 @@ class ReviewStore:
             raise ReviewError('unknown review record')
         return dict(row)
 
+    def owner_pending(self, run_id):
+        return self.db.execute("SELECT 1 FROM review_owners o JOIN review_runs r ON r.id=o.run_id "
+                               "JOIN work_items w ON w.id=r.item_id WHERE r.id=? AND w.state<>'delivered'",
+                               (run_id,)).fetchone() is not None
+
     def current(self, run):
         item = self.ledger.item(run['item_id'])
         issue = self.db.execute('SELECT fingerprint,metadata FROM issues WHERE id=?', (item['issue_id'],)).fetchone()
         other = self.db.execute("SELECT 1 FROM work_items WHERE issue_id=? AND id<>? AND (predecessor_id=? OR state IN "
                                "('queued','running','awaiting_input','awaiting_resource'))", (item['issue_id'], item['id'], item['id'])).fetchone()
-        return (run['state'] not in ('delivered', 'superseded') and item['state'] == 'delivered'
+        eligible = item['state'] == 'delivered' or (
+            item['state'] in ('running', 'queued', 'awaiting_resource', 'awaiting_input') and self.owner_pending(run['id']))
+        return (run['state'] not in ('delivered', 'superseded') and eligible
                 and item['generation'] == run['generation'] and issue['fingerprint'] == run['fingerprint']
                 and item['withdraw_deadline'] is None and not other)
 
     def enroll(self, delivery, policy_hash):
+        with self.ledger._transaction():
+            return self.enroll_locked(delivery, policy_hash)
+
+    def enroll_locked(self, delivery, policy_hash):
         inputs = json.loads(delivery['inputs'])
         run_id = digest([delivery['item_id'], delivery['generation']])
         now = self.ledger.clock()
-        with self.ledger._transaction():
-            self.db.execute('INSERT OR IGNORE INTO review_runs(id,item_id,generation,fingerprint,policy,created_at,updated_at) '
-                'VALUES(?,?,?,?,?,?,?)', (run_id, delivery['item_id'], delivery['generation'], delivery['fingerprint'], policy_hash, now, now))
-            for value in inputs:
-                pr_id = digest([run_id, value['url']])
-                self.db.execute('INSERT OR IGNORE INTO review_prs(id,run_id,repository,url,target,source_head,source_branch) '
-                    'VALUES(?,?,?,?,?,?,?)', (pr_id, run_id, value['repo'], value['url'], value['base_branch'],
-                                           commit(value['head']), value['branch']))
+        self.db.execute('INSERT OR IGNORE INTO review_runs(id,item_id,generation,fingerprint,policy,created_at,updated_at) '
+            'VALUES(?,?,?,?,?,?,?)', (run_id, delivery['item_id'], delivery['generation'], delivery['fingerprint'], policy_hash, now, now))
+        for value in inputs:
+            pr_id = digest([run_id, value['url']])
+            self.db.execute('INSERT OR IGNORE INTO review_prs(id,run_id,repository,url,target,source_head,source_branch) '
+                'VALUES(?,?,?,?,?,?,?)', (pr_id, run_id, value['repo'], value['url'], value['base_branch'],
+                                       commit(value['head']), value['branch']))
         return self.row('review_runs', run_id)
 
     def replay_only(self, run):
@@ -189,6 +206,11 @@ class ReviewStore:
             self.db.execute("UPDATE review_candidates SET state='stale' WHERE id=? AND state<>'merged'", (cid,))
             self.db.execute("UPDATE review_attempts SET state='stopping',token_hash=NULL WHERE candidate_id=? "
                             "AND state IN ('queued','running','submitted')", (cid,))
+            # A still-running owner can already be testing a repair of this SHA.
+            # Keep its input accessible; the stale candidate cannot be reviewed or merged.
+            pending = self.db.execute("SELECT run_id FROM review_prs WHERE candidate_id=? AND state='repair'", (cid,)).fetchone()
+            if pending and self.owner_pending(pending['run_id']):
+                continue
             self.db.execute("UPDATE review_prs SET candidate_id=NULL,state='queued',rebuilds=rebuilds+1,error=? "
                             "WHERE candidate_id=? AND state NOT IN ('merged','delivered')", (reason, cid))
 

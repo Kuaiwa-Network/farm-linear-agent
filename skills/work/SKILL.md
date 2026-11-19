@@ -326,6 +326,35 @@ listed PR is this issue's open or merged PR at your worktree's current HEAD, and
 the confirmed delivery comment, not a second semantic acceptance matrix. Do not
 merge PRs, deploy or change Linear status.
 
+### After opening the PRs
+
+Call `owner-review --pr URL` for every PR together before delivery preflight. Keep the same claim.
+A disabled response selects the host's ordinary delivery workflow. Otherwise poll `owner-review` without
+PR arguments (first after 30 seconds, then once a minute). Renew, check inbox and honor maintenance
+and withdrawal as usual. Release the Unity slot before waiting for the controller or reviewing code.
+
+For each review ticket launch a fresh native subagent with independent context (no author conversation history). Give it the issue intent,
+the entire packet, the read-only integrated sources and the independent review instructions in
+`agent/review_dispatch.py` (REVIEW). It must inspect the incremental diff from prefix to commit, related
+snapshots, previous findings and external feedback. Use fresh verifier contexts for Important findings. The owner can launch sibling verifiers and relay
+their evidence to the reviewer within the configured concurrency budget. Keep its scope read-only; share no claim token. Use the returned native agent ID (Codex thread UUID or direct child path, or Claude agent ID) and have it end with a single plain JSON object
+containing ticket and verdict. Its completed final message is checked against the isolated runtime transcript.
+Relay that verdict verbatim in `owner-review --report FILE` with its unique native reviewer ID and ticket.
+Never author or edit the helper's verdict. Settle the helper before modifying code. A stale ticket requires
+fresh status and a new reviewer. If independent review is unavailable, report the limitation through handoff.
+
+For a repair task, inspect the findings, conflicts or CI diagnostics. Modify the owned issue worktree,
+preserve published history and commit. Validate the affected behavior. For a Client repair, request the
+Unity slot at the new SHA, run the required compile and appropriate Unity tests, collect a passing unity-test-result, save
+the observed results and release the quiet Editor. Use fresh publication verification before pushing to
+the same PR. Register the complete PR set again and assign the next review ticket to a new subagent.
+If a speculative predecessor is required, keep its changes off the issue branch and wait for the target
+to advance. For a genuine human-only decision or unrecoverable verification gap, request
+`owner-review --handoff REASON` with the evidence. At ready or human_handoff, report the actual outcome,
+run finish preflight, confirm the delivery comment and finish. If an unpublishable local repair prevents PR
+head verification, preserve the commit and evidence and finish blocked. On supersession, respect withdrawn
+authority and changed issue inputs; settle work and record the actual blocker. The controller owns CI and promotion.
+
 After successful delivery, settle helpers and exit. An enabled internal review
 controller owns later conflict/CI repairs, independent review and supported merges;
 do not reserve your worker slot to wait for it. Its human handoff is completed bot

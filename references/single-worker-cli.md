@@ -68,6 +68,7 @@ parking or finish, and checkpoints their work. No FarmBot child task is created.
 | `retry-approval` | `--error-file FILE`: complete UTF-8 approval-review capacity error that explicitly confirms no action executed. Checkpoint, settle helpers and release resources first; then exit on `retry_queued` or `retry_exhausted`. |
 | `prepare-comment` | `--kind started\|blocker\|delivery --body-file FILE`; returns an outbox action ID. |
 | `post-comment` | `--action-id ID`: idempotent outbox send; confirms the actual remote comment. |
+| `owner-review` | Register the full set of verified PRs with repeated `--pr URL`. Without arguments, poll for read-only review tickets, owner repairs, readiness or human handoff. Submit `--report FILE` containing `{"ticket":"...","reviewer":"unique native subagent ID","verdict":{...}}`, or `--handoff REASON` for a concrete blocker. After a repair, register the republished heads and request a fresh review. |
 | `finish` | `--outcome delivered\|blocked --input FILE`; optionally `--check-input` for shape or `--check-ready` for readiness, including the listed PRs. |
 | `maintenance-handoff` | Fresh checkpoint with `handoff`, no open resource; requires maintenance requested. Then exit. |
 | `withdraw` | Checkpoint and exit when delegation is withdrawn; publish nothing further. |

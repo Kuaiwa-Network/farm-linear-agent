@@ -24,10 +24,28 @@ The service retains its configured general-worker capacity. Review has an additi
 three-slot budget, shared by repair attempts and independent read-only reviews.
 Setting general capacity to eight therefore permits eleven main processes. Each
 review worker has a two-helper concurrency budget; that is not a provider-wide
-request limit. Review admission waits for the original author's descendant teardown.
+request limit. Standalone review admission waits for the original author's descendant teardown.
 Independent read-only reviews may overlap; repairs wait for all related reviewers
 to exit. New issue continuations wait for review teardown. Native Windows Job Objects and
 the existing POSIX process ownership checks are used by both launchers.
+
+On the designated merge host, newly published PRs enter the queue while the original
+work claim is active. The controller prepares the same integrated snapshots and starts CI.
+The owner polls for tickets and passes each complete read-only review context to a fresh native
+child. The CLI checks the child's completed JSON against its native session transcript in the controller-selected review-transcripts directory
+and records its native ID, ticket and verdict. The owner addresses requested repairs on its issue
+branch and verifies Client repairs with its own Unity lease before resubmitting all PR heads.
+It releases shared resources before polling. The issue worker remains allocated until the
+controller reports readiness or human handoff. Merge requires successful work delivery and
+quiescence of the author and descendants. Changed integration inputs invalidate review tickets.
+After delivery, newly changed inputs follow normal controller recovery.
+
+Owner verdicts use a distinct policy hash so an older controller cannot promote them.
+The additive review_owners and review_owner_packets tables persist registrations and reports
+across controller restart. Existing post-delivery runs keep their standalone review attempts.
+Observe and shadow hosts retain their existing workflow. Settle active owner reviews
+before downgrading: older controllers expect the work item to be delivered before enrollment.
+Checking out an older revision leaves both tables in place.
 
 The controller constructs immutable speculative candidates in queue order:
 `M+A`, `M+A+B`, `M+A+B+C`. It resolves conflicts through a separate AI repair role

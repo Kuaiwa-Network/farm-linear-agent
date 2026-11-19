@@ -21,7 +21,11 @@ class Controller:
         self.authorized, self.authority_checks = set(), {}
 
     def run_policy(self, run_id):
-        return evidence_policy(self.policy, [p['repository'] for p in self.prs(run_id)])
+        repositories = [p['repository'] for p in self.prs(run_id)]
+        if self.db.execute('SELECT 1 FROM review_owners WHERE run_id=?', (run_id,)).fetchone():
+            from .owner_review import policy_hash
+            return policy_hash(self.policy, repositories)
+        return evidence_policy(self.policy, repositories)
 
     @property
     def writes(self):
@@ -75,6 +79,10 @@ class Controller:
                 'ON r.item_id=d.item_id AND r.generation=d.generation WHERE r.id IS NULL ORDER BY d.created_at').fetchall():
             self.store.enroll(dict(delivery), evidence_policy(self.policy,
                               [p['repo'] for p in json.loads(delivery['inputs'])]))
+        self.db.execute('UPDATE review_owners SET wake=0 WHERE wake=1')
+        for request in self.db.execute('SELECT o.run_id,o.handoff FROM review_owners o JOIN review_runs r ON r.id=o.run_id '
+                                       "WHERE o.handoff IS NOT NULL AND r.state NOT IN ('delivered','superseded')").fetchall():
+            self.store.handoff(request['run_id'], request['handoff'])
         fresh_runs = set()
         for run in self.active():
             if any(p['retry_at'] > self.ledger.clock() for p in self.prs(run['id'])
@@ -141,7 +149,7 @@ class Controller:
                     self.retry(pr, type(exc).__name__, phase='review_context')
                     continue
                 try:
-                    self.workers.launch(snapshot, role, {'repairs': pr['repairs'], 'reason': pr['error'],
+                    context = {'repairs': pr['repairs'], 'reason': pr['error'],
                         'risk_focus': focus,
                         'ci': json.loads(record['ci']) if record['ci'] else None,
                         'candidate_ci_policy': ({key: self.policy['repositories'][pr['repository']][key]
@@ -149,11 +157,21 @@ class Controller:
                                                 if role == 'repair' else None),
                         'previous': self.history(pr), 'delivery': self.ledger.item(run['item_id']).get('evidence'),
                         'bot_feedback': {p['repository']: json.loads(p['bot_feedback']) for p in self.prs(run['id'])},
-                        'author_checkpoint': self.ledger.item(run['item_id']).get('checkpoint')})
+                        'author_checkpoint': self.ledger.item(run['item_id']).get('checkpoint')}
+                    if self.store.owner_pending(run['id']):
+                        if role == 'review':
+                            from .owner_review import prepare_packet
+                            prepare_packet(self, pr, snapshot, context)
+                            self.recovered(pr, 'owner_packet')
+                    else:
+                        self.workers.launch(snapshot, role, context)
                 except Exception as exc:
                     # The persisted attempt is reaped and charged once after safe
                     # teardown. Charging here as well would spend two retries.
-                    self.db.execute('UPDATE review_prs SET error=? WHERE id=?', (type(exc).__name__, pr['id']))
+                    if self.store.owner_pending(run['id']):
+                        self.retry(pr, type(exc).__name__, phase='owner_packet')
+                    else:
+                        self.db.execute('UPDATE review_prs SET error=? WHERE id=?', (type(exc).__name__, pr['id']))
         if self.writes:
             for pr in self.prs(active_only=True):
                 pr = self.store.row('review_prs', pr['id'])
@@ -293,10 +311,17 @@ class Controller:
                 self.store.handoff(run['id'], f"仓库 {pr['repository']} 配置的合并后端尚未实现安全自动合并；本次交付由人工合并，避免跨仓库部分提交。")
                 return
             value = self.github.pr(pr)
+            if self.store.row('review_prs', pr['id'])['source_head'] != pr['source_head']:
+                continue
             if value.get('merged') is True:
                 self.db.execute("UPDATE review_prs SET state='merged',error='Merged outside the review queue' WHERE id=?", (pr['id'],))
                 self.store.handoff(run['id'], f"PR 已在本队列之外合并：{pr['url']}；现有整合证据失效，剩余 PR 由人工确认依赖并合并。")
                 return
+            # The owner verifies and registers the replacement after pushing it.
+            # No promotion or new review may consume a head in this interval.
+            if (self.store.owner_pending(run['id']) and pr['state'] == 'repair'
+                    and value.get('head', {}).get('sha') != pr['source_head']):
+                continue
             try:
                 if not self.validate_pr(run, pr, value):
                     return
@@ -375,6 +400,11 @@ class Controller:
                 self.store.handoff(pr['run_id'], f"PR {pr['url']} 的交付目标分支历史已变化，当前基线不再包含选定提交 "
                                    f"`{target['commit']}`；需人工核对版本分支。")
                 return
+            if self.store.owner_pending(run['id']):
+                prior = self.db.execute('SELECT c.verdict FROM review_candidates c WHERE c.pr_id=? '
+                                        'AND c.verdict IS NOT NULL ORDER BY c.rowid DESC LIMIT 1', (pr['id'],)).fetchone()
+                if prior:
+                    snapshot['open_findings'] = [f for f in json.loads(prior[0])['findings'] if f['severity'] == 'important']
             snapshot['policy'] = self.run_policy(pr['run_id'])
             snapshot['checks'] = policy['checks']
             # Record the complete delivery identity even when its other candidates are not ready yet.
@@ -580,6 +610,14 @@ class Controller:
         if policy['backend'] != 'git_ff' or not self.writes or pr['repository'] not in self.authorized:
             return  # Never approximate a native queue with the unfenced ordinary merge API.
         run = self.store.row('review_runs', pr['run_id'])
+        if self.store.owner_pending(run['id']):
+            return
+        if self.db.execute('SELECT 1 FROM review_owners WHERE run_id=?', (run['id'],)).fetchone():
+            launcher = self.workers.author_launcher
+            try:
+                launcher.assert_quiescent(run['item_id'], self.ledger.last_worker_pid(run['item_id']))
+            except (OSError, RuntimeError, ValueError):
+                return
         if self.store.replay_only(run) or not self.all_reviewed(run) or not self.live_issue(run):
             return
         queue, position = self.frontier(pr)
@@ -698,7 +736,13 @@ class Controller:
                                        "WHERE c.pr_id=? AND a.role='review'", (pr['id'],)).fetchone()[0]
             reports = self.db.execute('SELECT count(*) FROM review_candidates WHERE pr_id=? AND verdict IS NOT NULL',
                                       (pr['id'],)).fetchone()[0]
+            owner_packets, owner_reports = self.db.execute(
+                'SELECT count(*),count(o.result) FROM review_owner_packets o JOIN review_candidates c '
+                'ON c.id=o.candidate_id WHERE c.pr_id=?', (pr['id'],)).fetchone()
+            attempts += owner_packets
             body += f"\n独立 AI 审查尝试：{attempts} 次；已接收审查报告：{reports} 份；AI 修复轮数：{pr['repairs']}。"
+            if owner_reports:
+                body += f"\n其中由原工作器的独立子代理提交 {owner_reports} 份报告。"
             if not attempts:
                 body += '\n尚未进入独立 AI 审查；本仓库不能视为已通过审查。'
             elif not reports:
@@ -723,6 +767,8 @@ class Controller:
     def notifications(self):
         for row in self.db.execute("SELECT * FROM review_runs WHERE state IN ('delivered','superseded') AND notified=0").fetchall():
             run = dict(row)
+            if self.store.owner_pending(run['id']) and self.ledger.item(run['item_id'])['state'] == 'running':
+                continue
             try:
                 marker = '<!-- farmbot-review:' + self.notice_key(run) + ' -->'
                 body = self.notification_body(run)

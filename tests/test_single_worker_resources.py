@@ -83,6 +83,16 @@ class UnityBridgeTests(unittest.TestCase):
         self.assertEqual(client.call_tool.call_args.args[0], 'execute_code')
         client._rpc.assert_not_called()
 
+    def test_passing_native_test_receipt_is_bound_to_the_active_reservation_and_commit(self):
+        client = self.result_command()
+        client.call_tool.return_value['result'].update(available=True, status='succeeded', mode='PlayMode',
+                                                      summary={'passed': 1, 'failed': 0})
+        worker_resources.unity(self.args, self.f.ledger, Mock(), self.f.token, client_factory=lambda *a, **k: client)
+        receipt = self.f.ledger.connection.execute("SELECT details FROM audit WHERE item_id=? AND kind='unity_test_passed'",
+                                                   (self.f.key,)).fetchone()
+        self.assertEqual(json.loads(receipt['details']), {'reservation': self.grant['reservation_id'], 'commit': 'a' * 40,
+                         'job': self.args.job_id, 'mode': 'PlayMode', 'summary': {'passed': 1, 'failed': 0}})
+
     def test_retained_report_fences_stop_release_withdrawal_and_held_resource(self):
         for event in ('stop', 'release', 'withdraw', 'held', 'held-during-read'):
             with self.subTest(event=event):
