@@ -160,6 +160,12 @@ discovered edge cases, compatibility and failure behavior; blanket approval of a
 Classify each decision: already decided cites the exact requirement/answer; high confidence follows directly
 from cited evidence with no unresolved tradeoff; medium confidence has a real tradeoff with a reasonable
 alternative; low confidence has missing/conflicting evidence or unresolved intent, values or experience.
+Apply this review to user-visible behavior and presentation too. Compare applicable sources for the same
+decision and state. When plausible readings change what users see or can do, treat the decision as unresolved
+unless an explicit requirement or attributed answer settles that exact difference. For example, an approved
+upgrade flow does not decide whether a separate upgrade button belongs on a screen whose mockup omits it.
+Name the conflicting details or missing fact in the question. Reopen the decision if later feedback or
+verification exposes the ambiguity, before accepting or delivering the affected work.
 Publish a concise Linear summary with each decision, classification, evidence and reasoning before its dependent
 edits. Use activity --type thought --body-file FILE for already-decided/high-confidence decisions and continue
 without a reply or await-input when all decisions are in those categories and no explicit approval is required.

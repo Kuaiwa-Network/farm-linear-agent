@@ -435,6 +435,13 @@ High confidence means a direct consequence of cited evidence without an unresolv
 tradeoff; medium means a real tradeoff with a reasonable alternative; low means
 missing/conflicting evidence or unresolved intent, values or experience.
 
+This decision review also covers user-visible behavior and presentation. If
+applicable sources disagree for the same state, or an essential detail is missing
+and the plausible interpretations change the user experience, the worker brings
+the specific choice to the owner through the existing question flow. An explicit
+requirement or attributed answer resolving that difference is sufficient to proceed.
+The same rule applies when feedback or verification first reveals the ambiguity.
+
 The worker publishes each decision, classification, evidence and reason in a concise
 Linear summary before dependent edits. If all entries are already decided/high
 confidence and no explicit approval is required, `activity --type thought` publishes

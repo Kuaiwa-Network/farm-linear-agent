@@ -440,6 +440,15 @@ class SingleWorkerTests(LedgerBase):
                 self.assertIn(requirement, text)
         # These are model instructions, not a controller confidence classifier. Pin the
         # decision boundaries in the actual launch and skill the worker receives.
+        for text in (authority, skill):
+            for requirement in ('user-visible behavior and presentation',
+                                'unless an explicit requirement or attributed answer settles that exact difference',
+                                'Reopen the decision if later feedback or verification exposes the ambiguity',
+                                'before accepting or delivering the affected work'):
+                with self.subTest(conflicting_requirements=requirement):
+                    self.assertIn(requirement, text)
+        self.assertIn('mockup shows only an arrow on the item, ask which controls should appear', skill)
+        self.assertIn('Differences explained by sample data or a documented state need no question', skill)
         for requirement in (
             'Before changing contract behavior or protocol semantics, assess each decision',
             'blanket approval of a feature does not settle them',
