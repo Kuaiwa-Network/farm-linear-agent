@@ -74,6 +74,22 @@ def process_ids(handle):
     raise RuntimeError('worker job process list exceeds supported size')
 
 
+def process_in_job(pid, job):
+    """Query current membership. A process that disappeared has no membership to check."""
+    handle = open_process(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        error = C.get_last_error()
+        if error == 87:  # ERROR_INVALID_PARAMETER: PID no longer exists
+            return None
+        raise C.WinError(error)
+    try:
+        member = W.BOOL()
+        checked(in_job(handle, job, C.byref(member)))
+        return bool(member.value)
+    finally:
+        close(handle)
+
+
 def _initial_thread(pid):
     """The sole initial thread of an owned process created suspended, never a PID kill authority."""
     class Entry(C.Structure):

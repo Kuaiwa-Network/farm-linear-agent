@@ -220,8 +220,7 @@ def _acquire_export_lock(fence, timeout):
             return lock
 
 
-def _foreign_editors(owned=()):
-    """A refusal signal only; snapshot PIDs are never cleanup authority."""
+def _fairygui_process_ids():
     from .windows_job import api, close, W, C
     class Entry(C.Structure):
         _fields_ = [("size", W.DWORD), ("usage", W.DWORD), ("pid", W.DWORD), ("heap", C.c_size_t),
@@ -237,15 +236,22 @@ def _foreign_editors(owned=()):
         more = first(handle, C.byref(entry))
         if not more:
             raise LedgerError("publisher cannot establish the native process inventory")
+        candidates = []
         while more:
-            if entry.exe.casefold().startswith("fairygui") and entry.pid not in owned:
-                return True
+            if entry.exe.casefold().startswith("fairygui"):
+                candidates.append(entry.pid)
             more = next_entry(handle, C.byref(entry))
         if C.get_last_error() != 18:  # ERROR_NO_MORE_FILES; an incomplete table is unknown
             raise C.WinError(C.get_last_error())
-        return False
+        return candidates
     finally:
         close(handle)
+
+
+def _foreign_editors(job=None):
+    """Check each candidate against the live Job; PIDs grant no cleanup authority."""
+    from .windows_job import process_in_job
+    return any(job is None or process_in_job(pid, job) is False for pid in _fairygui_process_ids())
 
 
 def _log_bounds(run):
@@ -291,7 +297,7 @@ def _windows_run(command, cwd, run, fence, timeout):
                     fence()
                     owned = process_ids(job.handle)
                     result["max_owned_processes"] = max(result["max_owned_processes"], len(owned))
-                    if _foreign_editors(owned):
+                    if _foreign_editors(job.handle):
                         raise LedgerError("a competing FairyGUI process appeared during export")
                     _log_bounds(run)
                     if process.poll() is not None:
@@ -306,7 +312,7 @@ def _windows_run(command, cwd, run, fence, timeout):
                 drain_start = time.monotonic()
                 while active(job.handle) and time.monotonic() - drain_start < 1:
                     fence()
-                    if _foreign_editors(process_ids(job.handle)):
+                    if _foreign_editors(job.handle):
                         raise LedgerError("a competing FairyGUI process appeared during teardown")
                     _log_bounds(run)
                     time.sleep(.02)

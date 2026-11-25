@@ -817,6 +817,11 @@ FairyGUI `publish-ui` uses the configured pinned native publisher, explicit
 package names/IDs, owned clean source, fresh staging, source revalidation,
 publisher mutex and owned process containment. The main worker installs the
 necessary outputs in its Client and checks GUIDs, bindings and behavior itself.
+Before launch, the publisher refuses any existing FairyGUI process. During
+export and teardown, it checks each observed FairyGUI process against the live
+Windows Job Object. This avoids rejecting a child that starts after an earlier
+membership read. A live nonmember or an unreadable process still interrupts the
+export. Cleanup authority remains with the owned Job Object.
 
 Loader layout checks use the native XML names `scaleMatchHeight` and
 `scaleMatchWidth` for serialized FillType 2 and 3. Shortened `matchHeight` and
