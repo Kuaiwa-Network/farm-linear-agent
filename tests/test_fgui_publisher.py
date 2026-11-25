@@ -398,6 +398,28 @@ class NativePublisherTests(unittest.TestCase):
                 self.invoke('import time\ntime.sleep(60)\n')
         self.receipt()
 
+    def test_native_editor_membership_uses_the_live_job(self):
+        from agent.windows_job import CREATE_SUSPENDED, WindowsJob, process_ids
+
+        self.foreign.stop()
+        owned = WindowsJob()
+        self.addCleanup(owned.close)
+        other = WindowsJob()
+        self.addCleanup(other.close)
+        earlier_members = process_ids(owned.handle)
+        child = subprocess.Popen([sys.executable, "-c", "pass"], creationflags=CREATE_SUSPENDED)
+        try:
+            owned.assign(child)
+            self.assertNotIn(child.pid, earlier_members)
+            with patch.object(publisher, "_fairygui_process_ids", return_value=[child.pid]):
+                self.assertTrue(publisher._foreign_editors())
+                self.assertFalse(publisher._foreign_editors(owned.handle))
+                self.assertTrue(publisher._foreign_editors(other.handle))
+        finally:
+            if child.poll() is None:
+                child.terminate()
+            child.wait(timeout=5)
+
     def test_native_existing_editor_refuses_before_any_process(self):
         self.foreign.stop()
         with patch.object(publisher, "_foreign_editors", return_value=True), patch.object(subprocess, "Popen") as process:
