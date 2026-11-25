@@ -109,7 +109,7 @@ after a lost response. Prepared revisions survive restart and publish in order;
 the session links the latest clarification with a saved activity ID. Plain chat and
 historical staged jobs retain their existing question path.
 
-Before contract behavior or protocol semantics change, follow the
+For contract behavior, protocol semantics and user-visible decisions, follow the
 [decision review in the work skill](../skills/work/SKILL.md). Publish decisions,
 classifications, evidence and reasons through `activity --type thought` when
 all are already decided/high confidence and no explicit approval is required;

@@ -77,6 +77,16 @@ they do not make every subsequent choice high confidence. Code is evidence of
 current behavior, not approval of a new business rule. Ordinary field naming and
 editorial corrections with no semantic change need no new decision round.
 
+Apply this review to user-visible behavior and presentation too. Compare applicable
+sources for the same decision and state. When plausible readings change what users
+see or can do, treat the decision as unresolved unless an explicit requirement or
+attributed answer settles that exact difference. For example, if a spec calls for
+a separate upgrade button and count but the mockup shows only an arrow on the item,
+ask which controls should appear and what the arrow does. Cite both sources.
+Reuse a recorded ruling within its scope. Differences explained by sample data
+or a documented state need no question. Reopen the decision if later feedback or
+verification exposes the ambiguity, before accepting or delivering the affected work.
+
 | Classification | Evidence and action |
 | --- | --- |
 | Already decided | Cite the exact approved requirement or attributed answer and its scope; proceed without asking again. |

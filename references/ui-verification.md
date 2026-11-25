@@ -70,7 +70,11 @@ the current wrong layout or by hiding content.
 Capture actual native runtime screenshots for the affected states. Compare them
 with the reference at the same scale and aligned origin, using stable regions for
 geometry and art. Account for changing data/animation rather than treating a
-whole-image pixel difference as a verdict. Keep a concise report under
+whole-image pixel difference as a verdict. For each affected view, check the
+visible controls and labels against its own reference in the corresponding state.
+If expected behavior is clear, fix the discrepancy. If a difference exposes
+conflicting requirements, reopen that decision through the work skill's question
+flow before accepting the view. Keep a concise report under
 `state_dir/reports`: reference and candidate identity, resolution, inset/state
 matrix, assertions, screenshot paths, observed differences and unresolved limits.
 Do not label an approximate render as a runtime screenshot or infer visual success
