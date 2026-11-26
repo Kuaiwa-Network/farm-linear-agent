@@ -718,7 +718,11 @@ class Controller:
     def notification_body(self, run):
         prs = self.prs(run['id'])
         handoff = run['disposition'] != 'auto_merged'
-        body = 'FarmBot 已交付：' + ('交由人工审查与合并。' if handoff else '已自动合并。')
+        delivery_blocked = run['disposition'] == 'human_handoff' and self.store.owner_pending(run['id'])
+        if delivery_blocked:
+            body = 'FarmBot 交付受阻，自动审查已停止。'
+        else:
+            body = 'FarmBot 已交付：' + ('交由人工审查与合并。' if handoff else '已自动合并。')
         reason = run['reason']
         if reason.startswith('sensitive path: '):
             reason = ('历史路径门禁触发人工交接，文件：`' + reason.removeprefix('sensitive path: ')
@@ -728,9 +732,13 @@ class Controller:
         if handoff:
             if len(prs) > 1:
                 body += '\n\n以上原因使本次关联交付停止自动合并；所有未合并 PR 一并交由人工处理，避免仅交付部分配套改动。'
-            body += '\n\n后续由人工审查、修改并合并。本轮自动化已结束；通过审查或 CI 转绿不会自动恢复。'
+            if delivery_blocked:
+                body += '\n\n请人工核对 PR 的最新提交和目标分支，再决定如何继续。本轮自动化已结束。'
+            else:
+                body += '\n\n后续由人工审查、修改并合并。本轮自动化已结束；通过审查或 CI 转绿不会自动恢复。'
+        pending = '需人工核对' if delivery_blocked else '已交付人工处理'
         for pr in prs:
-            state = '已合并' if pr['state'] == 'merged' else '已交付人工处理'
+            state = '已合并' if pr['state'] == 'merged' else pending
             body += f"\n\n{pr['repository']}：{pr['url']}（{state}）"
             attempts = self.db.execute("SELECT count(*) FROM review_attempts a JOIN review_candidates c ON c.id=a.candidate_id "
                                        "WHERE c.pr_id=? AND a.role='review'", (pr['id'],)).fetchone()[0]

@@ -89,10 +89,15 @@ def require_finish(store, item, proofs):
         raise ReviewError('start owner-review with every published --pr before finishing')
     run = store.row('review_runs', run_id)
     prs = rows(store, run_id)
+    enrolled = {(pr['url'], pr['repository'], pr['source_branch'], pr['target']) for pr in prs}
+    verified = {(proof['url'], proof['repo'], proof['branch'], proof['base_branch']) for proof in proofs}
+    if enrolled != verified:
+        raise ReviewError('delivery PR destinations differ from the owner review')
+    if run['disposition'] == 'human_handoff':
+        # Finish has already verified the current PR heads against the owner's worktrees.
+        return
     if {(p['url'], p['head']) for p in proofs} != {(p['url'], p['source_head']) for p in prs}:
         raise ReviewError('delivery PRs differ from the owner review')
-    if run['disposition'] == 'human_handoff':
-        return
     if not store.current(run) or not all(p['state'] == 'ready' and store.inputs_current(
             run_id, store.row('review_candidates', p['candidate_id'])['review_inputs']) for p in prs):
         raise ReviewError('owner-review must settle all current candidates before finish')
