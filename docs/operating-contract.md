@@ -721,6 +721,15 @@ queue predecessors, policy, related candidates and bot feedback. The owner gives
 ticket to a fresh read-only native subagent. It relays the child's completed verdict and
 repairs its own issue branches. A Client repair uses the owner's Unity lease at the new SHA.
 The controller checks CI and only promotes after verified delivery and original worker teardown.
+
+After a human handoff, completion preflight and final delivery verify the full enrolled PR
+set against GitHub, the owned worktrees and the saved publishing destinations. Successful
+verification allows delivery at the latest heads, including when they differ from the
+retained review candidates. The review run stays terminal and its candidate and CI records
+remain historical. Successful root delivery requests **In Review** and makes the issue
+eligible for the managed review label. If verification prevents delivery, the handoff
+notice reports that delivery is blocked.
+
 See [review automation](review-automation.md) for recovery and prior runs.
 
 ## Resource ownership
